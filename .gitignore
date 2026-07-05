@@ -1,0 +1,6 @@
+.local/
+CLAUDE.local.md
+instance.env
+*.bak
+*.log
+.DS_Store
