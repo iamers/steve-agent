@@ -142,3 +142,10 @@ updates:
   pre_update_backup: false
   backup_keep: 5
   non_interactive_local_changes: stash
+platforms:
+  telegram:
+    extra:
+      allow_admin_from: ["${TELEGRAM_ADMIN_ID}"]
+      user_allowed_commands: ["status", "whoami"]
+      group_allow_admin_from: ["${TELEGRAM_ADMIN_ID}"]
+      group_user_allowed_commands: ["status", "whoami"]
