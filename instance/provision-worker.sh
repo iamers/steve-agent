@@ -5,7 +5,7 @@
 # Uso: ./provision-worker.sh <profile-name>
 set -u
 
-PROFILE_NAME="$1"
+PROFILE_NAME="${1:-}"
 
 # Verifica argomento
 if [ -z "$PROFILE_NAME" ]; then

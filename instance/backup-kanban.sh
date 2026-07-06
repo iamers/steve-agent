@@ -24,15 +24,19 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_FILE="$BACKUP_DIR/kanban-$TIMESTAMP.db"
 
 # Esegui il backup usando Python sqlite3 online backup API
-python3 -c "
+KANBAN_DB="$KANBAN_DB" BACKUP_FILE="$BACKUP_FILE" python3 -c "
 import sqlite3
 import sys
+import os
+
+kanban_db = os.environ['KANBAN_DB']
+backup_file = os.environ['BACKUP_FILE']
 
 try:
     # Connessione al DB sorgente (in uso, permesso solo lettura)
-    src = sqlite3.connect('$KANBAN_DB', uri=True, readonly=True)
+    src = sqlite3.connect(f'file:{kanban_db}?mode=ro', uri=True)
     # Connessione al DB destinazione (crea il file)
-    dst = sqlite3.connect('$BACKUP_FILE')
+    dst = sqlite3.connect(backup_file)
     # Online backup
     src.backup(dst)
     src.close()
