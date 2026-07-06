@@ -35,7 +35,7 @@ extra=$(comm -13 <(echo "$tmpl_keys") <(echo "$live_keys"))
 echo
 echo "== worker profiles =="
 # Ottieni la lista dei profili dall'istanza
-profiles=$(ssh "$HOST" 'ls -1 ~/.hermes/profiles/*/ 2>/dev/null | xargs -n1 basename | sort -u')
+profiles=$(ssh "$HOST" 'ls -d ~/.hermes/profiles/*/ 2>/dev/null | xargs -n1 basename | sort -u')
 
 if [ -z "$profiles" ]; then
   echo "OK: nessun profilo presente"
