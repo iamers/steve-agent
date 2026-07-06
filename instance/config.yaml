@@ -145,7 +145,13 @@ updates:
 platforms:
   telegram:
     extra:
-      allow_admin_from: ["${TELEGRAM_ADMIN_ID}"]
-      user_allowed_commands: ["status", "whoami"]
-      group_allow_admin_from: ["${TELEGRAM_ADMIN_ID}"]
-      group_user_allowed_commands: ["status", "whoami"]
+      allow_admin_from:
+        - '${TELEGRAM_ADMIN_ID}'
+      user_allowed_commands:
+        - status
+        - whoami
+      group_allow_admin_from:
+        - '${TELEGRAM_ADMIN_ID}'
+      group_user_allowed_commands:
+        - status
+        - whoami
