@@ -65,6 +65,42 @@ else
   fi
 fi
 
+echo
+echo "== profili: config.yaml (live vs repo) =="
+
+# Profili live sull'istanza
+live_profiles=$(ssh "$HOST" 'ls -d ~/.hermes/profiles/*/ 2>/dev/null | xargs -n1 basename | sort -u')
+# Copie canoniche nel repo (profiles/<nome>/config.yaml)
+canonical_profiles=$(ls -d profiles/*/ 2>/dev/null | xargs -n1 basename | sort -u)
+
+# Nessun profilo live e nessuna copia canonica = OK
+if [ -z "$live_profiles" ] && [ -z "$canonical_profiles" ]; then
+  echo "OK: nessun profilo live e nessuna copia canonica"
+else
+  # 1) Per ogni profilo live: verifica copia canonica e confronta config.yaml
+  for profile in $live_profiles; do
+    canonical="profiles/$profile/config.yaml"
+    if [ -f "$canonical" ]; then
+      if ssh "$HOST" "cat ~/.hermes/profiles/$profile/config.yaml" | diff -u "$canonical" - ; then
+        echo "OK: $profile config.yaml allineato"
+      else
+        drift=1
+      fi
+    else
+      echo "DRIFT: profilo $profile live senza copia canonica nel repo"
+      drift=1
+    fi
+  done
+
+  # 2) Per ogni copia canonica senza profilo live corrispondente
+  for profile in $canonical_profiles; do
+    if ! echo "$live_profiles" | grep -qx "$profile"; then
+      echo "DRIFT: canonico $profile senza profilo live"
+      drift=1
+    fi
+  done
+fi
+
 echo "----"
 if [ "$drift" -eq 0 ]; then echo "drift-check: nessuna deriva"; else echo "drift-check: DERIVA RILEVATA (aggiorna repo o istanza, e traccia nel journal)"; fi
 exit $drift
