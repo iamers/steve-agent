@@ -26,6 +26,12 @@ check "telegram connected (log)" 'grep -q "telegram connected" ~/.hermes/logs/ga
 check "env keys present"     'for k in GLM_API_KEY TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_USERS TELEGRAM_GROUP_ALLOWED_CHATS TELEGRAM_HOME_CHANNEL; do grep -qE "^$k=." ~/.hermes/.env || exit 1; done'
 check "env perms 600"        'stat -c %a ~/.hermes/.env | grep -qx 600'
 check "no unexpected listeners" '! ss -tln 2>/dev/null | grep -vE "127.0.0.1|\[::1\]" | grep -q LISTEN || true'
+# Guardia post-hoc su main (finche' branch protection non e' disponibile sul
+# repo privato): sulla first-parent history di origin/main non devono comparire
+# commit con COMMITTER scrat-ai-* (push diretti del bot o merge eseguiti dal
+# bot). I commit AUTHORED dal bot arrivati via merge/squash di una PR mergiata
+# da un umano sono legittimi e non matchano (committer = umano o GitHub).
+check "main free of bot pushes" 'if [ -d ~/repos/steve-agent/.git ]; then cd ~/repos/steve-agent && git fetch -q origin main && ! git log --first-parent origin/main -30 --format="%cn|%ce" | grep -qi scrat-ai; else true; fi'
 
 if [ "$LLM_CHECK" = 1 ]; then
   check "llm one-shot reply"   'export PATH=$HOME/.local/bin:$PATH; timeout 120 hermes -z "Rispondi con una sola parola: ok" | grep -qi ok'
