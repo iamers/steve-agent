@@ -32,6 +32,39 @@ extra=$(comm -13 <(echo "$tmpl_keys") <(echo "$live_keys"))
 [ -n "$extra" ]   && { echo "PRESENTI live ma non nel template (valutare se aggiungerle):"; echo "$extra"; drift=1; }
 [ -z "$missing$extra" ] && echo "OK: chiavi allineate"
 
+echo
+echo "== worker profiles =="
+# Ottieni la lista dei profili dall'istanza
+profiles=$(ssh "$HOST" 'ls -1 ~/.hermes/profiles/*/ 2>/dev/null | xargs -n1 basename | sort -u')
+
+if [ -z "$profiles" ]; then
+  echo "OK: nessun profilo presente"
+else
+  profiles_ok=true
+  for profile in $profiles; do
+    # Verifica che home/.gitconfig sia un symlink a ~/.gitconfig
+    gitconfig_check=$(ssh "$HOST" "[ -L ~/.hermes/profiles/$profile/home/.gitconfig ] && [ \"\$(readlink ~/.hermes/profiles/$profile/home/.gitconfig)\" = ~/.gitconfig ] && echo OK || echo FAIL")
+
+    # Verifica che home/.config/gh sia un symlink a ~/.config/gh
+    ghconfig_check=$(ssh "$HOST" "[ -L ~/.hermes/profiles/$profile/home/.config/gh ] && [ \"\$(readlink ~/.hermes/profiles/$profile/home/.config/gh)\" = ~/.config/gh ] && echo OK || echo FAIL")
+
+    if [ "$gitconfig_check" = "OK" ] && [ "$ghconfig_check" = "OK" ]; then
+      echo "OK: $profile (symlink corretti)"
+    else
+      echo "DRIFT: $profile (symlink mancanti o errati)"
+      echo "  - .gitconfig: $gitconfig_check"
+      echo "  - .config/gh: $ghconfig_check"
+      echo "  Esegui sull'istanza: cd ~/repos/steve-agent && ./instance/provision-worker.sh $profile"
+      drift=1
+      profiles_ok=false
+    fi
+  done
+
+  if $profiles_ok; then
+    echo "OK: tutti i profili conformi"
+  fi
+fi
+
 echo "----"
 if [ "$drift" -eq 0 ]; then echo "drift-check: nessuna deriva"; else echo "drift-check: DERIVA RILEVATA (aggiorna repo o istanza, e traccia nel journal)"; fi
 exit $drift

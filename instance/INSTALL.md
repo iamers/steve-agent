@@ -261,7 +261,41 @@ The drift check compares live configuration against the blueprint:
 ./instance/drift-check.sh
 ```
 
-If drift is detected (e.g., new keys added by the installer), update the `instance/env.template` file to include them, then re-run the check.
+If drift is detected (e.g., new keys added by the installer), update the `instance/env.template` file to include them, then re-run the check. The drift check also verifies worker profiles have the required symlinks for git and GitHub CLI access.
+
+### Worker Profiles (Kanban)
+
+Kanban workers run with an isolated home directory (`~/.hermes/profiles/<worker>/home`) and don't see the user's `~/.gitconfig` or `~/.config/gh`. Without proper symlinks, git pushes fail and `gh` CLI appears "not logged in."
+
+Create a worker profile:
+
+```bash
+hermes profile create <worker-name> --clone
+```
+
+Provision the profile with required symlinks:
+
+```bash
+cd ~/repos/steve-agent/instance
+./provision-worker.sh <worker-name>
+```
+
+The script creates idempotent symlinks:
+- `~/.hermes/profiles/<worker>/home/.gitconfig` → `~/.gitconfig`
+- `~/.hermes/profiles/<worker>/home/.config/gh` → `~/.config/gh`
+
+If drift check reports non-conformant profiles, re-run `provision-worker.sh` on the instance.
+
+#### Kanban Board Backup
+
+Schedule automated backups of `~/.hermes/kanban.db` (retains last 7 backups):
+
+```bash
+# Add to crontab: crontab -e
+0 2 * * * cd ~/repos/steve-agent/instance && ./backup-kanban.sh
+```
+
+The backup script uses SQLite online backup API (safe with active databases) and is silent on success (designed for cron watchdog mode).
 
 ## 7. Gotchas and Common Issues
 
