@@ -1,5 +1,5 @@
 model:
-  default: glm-4.7
+  default: glm-5.2
   provider: zai
 terminal:
   backend: local
