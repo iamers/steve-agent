@@ -15,6 +15,14 @@ else
 fi
 
 echo
+echo "== SOUL.md (live vs repo) =="
+if ssh "$HOST" 'cat ~/.hermes/SOUL.md 2>/dev/null' | diff -u SOUL.md - ; then
+  echo "OK: SOUL.md allineato"
+else
+  drift=1
+fi
+
+echo
 echo "== .env: chiavi valorizzate (nomi, non valori) =="
 live_keys=$(ssh "$HOST" 'grep -oE "^[A-Z_]+=" ~/.hermes/.env | sort -u' | tr -d =)
 tmpl_keys=$(grep -oE '^[A-Z_]+=' env.template | tr -d = | sort -u)
