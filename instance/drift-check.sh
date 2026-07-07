@@ -42,19 +42,49 @@ if [ -z "$profiles" ]; then
 else
   profiles_ok=true
   for profile in $profiles; do
-    # Verifica che home/.gitconfig sia un symlink a ~/.gitconfig
-    gitconfig_check=$(ssh "$HOST" "[ -L ~/.hermes/profiles/$profile/home/.gitconfig ] && [ \"\$(readlink ~/.hermes/profiles/$profile/home/.gitconfig)\" = ~/.gitconfig ] && echo OK || echo FAIL")
-
-    # Verifica che home/.config/gh sia un symlink a ~/.config/gh
-    ghconfig_check=$(ssh "$HOST" "[ -L ~/.hermes/profiles/$profile/home/.config/gh ] && [ \"\$(readlink ~/.hermes/profiles/$profile/home/.config/gh)\" = ~/.config/gh ] && echo OK || echo FAIL")
-
-    if [ "$gitconfig_check" = "OK" ] && [ "$ghconfig_check" = "OK" ]; then
-      echo "OK: $profile (symlink corretti)"
+    # Leggi il mode dalla copia canonica nel repo (default: shared)
+    mode_file="profiles/$profile/credentials.mode"
+    if [ -f "$mode_file" ]; then
+      mode=$(cat "$mode_file")
     else
-      echo "DRIFT: $profile (symlink mancanti o errati)"
-      echo "  - .gitconfig: $gitconfig_check"
-      echo "  - .config/gh: $ghconfig_check"
-      echo "  Esegui sull'istanza: cd ~/repos/steve-agent && ./instance/provision-worker.sh $profile"
+      mode="shared"
+    fi
+
+    if [ "$mode" = "shared" ]; then
+      # mode shared: verifica i symlink come prima
+      gitconfig_check=$(ssh "$HOST" "[ -L ~/.hermes/profiles/$profile/home/.gitconfig ] && [ \"\$(readlink ~/.hermes/profiles/$profile/home/.gitconfig)\" = ~/.gitconfig ] && echo OK || echo FAIL")
+      ghconfig_check=$(ssh "$HOST" "[ -L ~/.hermes/profiles/$profile/home/.config/gh ] && [ \"\$(readlink ~/.hermes/profiles/$profile/home/.config/gh)\" = ~/.config/gh ] && echo OK || echo FAIL")
+
+      if [ "$gitconfig_check" = "OK" ] && [ "$ghconfig_check" = "OK" ]; then
+        echo "OK: $profile (shared, symlink corretti)"
+      else
+        echo "DRIFT: $profile (shared, symlink mancanti o errati)"
+        echo "  - .gitconfig: $gitconfig_check"
+        echo "  - .config/gh: $ghconfig_check"
+        echo "  Esegui sull'istanza: cd ~/repos/steve-agent && ./instance/provision-worker.sh $profile"
+        drift=1
+        profiles_ok=false
+      fi
+    elif [ "$mode" = "isolated" ]; then
+      # mode isolated: verifica che le credenziali siano isolate
+      # 1) home/.config/gh deve essere una directory reale (non symlink) e contenere hosts.yml
+      ghconfig_check=$(ssh "$HOST" "[ -d ~/.hermes/profiles/$profile/home/.config/gh ] && [ ! -L ~/.hermes/profiles/$profile/home/.config/gh ] && [ -f ~/.hermes/profiles/$profile/home/.config/gh/hosts.yml ] && echo OK || echo FAIL")
+      # 2) home/.gitconfig NON deve essere un symlink (assente o file regolare = ok)
+      gitconfig_check=$(ssh "$HOST" "[ ! -L ~/.hermes/profiles/$profile/home/.gitconfig ] && echo OK || echo FAIL")
+
+      if [ "$gitconfig_check" = "OK" ] && [ "$ghconfig_check" = "OK" ]; then
+        echo "OK: $profile (isolated, credenziali isolate)"
+      else
+        echo "DRIFT: $profile (isolated, credenziali non conformi)"
+        echo "  - .gitconfig: $gitconfig_check (deve essere assente o file regolare, NON un symlink)"
+        echo "  - .config/gh: $ghconfig_check (deve essere una directory reale contenente hosts.yml)"
+        echo "  Per profili isolated usa: HOME=~/.hermes/profiles/$profile/home gh auth login"
+        echo "  NON eseguire provision-worker.sh per profili isolated"
+        drift=1
+        profiles_ok=false
+      fi
+    else
+      echo "DRIFT: $profile (mode non valido: $mode, deve essere 'shared' o 'isolated')"
       drift=1
       profiles_ok=false
     fi
