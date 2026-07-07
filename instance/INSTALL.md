@@ -265,7 +265,17 @@ If drift is detected (e.g., new keys added by the installer), update the `instan
 
 ### Worker Profiles (Kanban)
 
-Kanban workers run with an isolated home directory (`~/.hermes/profiles/<worker>/home`) and don't see the user's `~/.gitconfig` or `~/.config/gh`. Without proper symlinks, git pushes fail and `gh` CLI appears "not logged in."
+Kanban workers run with an isolated home directory (`~/.hermes/profiles/<worker>/home`) and don't see the user's `~/.gitconfig` or `~/.config/gh`. Without proper setup, git pushes fail and `gh` CLI appears "not logged in."
+
+#### Credential Modes
+
+Worker profiles support two credential modes, controlled by `instance/profiles/<name>/credentials.mode`:
+
+- **shared** (default): Credentials are symlinks to the instance user's config. Use `provision-worker.sh` to create the symlinks. The drift check verifies `home/.gitconfig` → `~/.gitconfig` and `home/.config/gh` → `~/.config/gh`.
+
+- **isolated**: Credentials are independent from the instance user. The profile has its own GitHub identity (e.g., a reviewer profile with separate auth). For isolated profiles, run `HOME=~/.hermes/profiles/<name>/home gh auth login` directly—do not use `provision-worker.sh`. The drift check verifies `home/.config/gh` is a real directory containing `hosts.yml` and `home/.gitconfig` is not a symlink to `~/.gitconfig`.
+
+Canonical profile configs (`instance/profiles/<name>/config.yaml`) are versioned in the repo and checked by drift-check for consistency with live instances.
 
 Create a worker profile:
 
@@ -273,18 +283,14 @@ Create a worker profile:
 hermes profile create <worker-name> --clone
 ```
 
-Provision the profile with required symlinks:
+Provision shared profiles:
 
 ```bash
 cd ~/repos/steve-agent/instance
 ./provision-worker.sh <worker-name>
 ```
 
-The script creates idempotent symlinks:
-- `~/.hermes/profiles/<worker>/home/.gitconfig` → `~/.gitconfig`
-- `~/.hermes/profiles/<worker>/home/.config/gh` → `~/.config/gh`
-
-If drift check reports non-conformant profiles, re-run `provision-worker.sh` on the instance.
+If drift check reports non-conformant profiles, re-run `provision-worker.sh` on the instance (for shared) or re-authenticate with `gh auth login` (for isolated).
 
 #### Kanban Board Backup
 
