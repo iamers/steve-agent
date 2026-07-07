@@ -273,7 +273,7 @@ Worker profiles support two credential modes, controlled by `instance/profiles/<
 
 - **shared** (default): Credentials are symlinks to the instance user's config. Use `provision-worker.sh` to create the symlinks. The drift check verifies `home/.gitconfig` → `~/.gitconfig` and `home/.config/gh` → `~/.config/gh`.
 
-- **isolated**: Credentials are independent from the instance user. The profile has its own GitHub identity (e.g., a reviewer profile with separate auth). For isolated profiles, run `HOME=~/.hermes/profiles/<name>/home gh auth login` directly—do not use `provision-worker.sh`. The drift check verifies `home/.config/gh` is a real directory containing `hosts.yml` and `home/.gitconfig` is not a symlink to `~/.gitconfig`.
+- **isolated**: Credentials are independent from the instance user. The profile has its own GitHub identity (e.g., a reviewer profile with separate auth). For isolated profiles, run `HOME=~/.hermes/profiles/<name>/home gh auth login` directly—do not use `provision-worker.sh`. The drift check verifies `home/.config/gh` is a real directory containing `hosts.yml` and `home/.gitconfig` is not a symlink at all (regular file or absent).
 
 Canonical profile configs (`instance/profiles/<name>/config.yaml`) are versioned in the repo and checked by drift-check for consistency with live instances.
 

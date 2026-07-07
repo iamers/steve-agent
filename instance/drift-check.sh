@@ -69,14 +69,14 @@ else
       # mode isolated: verifica che le credenziali siano isolate
       # 1) home/.config/gh deve essere una directory reale (non symlink) e contenere hosts.yml
       ghconfig_check=$(ssh "$HOST" "[ -d ~/.hermes/profiles/$profile/home/.config/gh ] && [ ! -L ~/.hermes/profiles/$profile/home/.config/gh ] && [ -f ~/.hermes/profiles/$profile/home/.config/gh/hosts.yml ] && echo OK || echo FAIL")
-      # 2) home/.gitconfig NON deve essere un symlink verso ~/.gitconfig (assente o file regolare = ok)
-      gitconfig_check=$(ssh "$HOST" "(! [ -L ~/.hermes/profiles/$profile/home/.gitconfig ]) || [ \"\$(readlink ~/.hermes/profiles/$profile/home/.gitconfig)\" != ~/.gitconfig ] && echo OK || echo FAIL")
+      # 2) home/.gitconfig NON deve essere un symlink (assente o file regolare = ok)
+      gitconfig_check=$(ssh "$HOST" "[ ! -L ~/.hermes/profiles/$profile/home/.gitconfig ] && echo OK || echo FAIL")
 
       if [ "$gitconfig_check" = "OK" ] && [ "$ghconfig_check" = "OK" ]; then
         echo "OK: $profile (isolated, credenziali isolate)"
       else
         echo "DRIFT: $profile (isolated, credenziali non conformi)"
-        echo "  - .gitconfig: $gitconfig_check (deve essere assente o file regolare, NON symlink a ~/.gitconfig)"
+        echo "  - .gitconfig: $gitconfig_check (deve essere assente o file regolare, NON un symlink)"
         echo "  - .config/gh: $ghconfig_check (deve essere una directory reale contenente hosts.yml)"
         echo "  Per profili isolated usa: HOME=~/.hermes/profiles/$profile/home gh auth login"
         echo "  NON eseguire provision-worker.sh per profili isolated"
