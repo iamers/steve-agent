@@ -230,7 +230,23 @@ Expected log entries:
 
 The gateway uses long polling and doesn't open any listening ports. Any reserved port (e.g., `23789`) is for future use with a local dashboard/API.
 
-## 6. Blueprint Checks
+## 6. Web dashboard (optional)
+
+Hermes ships a native web UI (kanban board, session history, model settings). On a non-loopback bind, basic authentication is mandatory; credentials live in `~/.hermes/config.yaml` under the top-level `dashboard:` key (`basic_auth.username`, `basic_auth.password_hash`, and a `secret` used for cookie signing).
+
+Set them up either via the interactive wizard of `hermes dashboard` or by editing `dashboard.basic_auth` directly in `~/.hermes/config.yaml`.
+
+Never commit `password_hash` or `secret` to the blueprint repo. The drift check excludes the entire `dashboard:` block from its comparison precisely for this reason, so the canonical `instance/config.yaml` intentionally has no dashboard section while the live instance does.
+
+Start the dashboard:
+
+```bash
+hermes dashboard --host <private-vpn-ip> --port <reserved-port> --no-open
+```
+
+The dashboard runs as a foreground process with no built-in service manager. Keep it alive with `tmux`, a `systemd --user` unit, or any process supervisor of your choice.
+
+## 7. Blueprint Checks
 
 The `instance/` directory in the steve-agent repo contains a blueprint for instance configuration and verification.
 
@@ -303,7 +319,7 @@ Schedule automated backups of `~/.hermes/kanban.db` (retains last 7 backups):
 
 The backup script uses SQLite online backup API (safe with active databases) and is silent on success (designed for cron watchdog mode).
 
-## 7. Gotchas and Common Issues
+## 8. Gotchas and Common Issues
 
 | # | Issue | Solution |
 |---|-------|----------|
@@ -316,7 +332,7 @@ The backup script uses SQLite online backup API (safe with active databases) and
 | 7 | The `--commit` pin must use a commit hash, not a tag | Tags break on `git pull --ff-only` when re-running the installer |
 | 8 | Interactive prompts appear even with `--skip-setup` when running in a TTY (tmux) | Answer `n` to install prompts for ripgrep and build tools (pre-installed) |
 
-## 8. Next Steps
+## 9. Next Steps
 
 After installation is complete:
 
@@ -326,7 +342,7 @@ After installation is complete:
 4. Set up branch protection and rulesets on the main branch (requires paid GitHub plan)
 5. Configure GitHub authentication for bot commits if needed
 
-## 9. Maintenance
+## 10. Maintenance
 
 - Upgrades: Run the installer with the same `--commit` pin or a new commit hash
 - Config changes: Commit changes to the blueprint repo, then apply to the instance
