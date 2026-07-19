@@ -105,6 +105,7 @@ memory:
 delegation:
   max_iterations: 50
 moa:
+  save_traces: true
   presets:
     default:
       reference_models:
@@ -114,6 +115,8 @@ moa:
           model: glm-5-turbo
         - provider: gemini
           model: gemini-3.5-flash
+        - provider: lab-gpu
+          model: qwen36-35b-a3b-fp8
       aggregator:
         provider: zai
         model: glm-5.2
@@ -173,6 +176,11 @@ platforms:
 fallback_model:
   provider: gemini
   model: gemini-3.5-flash
+custom_providers:
+  - name: lab-gpu
+    base_url: ${VLLM_BASE_URL}
+    key_env: VLLM_API_KEY
+    api_mode: chat_completions
 
 # ── Security ──────────────────────────────────────────────────────────
 # Secret redaction is ON by default — strings that look like API keys,
