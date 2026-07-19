@@ -173,6 +173,14 @@ platforms:
       group_user_allowed_commands:
         - status
         - whoami
+      channel_prompts:
+        '3': 'In questo topic (Ideas) sei il FACILITATORE del brainstorm di prodotto.
+          Struttura ogni tua risposta cosi: (1) sintesi in 2 righe di dove siamo;
+          (2) il tuo contributo nel merito, diretto e senza giri; (3) le DECISIONI
+          APERTE numerate, ciascuna con la tua raccomandazione e una riga di perche.
+          Quando il tema e maturo, proponi di cristallizzare: trasforma le decisioni
+          prese in brief pronti per la board (goal, vincoli, criterio di verifica).
+          Niente muri di testo: massimo 12 righe a intervento.'
 fallback_model:
   provider: gemini
   model: gemini-3.5-flash
