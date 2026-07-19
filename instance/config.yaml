@@ -1,6 +1,8 @@
 model:
   default: glm-5.2
   provider: zai
+credential_pool_strategies:
+  gemini: round_robin
 agent:
   max_turns: 60
   verbose: false
@@ -110,6 +112,8 @@ moa:
           model: glm-4.7
         - provider: zai
           model: glm-5-turbo
+        - provider: gemini
+          model: gemini-3.5-flash
       aggregator:
         provider: zai
         model: glm-5.2
@@ -166,6 +170,9 @@ platforms:
       group_user_allowed_commands:
         - status
         - whoami
+fallback_model:
+  provider: gemini
+  model: gemini-3.5-flash
 
 # ── Security ──────────────────────────────────────────────────────────
 # Secret redaction is ON by default — strings that look like API keys,
@@ -182,25 +189,3 @@ platforms:
 #   tirith_path: "tirith"
 #   tirith_timeout: 5
 #   tirith_fail_open: true
-
-# ── Fallback Model ────────────────────────────────────────────────────
-# Automatic provider failover when primary is unavailable.
-# Uncomment and configure to enable. Triggers on rate limits (429),
-# overload (529), service errors (503), or connection failures.
-#
-# Supported providers:
-#   openrouter   (OPENROUTER_API_KEY)  — routes to any model
-#   openai-codex (OAuth — hermes auth) — OpenAI Codex
-#   nous         (OAuth — hermes auth) — Nous Portal
-#   zai          (ZAI_API_KEY)         — Z.AI / GLM
-#   kimi-coding  (KIMI_API_KEY)        — Kimi / Moonshot
-#   kimi-coding-cn (KIMI_CN_API_KEY)   — Kimi / Moonshot (China)
-#   minimax      (MINIMAX_API_KEY)     — MiniMax
-#   minimax-cn   (MINIMAX_CN_API_KEY)  — MiniMax (China)
-#   bedrock      (AWS IAM / boto3)     — AWS Bedrock (Converse API)
-#
-# For custom OpenAI-compatible endpoints, add base_url and key_env.
-#
-# fallback_model:
-#   provider: openrouter
-#   model: anthropic/claude-sonnet-4
