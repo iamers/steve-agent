@@ -134,8 +134,41 @@ def cmd_read(args):
         if getattr(m, "reply_to", None) is not None:
             tid = getattr(m.reply_to, "reply_to_top_id", None) or getattr(m.reply_to, "reply_to_msg_id", None) or "-"
         text = (m.message or "").replace("\n", " ")[:160]
-        print(f"id={m.id} thread={tid} sender={sender or '-'} bot={is_bot} text={text}")
+        rich = ""
+        if not text:
+            # Rich messages (structured/styled payloads) carry their content
+            # outside the legacy text field: clients render them, but
+            # m.message is empty. Flatten every "text" leaf so assertions on
+            # bot replies do not mistake a rich message for an empty one.
+            text = _flatten_rich_text(m)
+            rich = " rich=1" if text else ""
+        print(f"id={m.id} thread={tid} sender={sender or '-'} bot={is_bot}{rich} text={text}")
     return 0
+
+
+def _flatten_rich_text(m):
+    """Best-effort extraction of text leaves from a rich_message payload."""
+    try:
+        payload = m.to_dict().get("rich_message")
+    except Exception:
+        payload = None
+    if not payload:
+        return ""
+    pieces = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            val = node.get("text")
+            if isinstance(val, str) and val.strip():
+                pieces.append(val.strip())
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(payload)
+    return " ".join(pieces).replace("\n", " ")[:160]
 
 
 def main(argv=None):
