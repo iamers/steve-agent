@@ -115,8 +115,6 @@ moa:
           model: glm-5-turbo
         - provider: gemini
           model: gemini-3.5-flash
-        - provider: lab-gpu
-          model: qwen36-35b-a3b-fp8
       aggregator:
         provider: zai
         model: glm-5.2
