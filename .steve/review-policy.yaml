@@ -1,0 +1,41 @@
+# The mechanism (deterministic path-based tiers, PR tier = max, fail-safe default) is generic and shared across all Steve Agent repos.
+# The paths listed below are the per-repo configuration for steve-agent.
+# Review policy for steve-agent PRs.
+# Triage is deterministic (path matching), not LLM-based.
+# Tier of a PR = max(tier of all files it touches).
+
+tiers:
+  blast:
+    description: "Outage immediato o blocco dell'intera factory"
+    paths:
+      - "instance/config.yaml"
+      - "instance/profiles/*/credentials.mode"
+      - ".pre-commit-config.yaml"
+
+  propagazione:
+    description: "Bug replicato su N installazioni/ambienti futuri"
+    paths:
+      - "instance/env.template"
+      - "instance/SOUL.md"
+      - "instance/INSTALL.md"
+      - "instance/provision-worker.sh"
+      - "instance/backup-kanban.sh"
+      - "instance/drift-check.sh"
+      - ".steve/**"
+
+  sicuro:
+    description: "Nessun danno irreversibile"
+    paths:
+      - "scripts/**"
+      - "tools/**"
+      - "README.md"
+      - "CLAUDE.md"
+      - ".gitignore"
+
+# Anything not matched defaults to propagazione (fail safe, not fast).
+
+rules:
+  brief_required_for: [blast, propagazione]
+  auto_merge: sicuro            # requires green CI
+  merge_on: "approve in chat"   # agent merges after explicit approve
+  revert: manual                # no auto-revert
