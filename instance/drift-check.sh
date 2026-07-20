@@ -8,14 +8,16 @@ HOST="${1:-ha-steve-dev}"
 drift=0
 
 echo "== config.yaml (live vs repo) =="
-# Il blocco top-level "dashboard:" contiene credenziali basic-auth
-# (password_hash e secret) che vivono solo sull'istanza live e non devono
-# mai entrare nel repo. Lo escludiamo dal confronto applicando lo stesso
-# filtro awk a entrambi i lati: il canonico resta senza dashboard e il
-# drift-check ignora solo quel blocco, senza falsi positivi.
-strip_dashboard='/^dashboard:/{skip=1; next} /^[A-Za-z_]/{skip=0} !skip'
-if diff -u <(awk "$strip_dashboard" config.yaml) <(ssh "$HOST" 'cat ~/.hermes/config.yaml' | awk "$strip_dashboard") ; then
-  echo "OK: config.yaml allineato (blocco dashboard escluso)"
+# Due blocchi top-level vivono solo sull'istanza live e non devono mai
+# entrare nel repo, quindi li escludiamo dal confronto applicando lo stesso
+# filtro awk a entrambi i lati (il canonico resta senza questi blocchi e il
+# drift-check li ignora, senza falsi positivi):
+#  - "dashboard:": credenziali basic-auth (password_hash e secret)
+#  - "onboarding:": flag first-run (onboarding.seen.*) scritti a runtime dal
+#    gateway, non configurazione
+strip_blocks='/^(dashboard|onboarding):/{skip=1; next} /^[A-Za-z_]/{skip=0} !skip'
+if diff -u <(awk "$strip_blocks" config.yaml) <(ssh "$HOST" 'cat ~/.hermes/config.yaml' | awk "$strip_blocks") ; then
+  echo "OK: config.yaml allineato (blocchi dashboard e onboarding esclusi)"
 else
   drift=1
 fi

@@ -191,6 +191,3 @@ custom_providers:
     base_url: ${VLLM_BASE_URL}
     key_env: VLLM_API_KEY
     api_mode: chat_completions
-onboarding:
-  seen:
-    busy_input_prompt: true
