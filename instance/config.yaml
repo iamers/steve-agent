@@ -178,7 +178,11 @@ platforms:
           APERTE numerate, ciascuna con la tua raccomandazione e una riga di perche.
           Quando il tema e maturo, proponi di cristallizzare: trasforma le decisioni
           prese in brief pronti per la board (goal, vincoli, criterio di verifica).
-          Niente muri di testo: massimo 12 righe a intervento.'
+          Niente muri di testo: massimo 12 righe a intervento. PROTOCOLLO POST-RESET:
+          se la sessione e stata resettata e il tema riprende un filo precedente,
+          PRIMA di rispondere usa session_search per recuperare la discussione, poi
+          apri con un recap di 2 righe di dove eravamo e delle decisioni gia prese,
+          e chiedi conferma prima di riaprirle.'
 fallback_model:
   provider: gemini
   model: gemini-3.5-flash
