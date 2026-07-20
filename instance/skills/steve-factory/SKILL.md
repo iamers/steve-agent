@@ -70,9 +70,17 @@ essere interrogati.
 
 ## 3. Sanitizzazione
 
-OBBLIGATORIO per ogni task che produce file committati. Leggi la lista di
-stringhe vietate dal file locale `~/.hermes/private/forbidden-strings.txt` (una
-per riga; le righe che iniziano con `#` sono commenti e si escludono).
+OBBLIGATORIO per ogni task che produce file committati. La lista delle stringhe
+vietate ha UNA SORGENTE LOGICA (un seed condiviso) con copie per-macchina:
+
+- Sull'istanza vive in `~/.hermes/private/forbidden-strings.txt` ed e' quella
+  che Steve legge per costruire i brief.
+- Sulla stessa macchina, il clone del repo la aggancia come
+  `.local/privacy-denylist.txt` tramite un symlink gitignorato, cosi' la guardia
+  `scripts/check_privacy.sh` consuma la STESSA lista (il path e'
+  `.local/privacy-denylist.txt`, overridabile via `PRIVACY_DENYLIST`).
+- Tenere sincronizzate le copie tra macchine e' un compito ops dichiarato, non
+  di Steve: se le copie divergono fa fede il seed della guardia dev-privacy.
 
 Per ogni stringa della lista, includi nel verify del brief un check negativo:
 
@@ -94,15 +102,20 @@ Alla notifica di PR aperta, crea un task di review:
 L'autore non revisiona mai se stesso: se il worker che ha aperto la PR coincide
 con il reviewer, assegna la review a un altro profilo.
 
-Se la review e' REQUEST_CHANGES, NON creare un task nuovo per il fix:
+Se la review e' REQUEST_CHANGES, il task del worker originale risulta gia' `done`
+(un task done non si ri-dispatcha nel nostro flusso). Crea invece un NUOVO task
+di fix:
 
-1. Commenta il task originario del worker coi finding (`kanban_comment`).
-2. Ri-dispatcha il task: il worker rilegge l'intero thread di commenti al
-   respawn (protocollo nativo della board).
-3. Dopo il fix, crea un nuovo task di re-review al reviewer.
+1. `kanban_create` con `assignee: steve-worker`, `--parent` il task originario,
+   e `workspace dir:<path del worktree del task originario>` (cosi' lavora sullo
+   stesso branch e la PR si aggiorna).
+2. Il body del task di fix riporta i finding del reviewer **testuali** piu'
+   l'istruzione di pushare sul branch corrente **senza aprire nuove PR**.
+3. Dopo il fix, crea un nuovo task di re-review per `steve-reviewer`.
 
-Questo evita la proliferazione di task-fantasma e tiene la storia in un unico
-thread.
+Il thread di commenti del task originario resta il posto dove tracciare la
+catena: un `kanban_comment` sul task padre registra l'esito di ogni giro
+(fix applicato, re-review richiesta, esito della re-review).
 
 ## 5. Brief approvabile e decisione umana
 
@@ -114,9 +127,10 @@ i file: blast > propagazione > sicuro).
 La decisione resta umana:
 
 - `approve` nel topic -> merge (oggi manuale; fase 2 sara' tracciato).
-- `reject: <motivo>` -> si segue il flusso iterate di .steve/pr-lifecycle.md: il
-  compilatore genera un redesign draft come commento della PR, l'autore corregge
-  e ripinge.
+- `reject: <motivo>` -> l'autore riceve il motivo del reject nel topic e itera
+  da quello. Il redesign draft generato dal compilatore e' il comportamento
+  TARGET (vedi la tabella di stato in .steve/pr-lifecycle.md), non cio' che il
+  tool fa oggi: non promettere cio' che il tool non fa.
 
 Il brief concentra la decisione: non sostituire il giudizio informato dal tier
 con una opinione libera non motivata.
@@ -138,8 +152,9 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 3. **Sanitizzazione mancante.** Un task che produce file senza i check negativi
    sulle stringhe vietate e' un task non spedito.
 
-4. **Creare un task nuovo per un fix di review.** Usa kanban_comment sul task
-   originario e ri-dispatchalo; non frammentare la storia.
+4. **Tener traccia della catena di review.** Su REQUEST_CHANGES il task del
+   worker originale e' gia' `done`: crea un nuovo task di fix con `--parent`
+   (vedi §4) e registra l'esito di ogni giro con `kanban_comment` sul task padre.
 
 5. **Merge fai-da-te.** Il merge e' umano fino alla fase 2. Un approve in chat
    autorizza, non esegue.
