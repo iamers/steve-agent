@@ -31,6 +31,23 @@ else
 fi
 
 echo
+echo "== SOUL profili (live vs repo) =="
+# Confronta il SOUL.md canonico di ogni profilo worker con la copia live.
+for profile in steve-worker steve-reviewer; do
+  canonical="profiles/$profile/SOUL.md"
+  if [ ! -f "$canonical" ]; then
+    echo "DRIFT: $profile — copia canonica mancante ($canonical)"
+    drift=1
+    continue
+  fi
+  if ssh "$HOST" "cat ~/.hermes/profiles/$profile/SOUL.md 2>/dev/null" | diff -u "$canonical" - ; then
+    echo "OK: $profile SOUL.md allineato"
+  else
+    drift=1
+  fi
+done
+
+echo
 echo "== .env: chiavi valorizzate (nomi, non valori) =="
 live_keys=$(ssh "$HOST" 'grep -oE "^[A-Z_]+=" ~/.hermes/.env | sort -u' | tr -d =)
 tmpl_keys=$(grep -oE '^[A-Z_]+=' env.template | tr -d = | sort -u)
