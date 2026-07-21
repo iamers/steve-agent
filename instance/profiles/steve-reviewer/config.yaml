@@ -1,6 +1,6 @@
 model:
-  default: gemini-3.5-pro
-  provider: gemini
+  default: glm-5.2
+  provider: zai
 fallback_model:
   provider: gemini
   model: gemini-3.5-flash
