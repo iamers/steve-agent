@@ -156,6 +156,42 @@ else
   done
 fi
 
+echo
+echo "== skill: SKILL.md (live vs repo) =="
+
+# Skill live sull'istanza
+live_skills=$(ssh "$HOST" 'ls -d ~/.hermes/skills/*/ 2>/dev/null | xargs -n1 basename | sort -u')
+# Copie canoniche nel repo (skills/<nome>/SKILL.md)
+canonical_skills=$(find skills -maxdepth 1 -mindepth 1 -type d -exec basename {} \; 2>/dev/null | sort -u)
+
+# Nessuna skill live e nessuna canonica = OK
+if [ -z "$live_skills" ] && [ -z "$canonical_skills" ]; then
+  echo "OK: nessuna skill presente"
+else
+  # 1) Per ogni skill live: verifica copia canonica e confronta SKILL.md
+  for skill in $live_skills; do
+    canonical="skills/$skill/SKILL.md"
+    if [ -f "$canonical" ]; then
+      if ssh "$HOST" "cat ~/.hermes/skills/$skill/SKILL.md" | diff -u "$canonical" - ; then
+        echo "OK: $skill SKILL.md allineato"
+      else
+        drift=1
+      fi
+    else
+      echo "DRIFT: skill $skill live senza copia canonica nel repo"
+      drift=1
+    fi
+  done
+
+  # 2) Per ogni copia canonica senza skill live corrispondente
+  for skill in $canonical_skills; do
+    if ! echo "$live_skills" | grep -qx "$skill"; then
+      echo "DRIFT: canonico $skill senza skill live"
+      drift=1
+    fi
+  done
+fi
+
 echo "----"
 if [ "$drift" -eq 0 ]; then echo "drift-check: nessuna deriva"; else echo "drift-check: DERIVA RILEVATA (aggiorna repo o istanza, e traccia nel journal)"; fi
 exit $drift
