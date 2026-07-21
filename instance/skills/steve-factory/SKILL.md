@@ -89,6 +89,13 @@ vietate ha UNA SORGENTE LOGICA (un seed condiviso) con copie per-macchina:
 - Tenere sincronizzate le copie tra macchine e' un compito ops dichiarato, non
   di Steve: se le copie divergono fa fede il seed della guardia dev-privacy.
 
+Nei worktree `--project` il symlink `.local/privacy-denylist.txt` NON esiste
+(vive nel clone del repo): colma il gap `PRIVACY_DENYLIST` dall'ambiente — il
+gateway la esporta ai worker dispatchati dal `.env` dell'istanza. Se punta al
+file denylist (path assoluto, es. `~/.hermes/private/forbidden-strings.txt`),
+`scripts/check_privacy.sh` lo usa direttamente: il worker esegue i check del
+brief anche senza il `.local/`.
+
 Per ogni stringa della lista, includi nel verify del brief un check negativo:
 
     ! grep -qi <stringa> <file>
@@ -205,16 +212,18 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
    (pid not alive, protocol violation): il codice scritto prima del crash
    sopravvive nel worktree, il retry lo riutilizza.
 
-8. **Sanitizzazione skippata nei worktree del project.** I worktree creati
-   con `--project steve-agent` NON hanno il symlink `.local/privacy-denylist.txt`
-   (vive nel clone del repo, non nei worktree derivati). Il worker non puo'
-   eseguire i check negativi del brief e li skippa con una note nel result.
-   **Mitigazione a carico del coordinatore**: quando crei il task di review
-   per una PR nata da un worktree `--project`, scrivi nel brief di review che
-   il reviewer DEVE eseguire la sanitizzazione manualmente leggendo la denylist
-   da `~/.hermes/private/forbidden-strings.txt` sull'istanza e verificando i
-   file della PR. Questo gap e' strutturale finche i worktree del project non
-   avranno il symlink.
+8. **Sanitizzazione nei worktree del project.** I worktree creati con
+   `--project steve-agent` NON hanno il symlink `.local/privacy-denylist.txt`
+   (vive nel clone del repo, non nei worktree derivati): il gap originale era
+   reale. **E' ora chiuso** quando `PRIVACY_DENYLIST` e' nell'ambiente del
+   worker — il gateway esporta le chiavi del `.env` dell'istanza ai worker
+   dispatchati, e se la variabile punta al file denylist dell'istanza,
+   `scripts/check_privacy.sh` lo usa direttamente anche senza il symlink
+   `.local/`. Il reviewer che la riesegue e' **cintura di sicurezza**, non
+   workaround per un gap. Se invece `PRIVACY_DENYLIST` non e' nell'ambiente
+   (deploy non ancora fatto), il worker skippa e lo dichiara; il reviewer
+   colma il gap leggendo la denylist da
+   `~/.hermes/private/forbidden-strings.txt`. Transitorio, non strutturale.
 
 9. **Verify grep `-A<N>` fragili su policy YAML.** Nei brief, i check
    `grep -A20 'propagazione' <policy> | grep <path>` producono falsi positivi
@@ -261,7 +270,8 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 - [ ] I task della story sono iscritti al topic dedicato.
 - [ ] Nessun merge eseguito dall'orchestratore.
 - [ ] I verify su policy YAML usano un parser, non `grep -A<N>` (pitfall #9).
-- [ ] Se il task usa `--project` (worktree senza `.local/`), il brief di
-      review include la sanitizzazione manuale a carico del reviewer.
+- [ ] Se il task usa `--project`, il worker esegue `check_privacy.sh` con
+      `PRIVACY_DENYLIST` dall'ambiente; il reviewer lo riesegue come
+      cintura di sicurezza (pitfall #8).
 - [ ] Se steve-reviewer e' down (2+ crash consecutivi), non bruciare retry:
       documenta i verify dal main e segnala al coordinatore (pitfall #10, #11).
