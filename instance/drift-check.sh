@@ -159,8 +159,17 @@ fi
 echo
 echo "== skill: SKILL.md (live vs repo) =="
 
-# Skill live sull'istanza
-live_skills=$(ssh "$HOST" 'ls -d ~/.hermes/skills/*/ 2>/dev/null | xargs -n1 basename | sort -u')
+# Skill bundled stock di Hermes, installate di default e NON gestite da
+# steve-agent: escluse dal drift-check (sono legittime sull'istanza senza
+# avere un canonico nel repo). La lista corrisponde alle directory top-level
+# di skill presenti sotto ~/.hermes/skills/. Da mantenere aggiornata quando
+# Hermes aggiunge skill bundled: per ricalcolarla, elenca le directory
+# top-level live con `ls -d ~/.hermes/skills/*/` e tieni tutto tranne le
+# skill gestite da steve-agent (es. steve-factory).
+stock_skills='apple|autonomous-ai-agents|computer-use|creative|data-science|dogfood|email|github|media|mlops|note-taking|productivity|research|smart-home|social-media|software-development|yuanbao'
+
+# Skill live sull'istanza (escluse le stock)
+live_skills=$(ssh "$HOST" 'ls -d ~/.hermes/skills/*/ 2>/dev/null | xargs -n1 basename | sort -u' | grep -Ev "^($stock_skills)$")
 # Copie canoniche nel repo (skills/<nome>/SKILL.md)
 canonical_skills=$(find skills -maxdepth 1 -mindepth 1 -type d -exec basename {} \; 2>/dev/null | sort -u)
 

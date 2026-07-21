@@ -65,9 +65,11 @@ Campi del task:
   e' automatica, non va gestita a mano
 
 **Task che aprono PR e coinvolgono CI:** nel brief scrivi esplicito che il
-worker NON deve fare polling attivo su `gh pr checks` (vedi Pitfall #6): una
+worker NON deve fare polling attivo sullo stato CI (vedi Pitfall #6): una
 sola chiamata con timeout generoso, poi completa con il numero PR anche se la
-CI e' ancora pending. Il coordinatore verifica a posteriori.
+CI e' ancora pending. Il coordinatore verifica a posteriori. Comando per lo
+stato CI: `gh run list --commit <sha>` (NON `gh pr checks`, che richiede lo
+scope separato "Checks: read" non disponibile sui PAT correnti).
 
 Dopo la creazione: notify-subscribe del task al topic Telegram della story (o al
 topic Backlog di default), cosi' gli esiti arrivano in push invece di dover
@@ -179,15 +181,17 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 
 6. **Worker in loop su attesa CI (budget esaurito).** Nei task che aprono una
    PR, il worker puo' bruciare tutto il budget iterazioni (60/60) aspettando
-   che la CI diventi verde con `gh pr checks` in loop. Due trappole:
-   - **Circularita':** `gh pr checks` non torna mai verde finche' la PR non e'
+   che la CI diventi verde interrogando lo stato in loop. Due trappole:
+   - **Circularita':** lo stato CI non torna mai verde finche' la PR non e'
      aperta; se il worker fa polling prima di aprire la PR, e' un loop vuoto.
-   - **Costo iterazioni:** ogni `gh pr checks` e' un'iterazione; GitHub CI
+   - **Costo iterazioni:** ogni interrogazione e' un'iterazione; GitHub CI
      impiega minuti, il budget si esaurisce prima.
-   Nei brief di task che aprono PR, scrivi esplicito: "dopo il push, apri la
-   PR; chiama `gh pr checks` **una sola volta** con timeout generoso; se la CI
-   e' ancora pending, completa il task con il numero PR — il coordinatore
-   verifica a posteriori". Mai polling attivo.
+   Comando corretto per lo stato CI: `gh run list --commit <sha>` (NON
+   `gh pr checks`, che richiede lo scope "Checks: read" non disponibile sui
+   PAT correnti). Nei brief di task che aprono PR, scrivi esplicito: "dopo il
+   push, apri la PR; chiama `gh run list --commit <sha>` **una sola volta**
+   con timeout generoso; se la CI e' ancora pending, completa il task con il
+   numero PR — il coordinatore verifica a posteriori". Mai polling attivo.
 
 7. **Diagnosi dei timeout via worktree.** Quando un worker va in timeout
    (`Iteration budget exhausted`), prima di rilanciare o bloccare, ispeziona il
@@ -197,6 +201,57 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
    e pushato, ma la PR non e' mai stata aperta (collegato al pitfall #6). In
    quel caso un `kanban_comment` sul task con istruzione "non ripartire da
    zero, apri la PR dal branch esistente" basta a sbloccare il retry.
+   Questo pattern si e' confermato valido anche per crash di natura runtime
+   (pid not alive, protocol violation): il codice scritto prima del crash
+   sopravvive nel worktree, il retry lo riutilizza.
+
+8. **Sanitizzazione skippata nei worktree del project.** I worktree creati
+   con `--project steve-agent` NON hanno il symlink `.local/privacy-denylist.txt`
+   (vive nel clone del repo, non nei worktree derivati). Il worker non puo'
+   eseguire i check negativi del brief e li skippa con una note nel result.
+   **Mitigazione a carico del coordinatore**: quando crei il task di review
+   per una PR nata da un worktree `--project`, scrivi nel brief di review che
+   il reviewer DEVE eseguire la sanitizzazione manualmente leggendo la denylist
+   da `~/.hermes/private/forbidden-strings.txt` sull'istanza e verificando i
+   file della PR. Questo gap e' strutturale finche i worktree del project non
+   avranno il symlink.
+
+9. **Verify grep `-A<N>` fragili su policy YAML.** Nei brief, i check
+   `grep -A20 'propagazione' <policy> | grep <path>` producono falsi positivi
+   quando i blocchi YAML sono vicini: `-A20` sfora dal blocco target in quello
+   adiacente. Per i verify di classificazione tier su `.steve/review-policy.yaml`,
+   **usa un parser YAML** invece di grep contestuale:
+   `python3 -c "import yaml; t=yaml.safe_load(open('.steve/review-policy.yaml')); assert '<path>' not in t['tiers'].get('propagazione',{}).get('paths',[])"`.
+   Vale anche per i verify nei brief di review.
+
+10. **Profile down dopo deploy di config (model swap).** Quando un profilo
+    worker o reviewer riceve un nuovo config deployato (in particolare un cambio
+    di `model.default` o `model.provider`), puo' diventare instabile: crash
+    ripetuti con `protocol violation` (exit rc=0 senza chiamare
+    `kanban_complete`) o `pid not alive`. I worktree conservano il lavoro
+    pre-crash (vedi pitfall #7), ma il profilo resta down finche' il config non
+    viene corretto o roll-back-ato.
+    - **Sintomi:** 2+ crash consecutivi con la stessa `protocol_violation` sullo
+      stesso task, heartbeat regolari fino all'uscita pulita senza complete.
+    - **Diagnosi:** se il crash segue a meno di 1h dal deploy di un config con
+      model swap, sospetta correlazione. Chiedi al coordinatore (ops) di
+      verificare il config attivo del profilo.
+    - **Non bruciare retry** oltre il secondo crash consecutivo identico: il
+      problema e' sistemico, non transiente.
+
+11. **Self-review GitHub constraint blocca il fallback.** I profili `main` e
+    `steve-worker` condividono lo stesso account GitHub (`scrat-ai-dev`):
+    GitHub vieta a un account di approvare la propria PR. Quando
+    `steve-reviewer` (account separato `scrat-ai-rev`) e' down, l'orchestratore
+    **non puo' sostituirsi** registrando l'approve su GitHub — anche se esegue
+    i verify e documenta tutto in un `kanban_comment`.
+    - **Fallback quando il reviewer e' down:** esegui i verify dal profilo main
+      nel worktree di review, registra esito e verdetto in un `kanban_comment`
+      sul task, e **segnala al coordinatore** che serve un approve manuale
+      (dalla UI GitHub con l'account `scrat-ai-rev`, se accessibile) o il
+      ripristino del reviewer.
+    - **Non tentare `gh pr review --approve` dal profilo main** su PR aperte da
+      steve-worker: restituisce `Review Can not approve your own pull request`.
 
 ## Verification Checklist
 
@@ -205,3 +260,8 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 - [ ] La review e' assegnata a steve-reviewer con la skill github-code-review.
 - [ ] I task della story sono iscritti al topic dedicato.
 - [ ] Nessun merge eseguito dall'orchestratore.
+- [ ] I verify su policy YAML usano un parser, non `grep -A<N>` (pitfall #9).
+- [ ] Se il task usa `--project` (worktree senza `.local/`), il brief di
+      review include la sanitizzazione manuale a carico del reviewer.
+- [ ] Se steve-reviewer e' down (2+ crash consecutivi), non bruciare retry:
+      documenta i verify dal main e segnala al coordinatore (pitfall #10, #11).
