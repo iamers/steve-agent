@@ -227,7 +227,12 @@ def run_self_test():
     cases = [
         ("instance/config.yaml", "blast"),
         (".steve/qualcosa/file.md", "propagazione"),
-        ("tools/x.py", "sicuro"),
+        ("tools/x.py", "propagazione"),
+        ("scripts/foo.sh", "propagazione"),
+        (".github/workflows/ci.yml", "propagazione"),
+        ("README.md", "sicuro"),
+        ("CLAUDE.md", "sicuro"),
+        (".gitignore", "sicuro"),
         ("percorso-ignoto.xyz", "propagazione"),
     ]
     for path, expected in cases:
