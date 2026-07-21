@@ -56,12 +56,13 @@ la decisione, non il giudizio libero del revisore.
 
 | Componente | Oggi | Da costruire |
 |---|---|---|
-| Compilatore di brief (`tools/pr-brief.py`) | esiste: triage deterministico, template, `--self-test` | genera anche il redesign draft su reject |
+| Compilatore di brief (`tools/pr-brief.py`) | esiste: triage deterministico, template, `--self-test`, task id di origine, sezione "Leggi prima", gate D4 minimale | genera anche il redesign draft su reject |
 | Watcher PR (`instance/pr-watch.sh`) | esiste: gira su cron, rileva PR nuove | trigger a evento (webhook) invece di cron |
 | Consegna del brief | nel topic Backlog via cron | consegna push su evento |
+| CI (`.github/workflows/ci.yml`) | esiste: job `checks`, 4 step (lanciata su ogni PR) | estensione step di validazione del brief |
 | Approvazione | `approve` in chat, merge manuale su GitHub | comando approve tracciato + auto-merge |
 | Auto-merge | non implementato | identita' bot dedicata, solo con marcatura |
-| Check "vincoli senza test" (D4) | non implementato | gate nel compilatore: vincolo nuovo senza test = blocco |
+| Check "vincoli senza test" (D4) | esiste: gate D4 minimale nel compilatore (vincolo su review-policy senza test -> tier sale a propagazione + firma umana) | copertura vincoli oltre review-policy |
 
 Oggi l'approve porta a un merge manuale su GitHub eseguito da un umano: il
 sistema concentra la decisione ma non chiude ancora il ciclo in autonomia.

@@ -27,6 +27,53 @@ TIER_ORDER = {"sicuro": 0, "propagazione": 1, "blast": 2}
 # Tier di default quando nessun pattern matcha: fail-safe, non fast.
 DEFAULT_TIER = "propagazione"
 
+# Path coinvolti nel gate D4 (vincoli senza test).
+REVIEW_POLICY_PATH = ".steve/review-policy.yaml"
+PR_BRIEF_PATH = "tools/pr-brief.py"
+
+
+# ---------------------------------------------------------------------------
+# Task id di origine + gate D4 (deterministici, basati su path/pattern)
+# ---------------------------------------------------------------------------
+
+def parse_task_id(branch):
+    """Estrae l'id del task di origine dal branch name.
+
+    Matcha il pattern ``steve-agent/t_<id>-...`` dove ``<id>`` e' [a-f0-9]+.
+    Restituisce ``t_<id>`` oppure None se il branch non matcha il prefisso
+    atteso (es. feat/xxx, main, branch senza steve-agent/).
+    """
+    if not branch:
+        return None
+    m = re.match(r"steve-agent/(t_[a-f0-9]+)-", branch)
+    return m.group(1) if m else None
+
+
+def check_d4_gate(files):
+    """Gate D4: True se il diff tocca review-policy MA NON pr-brief.py.
+
+    Modificare la policy di review senza toccare il compilatore che la
+    testesta e' un vincolo non testato: richiede firma umana esplicita.
+    Confronto di set di path, zero euristiche.
+    """
+    fileset = set(files)
+    touches_policy = REVIEW_POLICY_PATH in fileset
+    touches_compiler = PR_BRIEF_PATH in fileset
+    return touches_policy and not touches_compiler
+
+
+def escalate_tier_for_d4(pr_tier_name, d4_active):
+    """Se il gate D4 e' attivo, il tier effettivo sale almeno a propagazione.
+
+    Se era sicuro diventa propagazione; se era gia' propagazione o blast
+    resta tale.
+    """
+    if not d4_active:
+        return pr_tier_name
+    if TIER_ORDER.get(pr_tier_name, 1) < TIER_ORDER["propagazione"]:
+        return "propagazione"
+    return pr_tier_name
+
 
 # ---------------------------------------------------------------------------
 # Matcher: traduzione glob -> regex
@@ -146,26 +193,40 @@ def extract_summary(body, override):
 
 
 def render_brief(template_text, number, title, branch, tier_upper,
-                 critical_files, summary_text):
+                 critical_files, summary_text, task_id=None, d4_active=False):
     """Compila il template riempiendo i campi dinamici, lasciando intatte
     le sezioni statiche (footer, placeholder Scelte non banali, checklist).
 
     critical_files: lista di (path, tier_lowercase, matched_pattern_or_None).
+    task_id: id del task di origine (``t_<id>``) o None.
+    d4_active: se True, inserisce il marcatore D4 (vincolo senza test).
     """
     lines = template_text.split("\n")
     output = []
+    leggi_prima_emitted = False
     i = 0
     while i < len(lines):
         line = lines[i]
         # Riga header: PR #<N> — <title>
         if "<N>" in line and "<title>" in line:
             output.append("PR #{} — {}".format(number, title))
-        # Riga branch: Branch: <branch> -> main
+        # Riga branch: Branch: <branch> -> main (+ eventuale riga Origine)
         elif "<branch>" in line:
             output.append("Branch: {} -> main".format(branch))
-        # Riga tier (sostituisce l'intera riga)
+            if task_id:
+                output.append("Origine: task {}".format(task_id))
+        # Sezione fissa "Leggi prima": iniettata una sola volta, subito prima
+        # del blocco ## Triage (dopo le info della PR, prima dei file critici).
+        elif not leggi_prima_emitted and line.strip() == "## Triage":
+            output.append("Leggi prima (nel worktree): README.md, CLAUDE.md, .steve/review-policy.yaml")
+            output.append("")
+            output.append(line)
+            leggi_prima_emitted = True
+        # Riga tier (sostituisce l'intera riga) + eventuale marcatore D4
         elif line.startswith("Tier:"):
             output.append("Tier: {}".format(tier_upper))
+            if d4_active:
+                output.append("D4: vincolo senza test - firma umana obbligatoria")
         # Sezione Files critici: sostituisce i placeholder con i file reali
         elif line.strip() == "Files critici:":
             output.append(line)
@@ -240,6 +301,48 @@ def run_self_test():
         assert got == expected, "{}: aspettato {}, ottenuto {}".format(
             path, expected, got)
 
+    # --- Estensione 1: task id di origine dal branch name -----------------
+    tid_cases = [
+        ("steve-agent/t_4806977c-ci-workflow-fix-4-finding-shellcheck-ste",
+         "t_4806977c"),
+    ]
+    for branch, expected in tid_cases:
+        got = parse_task_id(branch)
+        assert got == expected, "parse_task_id({!r}): aspettato {}, ottenuto {}".format(
+            branch, expected, got)
+    # Branch non matching devono dare None
+    for branch in ("feat/random", "main", "t_solo_id"):
+        got = parse_task_id(branch)
+        assert got is None, "parse_task_id({!r}): aspettato None, ottenuto {}".format(
+            branch, got)
+
+    # --- Estensione 2: sezione fissa "Leggi prima" ------------------------
+    # Rendering con input fittizio (senza rete): la stringa deve essere presente.
+    template_path = policy_path.parent / "review-brief-template.md"
+    template_text = template_path.read_text()
+    sample_brief = render_brief(
+        template_text, number=1, title="sample", branch="feat/sample",
+        tier_upper="SICURO", critical_files=[], summary_text="x",
+        task_id=None, d4_active=False)
+    assert "Leggi prima (nel worktree): README.md, CLAUDE.md, .steve/review-policy.yaml" in sample_brief, \
+        "sezione 'Leggi prima' mancante nel brief renderizzato"
+
+    # --- Estensione 3: gate D4 -------------------------------------------
+    # Solo review-policy (senza pr-brief.py) -> D4 attivo + tier sale
+    files_policy_only = [REVIEW_POLICY_PATH]
+    assert check_d4_gate(files_policy_only) is True, \
+        "D4 dovrebbe attivarsi con solo review-policy.yaml"
+    escalated = escalate_tier_for_d4("sicuro", True)
+    assert escalated == "propagazione", \
+        "D4 attivo: tier sicuro dovrebbe salire a propagazione, ottenuto {}".format(
+            escalated)
+    # Entrambi i file -> D4 NON attivo (il compilatore e' stato toccato)
+    files_both = [REVIEW_POLICY_PATH, PR_BRIEF_PATH]
+    assert check_d4_gate(files_both) is False, \
+        "D4 NON dovrebbe attivarsi quando pr-brief.py e' nel diff"
+    assert escalate_tier_for_d4("sicuro", False) == "sicuro", \
+        "D4 inattivo: tier non deve cambiare"
+
     print("self-test ok")
     sys.exit(0)
 
@@ -290,6 +393,13 @@ def main():
     # Triage deterministico
     pr_tier_name, file_results = compute_pr_tier(files, tiers)
 
+    # Task id di origine dal branch name (deterministico)
+    task_id = parse_task_id(branch)
+
+    # Gate D4: vincolo su review-policy senza test -> tier sale + firma umana
+    d4_active = check_d4_gate(files)
+    pr_tier_name = escalate_tier_for_d4(pr_tier_name, d4_active)
+
     # File critici: solo blast e propagazione (con il pattern che ha fatto match)
     critical = [
         (path, ftier, pattern)
@@ -300,7 +410,8 @@ def main():
     summary = extract_summary(body, args.summary)
 
     brief = render_brief(template_text, number, title, branch,
-                         pr_tier_name.upper(), critical, summary)
+                         pr_tier_name.upper(), critical, summary,
+                         task_id=task_id, d4_active=d4_active)
     # Normalizza: una sola riga vuota finale
     brief = brief.rstrip("\n") + "\n"
     sys.stdout.write(brief)
