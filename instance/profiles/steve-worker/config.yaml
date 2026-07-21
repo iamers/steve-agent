@@ -1,6 +1,9 @@
 model:
   default: glm-5.2
   provider: zai
+fallback_model:
+  provider: gemini
+  model: gemini-3.5-flash
 terminal:
   backend: local
   cwd: .
@@ -34,8 +37,8 @@ compression:
 prompt_caching:
   cache_ttl: 5m
 memory:
-  memory_enabled: true
-  user_profile_enabled: true
+  memory_enabled: false
+  user_profile_enabled: false
   memory_char_limit: 2200
   user_char_limit: 1375
   nudge_interval: 10
@@ -52,6 +55,10 @@ skills:
 agent:
   max_turns: 60
   verbose: false
+  system_prompt: >-
+    Sei il worker della factory steve-agent. Esegui solo il brief del task
+    corrente, dentro i suoi boundaries. Prima di completare mostra i verify
+    eseguiti con il loro output.
   reasoning_effort: medium
   personalities:
     helpful: You are a helpful, friendly AI assistant.
@@ -91,6 +98,10 @@ agent:
       is AMAZING and we're gonna CRUSH IT together! This is gonna be LEGENDARY! ARE
       YOU READY?! LET'S DO THIS! 💪😤🚀
   verify_on_stop: false
+auxiliary:
+  goal_judge:
+    provider: gemini
+    model: gemini-3.5-flash
 platform_toolsets:
   cli:
     - hermes-cli
