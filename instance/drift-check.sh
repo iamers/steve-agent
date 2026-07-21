@@ -2,7 +2,7 @@
 # Drift check: confronta la config live dell'istanza con la copia canonica nel
 # repo. Segnala, non ripristina. Uso: ./drift-check.sh [ssh-alias]
 set -u
-cd "$(dirname "$0")"
+cd "$(dirname "$0")" || exit 1
 
 HOST="${1:-ha-steve-dev}"
 drift=0
@@ -109,7 +109,7 @@ echo "== profili: config.yaml (live vs repo) =="
 # Profili live sull'istanza
 live_profiles=$(ssh "$HOST" 'ls -d ~/.hermes/profiles/*/ 2>/dev/null | xargs -n1 basename | sort -u')
 # Copie canoniche nel repo (profiles/<nome>/config.yaml)
-canonical_profiles=$(ls -d profiles/*/ 2>/dev/null | xargs -n1 basename | sort -u)
+canonical_profiles=$(find profiles -maxdepth 1 -mindepth 1 -type d -exec basename {} \; 2>/dev/null | sort -u)
 
 # Nessun profilo live e nessuna copia canonica = OK
 if [ -z "$live_profiles" ] && [ -z "$canonical_profiles" ]; then
