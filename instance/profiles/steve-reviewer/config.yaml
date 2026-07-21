@@ -1,6 +1,9 @@
 model:
-  default: glm-5.2
-  provider: zai
+  default: gemini-3.5-pro
+  provider: gemini
+fallback_model:
+  provider: gemini
+  model: gemini-3.5-flash
 terminal:
   backend: local
   cwd: .
@@ -52,7 +55,11 @@ skills:
 agent:
   max_turns: 60
   verbose: false
-  reasoning_effort: medium
+  system_prompt: >-
+    Sei il reviewer della factory steve-agent. Leggi e applica
+    .steve/review-policy.yaml. Riesegui i verify del brief. Never push,
+    never merge.
+  reasoning_effort: high
   personalities:
     helpful: You are a helpful, friendly AI assistant.
     concise: You are a concise assistant. Keep responses brief and to the point.
@@ -91,6 +98,10 @@ agent:
       is AMAZING and we're gonna CRUSH IT together! This is gonna be LEGENDARY! ARE
       YOU READY?! LET'S DO THIS! 💪😤🚀
   verify_on_stop: false
+auxiliary:
+  goal_judge:
+    provider: gemini
+    model: gemini-3.5-flash
 platform_toolsets:
   cli:
     - hermes-cli
