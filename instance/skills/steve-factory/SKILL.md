@@ -99,6 +99,19 @@ Alla notifica di PR aperta, crea un task di review:
 - `--skill github/github-code-review`
 - Review formale della PR via `gh`: `approve` oppure `request-changes` motivato.
 
+Il brief del task di review DEVE imporre la **riesecuzione** dei verify, non la
+sola rilettura del diff: il reviewer non si fida delle claim di esecuzione del
+worker, le **riesegue**. Per **ogni** task di review:
+
+- **(a)** Riporta **testuali** nel body del task i comandi verify del brief
+  originario del worker: copiali, non parafrasarli (il reviewer deve eseguire
+  esattamente cio' che il worker ha dichiarato).
+- **(b)** Il reviewer **riesegue** i verify nel worktree del task e **incolla**
+  nel result di review il loro esito (stdout + exit code) per ciascuno.
+- **(c)** Se anche un solo verify fallisce, la review e' **REQUEST_CHANGES** a
+  prescindere dal diff: un codice che sembra correto ma non passa i verify non e'
+  approvabile. La review verifica, non rilegge soltanto.
+
 L'autore non revisiona mai se stesso: se il worker che ha aperto la PR coincide
 con il reviewer, assegna la review a un altro profilo.
 
