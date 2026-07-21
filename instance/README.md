@@ -28,7 +28,7 @@ nel `.env` server-side e nel journal privato, mai in questi file.
 ## Uso
 
 ```bash
-./smoke.sh              # default: istanza ha-steve-dev via alias SSH
+./smoke.sh              # default: istanza via alias SSH (set STEVE_HOST o passalo come arg1)
 ./smoke.sh <alias> --llm   # include una query reale al modello
 ./drift-check.sh        # diff config live vs repo
 ```
