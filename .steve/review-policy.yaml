@@ -31,6 +31,7 @@ tiers:
     paths:
       - "README.md"
       - "CLAUDE.md"
+      - "AGENTS.md"
       - ".gitignore"
 
 # Anything not matched defaults to propagazione (fail safe, not fast).
