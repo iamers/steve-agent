@@ -293,6 +293,7 @@ def run_self_test():
         (".github/workflows/ci.yml", "propagazione"),
         ("README.md", "sicuro"),
         ("CLAUDE.md", "sicuro"),
+        ("AGENTS.md", "sicuro"),
         (".gitignore", "sicuro"),
         ("percorso-ignoto.xyz", "propagazione"),
     ]
