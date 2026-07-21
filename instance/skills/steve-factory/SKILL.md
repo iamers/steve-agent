@@ -64,6 +64,11 @@ Campi del task:
 - `--parent` per le dipendenze: la promozione a ready quando i parent sono done
   e' automatica, non va gestita a mano
 
+**Task che aprono PR e coinvolgono CI:** nel brief scrivi esplicito che il
+worker NON deve fare polling attivo su `gh pr checks` (vedi Pitfall #6): una
+sola chiamata con timeout generoso, poi completa con il numero PR anche se la
+CI e' ancora pending. Il coordinatore verifica a posteriori.
+
 Dopo la creazione: notify-subscribe del task al topic Telegram della story (o al
 topic Backlog di default), cosi' gli esiti arrivano in push invece di dover
 essere interrogati.
@@ -109,7 +114,7 @@ worker, le **riesegue**. Per **ogni** task di review:
 - **(b)** Il reviewer **riesegue** i verify nel worktree del task e **incolla**
   nel result di review il loro esito (stdout + exit code) per ciascuno.
 - **(c)** Se anche un solo verify fallisce, la review e' **REQUEST_CHANGES** a
-  prescindere dal diff: un codice che sembra correto ma non passa i verify non e'
+  prescindere dal diff: un codice che sembra corretto ma non passa i verify non e'
   approvabile. La review verifica, non rilegge soltanto.
 
 L'autore non revisiona mai se stesso: se il worker che ha aperto la PR coincide
@@ -171,6 +176,27 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 
 5. **Merge fai-da-te.** Il merge e' umano fino alla fase 2. Un approve in chat
    autorizza, non esegue.
+
+6. **Worker in loop su attesa CI (budget esaurito).** Nei task che aprono una
+   PR, il worker puo' bruciare tutto il budget iterazioni (60/60) aspettando
+   che la CI diventi verde con `gh pr checks` in loop. Due trappole:
+   - **Circularita':** `gh pr checks` non torna mai verde finche' la PR non e'
+     aperta; se il worker fa polling prima di aprire la PR, e' un loop vuoto.
+   - **Costo iterazioni:** ogni `gh pr checks` e' un'iterazione; GitHub CI
+     impiega minuti, il budget si esaurisce prima.
+   Nei brief di task che aprono PR, scrivi esplicito: "dopo il push, apri la
+   PR; chiama `gh pr checks` **una sola volta** con timeout generoso; se la CI
+   e' ancora pending, completa il task con il numero PR — il coordinatore
+   verifica a posteriori". Mai polling attivo.
+
+7. **Diagnosi dei timeout via worktree.** Quando un worker va in timeout
+   (`Iteration budget exhausted`), prima di rilanciare o bloccare, ispeziona il
+   suo worktree: `git -C <workspace_path> log --oneline -3`, `git status`, e
+   verifica se il branch e' pushato sul remote (`git fetch origin <branch>` +
+   `gh pr list --head <branch> --state all`). Il lavoro e' spesso gia' commit
+   e pushato, ma la PR non e' mai stata aperta (collegato al pitfall #6). In
+   quel caso un `kanban_comment` sul task con istruzione "non ripartire da
+   zero, apri la PR dal branch esistente" basta a sbloccare il retry.
 
 ## Verification Checklist
 
