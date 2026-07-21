@@ -39,4 +39,4 @@ fi
 
 echo "----"
 echo "smoke: $pass pass, $fail fail"
-exit $([ "$fail" -eq 0 ] && echo 0 || echo 1)
+exit "$([ "$fail" -eq 0 ] && echo 0 || echo 1)"
