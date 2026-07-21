@@ -22,12 +22,13 @@ tiers:
       - "instance/backup-kanban.sh"
       - "instance/drift-check.sh"
       - ".steve/**"
+      - "tools/**"
+      - "scripts/**"
+      - ".github/**"
 
   sicuro:
     description: "Nessun danno irreversibile"
     paths:
-      - "scripts/**"
-      - "tools/**"
       - "README.md"
       - "CLAUDE.md"
       - ".gitignore"
