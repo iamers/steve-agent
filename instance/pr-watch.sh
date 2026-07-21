@@ -44,7 +44,6 @@ for item in data:
 # Nessuna PR aperta = silenzio.
 [ -z "$OPEN_PRS" ] && exit 0
 
-NEW_FOUND=0
 while IFS= read -r num; do
     [ -z "$num" ] && continue
     key="$REPO#$num"
@@ -57,7 +56,6 @@ while IFS= read -r num; do
     echo
     # Registra la PR come vista.
     echo "$key" >> "$STATE_FILE"
-    NEW_FOUND=1
 done <<< "$OPEN_PRS"
 
 # Silenzioso: nessun output se non ci sono PR nuove.
