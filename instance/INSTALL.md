@@ -323,7 +323,7 @@ The backup script uses SQLite online backup API (safe with active databases) and
 
 | # | Issue | Solution |
 |---|-------|----------|
-| 1 | In openclaw.json, the `models.providers.zai.apiKey` field is a JSON reference to an env var (`{"id": "ZAI_API_KEY", "source": "env"}'), not the actual key | Place the actual key in `~/.hermes/.env` as `GLM_API_KEY=...` |
+| 1 | In another agent runtime's config file, the `models.providers.zai.apiKey` field may be a JSON reference to an env var (`{"id": "ZAI_API_KEY", "source": "env"}`), not the actual key | Place the actual key in `~/.hermes/.env` as `GLM_API_KEY=...` |
 | 2 | The `.env` file seeded by the installer doesn't end with a newline | Use `printf "\nKEY=...\n"` instead of `echo` or appending with `\n` prefix |
 | 3 | The default `config.yaml` contains `model.base_url: https://openrouter.ai/api/v1` | Remove it with `sed -i '/^model.base_url/d'` for the Z.AI provider (it's ignored but affects clarity) |
 | 4 | `getUpdates` returns empty until the bot receives a fresh event after being added to the group | Send a mention or message to the bot after adding it, then call `getUpdates` |
