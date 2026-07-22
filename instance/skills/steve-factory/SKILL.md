@@ -75,6 +75,14 @@ Dopo la creazione: notify-subscribe del task al topic Telegram della story (o al
 topic Backlog di default), cosi' gli esiti arrivano in push invece di dover
 essere interrogati.
 
+**Batch di task indipendenti (dispatch parallelo):** quando un membro propone
+N task indipendenti (es. batch pre-publish: scrub, license, narrative), creali
+tutti con `kanban_create` (senza `parents` reciproci: vanno dritti a `ready`),
+poi esegui un solo `hermes kanban dispatch`. Il dispatcher spawna i worker in
+parallelo, ciascuno nel proprio worktree su branch indipendente. Nessun
+conflitto tra PR: ogni worker lavora su file diversi. Crea le review man mano
+che i worker chiudono.
+
 ## 3. Sanitizzazione
 
 OBBLIGATORIO per ogni task che produce file committati. La lista delle stringhe
@@ -260,7 +268,59 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
       (dalla UI GitHub con l'account `scrat-ai-rev`, se accessibile) o il
       ripristino del reviewer.
     - **Non tentare `gh pr review --approve` dal profilo main** su PR aperte da
-      steve-worker: restituisce `Review Can not approve your own pull request`.
+      steve-worker: restituisce `Review can not approve your own pull request`.
+
+12. **Deadlock `respawn_guarded` con `active_pr` e figli bloccati.** Quando un
+    worker ha aperto la PR e si e' bloccato con `review-required`, il dispatcher
+    puo' iniziare a respawnerlo in loop con `respawn_guarded` reason
+    `active_pr`. Il worker non fa progresso (la PR e' gia' aperta) ma non
+    raggiunge mai `done`, quindi eventuali task figli (es. review con
+    `parents=[worker_task]`) restano in `todo` indefinitamente. La factory si
+    ferma per ore senza che nessuno se ne accorga.
+    - **Sintomi:** `hermes kanban diagnostics` mostra `stranded_in_ready` sul
+      task padre; gli eventi sono una coda di `respawn_guarded` ogni 60s; il
+      task figlio e' in `todo` con zero run.
+    - **Fix:** completa manualmente il padre con `hermes kanban complete
+      <task_id> --summary "..."` o `kanban_complete(task_id=..., summary=...)`.
+      Il padre passa a `done`, il figlio si promuove a `ready`, il prossimo
+      `hermes kanban dispatch` lo pick up.
+    - **Prevenzione:** quando un worker blocca con `review-required` e ha figli
+      in `todo`/`ready`, completa il padre subito invece di aspettare che il
+      dispatcher lo risolva da solo. Il dispatcher non completa task
+      `blocked`/`respawn_guarded` automaticamente.
+
+13. **Provider rate-limit (429) causa crash review transienti.** Non solo i
+    model swap (pitfall #10): anche un rate-limit 429 del provider (es. zai)
+    causa crash `pid not alive` e `protocol_violation` sui profili worker e
+    reviewer. Diversamente dal pitfall #10 (sistemico), questo e' **transiente**:
+    la quota si libera, e al retry il profilo completa pulito.
+    - **Sintomi:** 1-2 crash consecutivi, poi un unblock manuale e retry
+      che completa in pochi minuti.
+    - **Diagnosi:** se il crash avviene in finestra di carico e il retry
+      post-unblock chiude pulito, era rate-limit. Controlla gli eventi del task
+      per `gave_up` seguito da `unblocked` e `completed`.
+    - **Azione:** non bruciare retry. Se il dispatcher ha gia' fatto `gave_up`,
+      un `kanban_comment` con "retry" + `kanban_unblock` fa ripartire il task al
+      prossimo dispatch.
+
+14. **Testo canonico da fonti esterne: verify con diff, non con grep marker.**
+    Quando un worker deve riprodurre un testo canonico verbatim (licenze,
+    standard, specifiche), i verify basati su grep marker (`grep -c
+    'Covenants'`, `grep -c 'Notice'`) **non sono sufficienti**: confermano che
+    le sezioni ci sono, non che il contenuto e' corretto. Una singola parola
+    sbagliata nel testo legale (es. `EXPRESS, IMPLIED` invece di `EXPRESS OR
+    IMPLIED` in una disclaimer BUSL-1.1) passa tutti i grep marker.
+    - **Nel brief del task di review**, per testo canonico, includi un verify
+      che **scarica la fonte ufficiale** (con `curl`) e **confronta** il
+      contenuto del file nel worktree riga per riga, con tolleranza solo su
+      whitespace/wrapping.
+    - **Differenziare dal diff review normale:** il reviewer legge il diff come
+      racconto; per testo canonico, deve confrontare carattere per carattera
+      contro la fonte. Sono due check diversi con due tecniche diverse.
+    - **Pattern di brief:** "scarica `https://spdx.org/licenses/BUSL-1.1.html`,
+      estrai il testo dalla sezione 'Terms' in poi, confronta col file LICENSE
+      nel worktree. Tolleranza solo su whitespace/wrapping. Se trovi
+      discrepanze materiali nel testo legale -> REQUEST_CHANGES."
 
 ## Verification Checklist
 
@@ -275,3 +335,11 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
       cintura di sicurezza (pitfall #8).
 - [ ] Se steve-reviewer e' down (2+ crash consecutivi), non bruciare retry:
       documenta i verify dal main e segnala al coordinatore (pitfall #10, #11).
+- [ ] Se un worker e' bloccato `review-required` con task figli in coda,
+      completa il padre manualmente per evitare deadlock respawn_guarded
+      (pitfall #12).
+- [ ] Se un profilo crasha per 429 provider (transiente), sblocca con
+      `kanban_unblock` invece di bruciare retry (pitfall #13).
+- [ ] Se il worker produce testo canonico verbatim (licenze, standard), il
+      brief della review include un verify che scarica la fonte ufficiale e
+      confronta riga per riga, non solo grep marker (pitfall #14).
