@@ -4,32 +4,35 @@ Instructions for Claude Code when working on this repository.
 
 ## What Steve Agent is
 
-Steve Agent is a dev-coordination AI agent for small development teams collaborating through a Telegram forum group. It is designed to handle:
+Steve Agent runs a software team from your chat. It turns a messaging group into
+a development pipeline: backlog, AI workers, adversarial review, and merges, all
+driven from the conversation where your team already works. It is an operational
+factory: tasks raised in chat land as reviewed pull requests.
+
+It handles:
 
 - Task backlog, assignment, ownership enforcement
 - Ideas and brainstorming (future: round-table with multi-role subagents)
 - Member interaction in the general topic
 - Optional in-chat development assistance per feature topic (via git worktrees)
 
-Steve Agent is built on [Hermes Agent](https://github.com/nousresearch/hermes-agent) for coordination. An optional [OpenClaw](https://github.com/openclaw) instance of the product-under-development can run in the same group for dogfooding, restricted to dedicated test topics.
-
-## First use case
-
-Coordinating development of [rene-agent](https://github.com/iamers/rene-agent), a community-management agent for Telegram. Rene-agent and Steve Agent are part of a potential suite of AI agents built on Telegram plus open agent frameworks; running Steve in the rene-agent dev group is itself the first dogfooding exercise for the suite.
-
-Steve Agent is designed to be reusable for any small dev team, not tied to rene-agent.
+Steve Agent is built on [Hermes Agent](https://github.com/nousresearch/hermes-agent)
+for coordination. Optionally, the product under development can run as a separate
+bot in dedicated test topics for dogfooding.
 
 ## Status
 
-Early design stage. No shipped artifact yet.
+A working factory: tasks flow from chat to reviewed PRs, with an instance
+blueprint, CI, and a main-guard in place.
 
-- Design conversation and current iteration: `.local/brainstorm/`
-- External references and inspiration: `.local/references/`
-- Active design document (work in progress): `.local/design/`
+- Active design drafts (work in progress): `.local/design/`
+- Brainstorm notes: `.local/brainstorm/`
+- External references: `.local/references/`
 
-`.local/` is gitignored. When the design stabilizes, the public-facing parts move to a public `design/` directory.
+`.local/` is gitignored. When the design stabilizes, the public-facing parts move
+to a public `design/` directory.
 
-## Conventions (inherited from rene-agent)
+## Conventions
 
 - **Identifiers** (files, folders, variables, keys, CLI flags, config fields): English, always. Non-negotiable.
 - **Prose content** (design docs, inline comments): currently Italian, reflecting the contributor community; long-term target is English, no hard deadline.
@@ -40,4 +43,3 @@ Early design stage. No shipped artifact yet.
 
 - Public top-level (tracked): `README.md`, `CLAUDE.md`, `.gitignore`, future `LICENSE`, future `design/`, future implementation
 - Private (gitignored): `.local/` contains brainstorm notes, external references, active design drafts
-- See [rene-agent](https://github.com/iamers/rene-agent) as sibling project for convention patterns and repo structure once the design matures
