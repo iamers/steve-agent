@@ -35,3 +35,9 @@ nel `.env` server-side e nel journal privato, mai in questi file.
 
 Prerequisito: alias SSH verso l'utente dell'istanza sulla macchina da cui si
 esegue. La versione Hermes attesa è pinnata in `smoke.sh` (`HERMES_PIN`).
+
+`STEVE_HOST` è una variabile **ops/clone-side**, non runtime dell'istanza: gli
+script `drift-check.sh` e `smoke.sh` la leggono dal primo argomento o dalla env
+ed girano dal clone di gestione verso l'istanza via SSH. Per questo non compare
+in `env.template` (che elenca solo le chiavi del `.env` runtime dell'istanza):
+valorizzatela nell'ambiente del clone di gestione o passatela come arg1.
