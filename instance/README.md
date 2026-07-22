@@ -2,8 +2,7 @@
 
 Copia canonica, versionata e senza segreti, della configurazione di una istanza
 Steve (Hermes Agent). Nasce dalla prima istanza di sviluppo; quando esisterà una
-seconda istanza questo blueprint è il candidato a diventare template renderizzato
-(pattern rene-agent).
+seconda istanza questo blueprint è il candidato a diventare template renderizzato.
 
 ## Contenuto
 

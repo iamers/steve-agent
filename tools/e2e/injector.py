@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Steve e2e — MTProto user-account injector/reader.
 
-Derived from rene-agent tools/e2e/injector.py (TECH-026 Phase 1b), extended for
-forum-group topics (--thread) and with a structural `read` subcommand so spike
-scenarios can assert bot replies without a separate observer.
+Injector/reader MTProto per i test e2e: posta messaggi come utente reale nel
+gruppo dev di Steve, supporta i topic del forum via `--thread` ed espone un
+subcommand `read` strutturale (al post del log grezzo) così che gli scenari
+di spike possano asserire le risposte del bot senza un observer separato.
 
 Posts messages into the Steve dev Telegram group as a REAL user account
 ("test-human"): messages arrive with is_bot=false, exercising allowlists and
