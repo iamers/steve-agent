@@ -4,7 +4,7 @@
 # --llm aggiunge una query reale al modello (costa una chiamata LLM).
 set -u
 
-HOST="${1:-ha-steve-dev}"
+HOST="${1:-${STEVE_HOST:?pass host as arg1 or set STEVE_HOST}}"
 HERMES_PIN="7c1a0295"   # commit del tag v2026.7.1 (v0.18.0)
 LLM_CHECK=0
 [ "${2:-}" = "--llm" ] && LLM_CHECK=1

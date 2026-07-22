@@ -4,7 +4,7 @@
 set -u
 cd "$(dirname "$0")" || exit 1
 
-HOST="${1:-ha-steve-dev}"
+HOST="${1:-${STEVE_HOST:?pass host as arg1 or set STEVE_HOST}}"
 drift=0
 
 echo "== config.yaml (live vs repo) =="
