@@ -1,27 +1,72 @@
 # Steve Agent
 
-Dev-coordination AI agent for small development teams collaborating through a Telegram forum group.
+Run a software team from your chat. Steve Agent turns a messaging group into a
+development pipeline: backlog, AI workers, adversarial review, and merges, all
+driven from the conversation where your team already works. Vibecoding, for
+teams.
 
-Steve Agent handles the non-coding side of team work (task backlog, assignment, ideas, member interaction) and optionally integrates in-chat development assistance per feature topic, so a team can run planning, vibe coding, and review in the same channel.
+## How it works
 
-## Status
+You message in the team group. Steve writes a brief, opens a kanban task, and a
+worker agent picks it up in an isolated git worktree. The worker ships a pull
+request. A separate reviewer agent re-runs the brief's verification commands and
+reports. A human merges. Auto-merge is on the phase 2 roadmap.
 
-Early design stage. No shipped artifact yet. Design in progress.
+Optionally, the product under development runs as a separate bot in dedicated
+test topics, so the team can dogfood in the same group without polluting the
+coordination flow.
 
-## First use case
+## Built on top of Hermes
 
-Steve Agent is being designed to coordinate development of [rene-agent](https://github.com/iamers/rene-agent), a community-management agent for Telegram. Rene-agent and Steve Agent are part of a potential suite of AI agents built on Telegram plus open agent frameworks; running Steve in the rene-agent dev group is itself the first dogfooding exercise for the suite.
+Steve Agent layers a coordination discipline on
+[Hermes Agent](https://github.com/nousresearch/hermes-agent):
 
-Steve Agent is designed to be reusable for any small dev team, not tied to rene-agent.
+- **Role agents with separate GitHub identities.** A worker commits code, a
+  reviewer audits it, and no agent ever merges. Each role is its own account.
+- **The `.steve/` convention.** Review tiers, the brief template, and the PR
+  lifecycle live in version control, so the coordination process is itself
+  reviewed.
+- **A deterministic brief compiler as the gate.** `tools/pr-brief.py` derives a
+  review tier from the files a PR touches, not from an LLM's opinion.
+- **CI plus a main-guard.** No bot pushes to main, and merges require an
+  approved review from a different account.
+- **A privacy guard on commits.** `scripts/check_privacy.sh` blocks commits that
+  leak strings from a local denylist.
+- **An instance blueprint as config-as-code.** Install, smoke test, drift-check,
+  worker provisioning, and backup are all versioned under `instance/`.
+- **An end-to-end injector with a real user account.** Spikes and tests post
+  messages as a genuine human, exercising allowlists and mention gating exactly
+  like a real member.
+- **A SOUL persona per agent.** Each role carries its own disciplined identity,
+  not a generic assistant prompt.
 
-## Planned building blocks
+## Platform reach
 
-- [Hermes Agent](https://github.com/nousresearch/hermes-agent) for coordination and in-chat development assistance (two profiles: main and admin)
-- [OpenClaw](https://github.com/openclaw) for optional dogfooding of the product under development, running as a separate bot restricted to dedicated test topics
-- Shared VPS devbox with per-feature git worktrees, accessible via SSH by contributors who prefer working with Claude Code on their own machines
+Telegram first. Forum topics map cleanly to a backlog room, an admin room, and
+per-feature rooms, which is why Steve Agent ships there today. The Hermes base
+also speaks Discord, Slack, Teams, and Matrix, so coordination can follow your
+team wherever it chats. WhatsApp support is on the roadmap, not shipping today.
 
-See sibling project [rene-agent](https://github.com/iamers/rene-agent) for conventions and a more mature repo structure.
+## Proof
+
+This repository is developed by its own factory. Tasks raised in chat land as
+reviewed pull requests here, in the open.
+
+## Built on Hermes Agent
+
+Steve Agent is built on [Hermes Agent](https://github.com/nousresearch/hermes-agent)
+(MIT) by [Nous Research](https://nousresearch.com).
+
+## Status and roadmap
+
+A working factory today: tasks flow from chat to reviewed PRs, with an instance blueprint, CI, and a main-guard all in place. Future roadmap: auto-merge via a GitHub App, a WhatsApp layout, idea round-tables with multi-role subagents, and multi-project support.
 
 ## License
 
-TBD.
+Source-available under the Business Source License (BUSL) 1.1. Free for
+noncommercial use, including personal, research, education, nonprofit, and
+evaluation. Production and commercial use require a commercial license. Each
+release converts to Apache 2.0 after four years. For commercial licensing, open
+an issue.
+
+Created by Francesco Vadicamo, co-founder of Talent Garden Cosenza.
