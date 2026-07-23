@@ -30,7 +30,7 @@ blueprint, CI, and a main-guard in place.
 - External references: `.local/references/`
 
 `.local/` is gitignored. When the design stabilizes, the public-facing parts move
-to a public `design/` directory.
+to a public `docs/` directory.
 
 ## Conventions
 
@@ -41,5 +41,5 @@ to a public `design/` directory.
 
 ## Working on this repo today
 
-- Public top-level (tracked): `README.md`, `CLAUDE.md`, `.gitignore`, future `LICENSE`, future `design/`, future implementation
+- Public top-level (tracked): `README.md`, `CLAUDE.md`, `.gitignore`, future `LICENSE`, future `docs/`, future implementation
 - Private (gitignored): `.local/` contains brainstorm notes, external references, active design drafts
