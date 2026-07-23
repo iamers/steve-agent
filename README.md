@@ -69,4 +69,4 @@ evaluation. Production and commercial use require a commercial license. Each
 release converts to Apache 2.0 after four years. For commercial licensing, open
 an issue.
 
-Created by Francesco Vadicamo, co-founder of Talent Garden Cosenza.
+Developed by the [IAmers](https://github.com/iamers) community.
