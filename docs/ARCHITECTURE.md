@@ -1,17 +1,9 @@
 # Steve Agent architecture (arc42-light)
 
-**Status**: working factory. This repository is developed by its own factory: requests
-raised in chat become reviewed, merged pull requests here, in the open.
-
-**Scope note**: this is the public, canonical architecture document. Identifiers specific to
-a deployment (chat id, user id, host alias, node topology) do not appear here: they live
-only in an instance's server-side `.env`. Secret values (tokens, API keys) are forbidden
-everywhere.
-
-**Sources**: this document cites the repository's versioned artifacts (`instance/`,
-`.steve/`, `tools/`, `.github/`) and the pull request history as evidence of what is
-implemented. Where a capability belongs to Hermes Agent (the underlying runtime) and is not
-yet exercised by the factory, it is marked as *documented* rather than *proven*.
+Steve Agent as it exists today: a working factory that develops its own repository. Every
+merged pull request here is evidence of the cycle. This is the arc42-light architecture; the
+examples reference this repository's own instance (the "Steve develops Steve" pilot), not a
+required configuration.
 
 ---
 
@@ -28,8 +20,7 @@ the conversation where your team already works. It is two things at once:
 
 It is reusable: one instance per project or team, not a deployment tied to a single product.
 The first pilot and the first proof is **Steve develops Steve**: this very repository is
-built by its factory, and every merged PR is evidence of the cycle. The same instance can
-drive any software repository the same way.
+built by its factory. The same instance can drive any software repository the same way.
 
 **Quality drivers**, in priority order:
 
@@ -37,8 +28,8 @@ drive any software repository the same way.
    executed, and re-executed by the reviewer), never the model's self-assertion. These are
    *completion contracts*.
 2. **Isolation**: every task runs in a git worktree with a dedicated branch, `main`
-   untouched; the instance runs as a dedicated unix user on a VPS. No agent touches its own
-   runtime or `main`.
+   untouched; the instance runs as a dedicated unix user on a Linux host. No agent touches its
+   own runtime or `main`.
 3. **Process governance as code**: review tiers, the brief template, the PR lifecycle, and
    the deterministic gate live in `.steve/` and are versioned; the coordination process is
    itself reviewed.
@@ -52,9 +43,9 @@ drive any software repository the same way.
 | Constraint | Detail |
 |---|---|
 | Platform | Telegram-first: a group in forum mode (topics -> backlog room, admin room, per-feature rooms); interaction via a bot, long polling. The Hermes base also speaks Discord, Slack, Teams, and Matrix; WhatsApp is on the roadmap. |
-| Runtime | Hermes Agent, pinned **by commit** (not by tag): re-running the installer does `git pull --ff-only`, which breaks on tags. The exact pin lives in `instance/smoke.sh` (`HERMES_PIN`). |
-| Hosting | Shared VPS, Linux ARM64; native install (no Docker), a non-sudoer service user (the admin installs system prerequisites beforehand). |
-| LLM | Z.AI provider, GLM coding plan with an explicit endpoint (`GLM_BASE_URL`); the plan's rate limit is shared. A secondary provider acts as a cross-provider fallback. |
+| Runtime | Hermes Agent, pinned **by commit** (not by tag): re-running the installer does `git pull --ff-only`, which breaks on tags. |
+| Hosting | Any Linux host. Native install (no Docker), running as a non-sudoer service user. Low footprint: long polling means no inbound ports, and the runtime is modest, so a small machine is enough. No special hardware requirement. |
+| LLM | Model-agnostic: any provider Hermes supports (OpenAI-compatible endpoints, hosted coding plans, or local models). A cross-provider fallback can be configured for resilience. Nothing in the design depends on a specific model. |
 | Repo policy | No internal hostname/id/chat in versioned files: a local (gitignored) denylist plus `scripts/check_privacy.sh` plus a pre-commit hook plus gitleaks in CI act as guards. A gitignored `.local/` holds private design drafts, the ops journal, and e2e secrets. |
 | Language | English for user-facing strings (README, errors, brief output) and for all identifiers. Some in-repo prose is still Italian (the current contributor community), migrating to English over time. |
 | Merge | Human only. No agent merges to `main`; auto-merge (phase 2) is design, not code. |
@@ -68,14 +59,15 @@ drive any software repository the same way.
 | Human team | Members of the forum group: they open tasks in the Backlog topic, discuss ideas, and receive reports. |
 | Admin (human) | The single admin for tiered commands, the only user in `allow_from` for DMs, and the **human merge gate** for PRs on GitHub. |
 | Steve instance | A Telegram bot: the main profile (Steve's "face" in the group) plus worker/reviewer profiles, a Kanban board, and factory execution. |
-| Worker agent (`scrat-ai-dev`) | The workers' GitHub identity: creates the branch, commits, pushes, opens the PR. Fine-grained PAT scoped to the target repos only; the git identity of the worktrees. It does not merge and does not approve. |
-| Reviewer agent (`scrat-ai-rev`) | The reviewer's GitHub identity: **author != approver**, made real by GitHub's rule. Re-runs the brief's verification commands and answers APPROVED or REQUEST_CHANGES. It does not merge. |
+| Worker agent | A dedicated GitHub identity for the workers: creates the branch, commits, pushes, and opens the PR. Fine-grained PAT scoped to the target repos only; the git identity of the worktrees. It does not merge and does not approve. |
+| Reviewer agent | A separate GitHub identity for the reviewer: **author != approver**, made real by GitHub's rule. Re-runs the brief's verification commands and answers APPROVED or REQUEST_CHANGES. It does not merge. |
 | e2e tester | A real Telegram account, driven by the MTProto injector (`tools/e2e/injector.py`), which posts as a genuine human: it exercises allowlists and mention-gating exactly like a real member. |
 
-The two bot identities (worker and reviewer) are distinct machine accounts: separating author
-from reviewer is what makes the review adversarial (one account cannot approve its own work),
-and it stays within GitHub's limit of one machine account per person because the phase-2
-merge-bot will be a **GitHub App** with a deterministic script, not a third account.
+The worker and reviewer are two distinct machine accounts: separating author from reviewer is
+what makes the review adversarial (one account cannot approve its own work), and it stays
+within GitHub's limit of one machine account per person because the phase-2 merge-bot will be
+a **GitHub App** with a deterministic script, not a third account. (In this repository's own
+factory these identities are `scrat-ai-dev` and `scrat-ai-rev`; the names are per-instance.)
 
 ### 3.2 Boundaries: what Steve does NOT do
 
@@ -118,14 +110,14 @@ enforcement.
 
 **4. One instance per project.** No runtime shared between teams: reusability comes from
 replicating the `instance/` blueprint (canonical config plus env.template plus smoke plus
-drift-check plus provisioning) onto a new service user/VPS, not from multi-tenancy.
+drift-check plus provisioning) onto a new service user/host, not from multi-tenancy.
 
 ## 5. Building block view
 
 ### 5.1 Instance (server side)
 
 ```
-VPS - dedicated unix user for the instance (home chmod 750)
+Linux host - dedicated unix user for the instance (home chmod 750)
 |
 +-- Hermes gateway (systemd user unit, Telegram long polling, zero exposed ports)
 |   +-- embedded Kanban dispatcher (claim / heartbeat / reclaim of tasks)
@@ -157,7 +149,7 @@ In the steve-agent repository (control and governance side):
 
 ### 5.2 Telegram group (team side)
 
-Forum-group layout, topics as rooms:
+A typical forum-group layout, topics as rooms:
 
 | Topic | Role |
 |---|---|
@@ -180,13 +172,13 @@ task/feature, specialized via `group_topics` (skill) and `channel_prompts` (prom
    worktree:<repo>/.worktrees/<task>`, `--branch`, `--goal`. The embedded dispatcher claims it
    (lock `host:PID`) and spawns the worker; heartbeat ~1/min.
 3. The worker works **only** in the worktree: dedicated branch, commits there, `main` untouched.
-   It opens the PR as `scrat-ai-dev`. It stops at "PR opened and verified": it does not merge.
+   It opens the PR as the worker identity. It stops at "PR opened and verified": it does not merge.
 4. The brief compiler (`tools/pr-brief.py`) computes the PR **tier** = max of the tiers of the
    touched files (`blast > propagation > safe`) and produces the review brief, delivered to the
    Backlog (the `pr-watch.sh` watcher on cron).
-5. The reviewer (`scrat-ai-rev`) **re-runs the brief's verification commands** (it does not
-   trust the worker's claim) and answers APPROVED or REQUEST_CHANGES. On REQUEST_CHANGES the
-   worker iterates on the same worktree.
+5. The reviewer identity **re-runs the brief's verification commands** (it does not trust the
+   worker's claim) and answers APPROVED or REQUEST_CHANGES. On REQUEST_CHANGES the worker
+   iterates on the same worktree.
 6. On APPROVED, a **human merges** on GitHub. The merge signal for the human is the approval
    notification, not the green button. Post-merge: CI runs on `main`, and the main-guard stays
    green (human committer).
@@ -230,14 +222,14 @@ The real environment (node-specific values live in the server-side `.env`, not h
 
 | Aspect | Value |
 |---|---|
-| Node | Shared VPS, Linux ARM64. Native install (no Docker), non-sudoer service user; prerequisites (ripgrep, build-essential, python3-dev, libffi-dev) installed system-wide by the admin beforehand. |
+| Node | Any Linux host. Native install (no Docker), non-sudoer service user; a few system prerequisites (ripgrep, build-essential, python3-dev, libffi-dev) installed by the admin beforehand. Modest CPU/RAM; no inbound ports. |
 | User | Dedicated unix user (`useradd -r`, home chmod 750, `loginctl enable-linger`, an `AllowUsers` line in sshd). |
 | Install | Official Hermes installer with `--commit <pin>`, as the service user without sudo. |
 | Layout | Config `~/.hermes/config.yaml`, secrets `~/.hermes/.env` (600), code `~/.hermes/hermes-agent` (uv-managed Python venv), binary in `~/.local/bin` (PATH via profile). |
 | Service | `hermes gateway install` -> systemd user unit; linger guarantees boot startup without login. |
 | Network | Long polling: **zero listening ports**. The dashboard/API port is always loopback only, started on demand. |
 | Logs | `~/.hermes/logs/gateway.log` (preferred: `journalctl --user` over a non-interactive SSH fails on journald permissions); per-task Kanban logs in `~/.hermes/kanban/logs/`. |
-| Provider | The provider key lives in `~/.hermes/.env`, never in chat or logs; explicit `GLM_BASE_URL` endpoint. Model for worker/reviewer/main: `glm-5.2` (zai); cross-provider fallback on a different-family model. |
+| Provider | The configured LLM provider's key lives in `~/.hermes/.env`, never in chat or logs, with an explicit endpoint. Model choice is per-instance; a cross-provider fallback can be set for resilience. |
 | Bot | The instance's bot is an admin of the team's forum group. |
 
 Remote administration from an ops workstation via an SSH alias; `smoke.sh` and `drift-check.sh`
@@ -289,10 +281,11 @@ the policy introduces a constraint without the corresponding test.
 ### 8.4 Personas via SOUL and channel_prompts
 
 Each profile loads its own `SOUL.md` from the profile home plus `CLAUDE.md`/`AGENTS.md` from the
-worktree. The main's persona is **Steve Jobs** (direct and sharp about the why, "real artists
-ship", an obsession with simplicity, zero sycophancy); worker and reviewer have distinct role
-SOULs. `channel_prompts` (flat string keys = chat_id or thread_id) applies a different system
-prompt per topic and is the vehicle for any additional per-topic personalities.
+worktree. The persona is per-instance and lives in `SOUL.md`; the worker and reviewer carry
+distinct role personas. (This repository's own instance runs a Steve Jobs persona on the main:
+direct and sharp about the why, "real artists ship", an obsession with simplicity, zero
+sycophancy.) `channel_prompts` (flat string keys = chat_id or thread_id) applies a different
+system prompt per topic and is the vehicle for any additional per-topic personalities.
 
 ### 8.5 Safe self-hosting
 
@@ -315,12 +308,12 @@ probe (verify at the source before claiming that an option exists).
 `smoke.sh` runs over SSH and verifies: (1) ssh reachable; (2) pinned Hermes version; (3) gateway
 active; (4) telegram connected (log); (5) `.env` keys present; (6) `.env` perms 600; (7) no
 unexpected listeners (loopback only); (8) **main free of bot pushes**: on the first-parent history
-of `origin/main` there is no commit with committer `scrat-ai-*` (direct pushes or merges executed
-by the bot; commits *authored* by the bot that arrived via a human merge are legitimate); (9)
-**main merges have approved reviews**: every merge on `main` after a dynamic baseline has at least
-one APPROVED review from an account different from the author. Checks 8 and 9 are the **main-guard
-v2**: a detective guard while branch protection is not available (Free repo), preventive after the
-flip to public.
+of `origin/main` there is no commit whose committer is a bot identity (direct pushes or merges
+executed by the bot; commits *authored* by the bot that arrived via a human merge are legitimate);
+(9) **main merges have approved reviews**: every merge on `main` after a dynamic baseline has at
+least one APPROVED review from an account different from the author. Checks 8 and 9 are the
+**main-guard v2**: a detective guard while branch protection is not available (Free repo),
+preventive after the flip to public.
 
 ### 8.8 Things that bite (structural gotchas)
 
@@ -344,17 +337,17 @@ flip to public.
 
 | # | Decision |
 |---|---|
-| D1 | Runtime: Hermes pinned **by commit**, native install, a dedicated unix user on a shared VPS, systemd user unit plus linger, long polling (zero ports); dashboard/API loopback only. |
+| D1 | Runtime: Hermes pinned **by commit**, native install, a dedicated unix user on a Linux host, systemd user unit plus linger, long polling (zero ports); dashboard/API loopback only. |
 | D2 | A SINGLE Telegram profile plus group-scope slash-command tiering; DM keys are a separate scope, the admin is NOT cross-scope; no second admin bot. |
 | D3 | ACL: whole-group posture (`TELEGRAM_GROUP_ALLOWED_CHATS`) for the team group plus `allow_from` for DMs; axes in OR with short-circuit on the group. |
 | D4 | Factory isolation: Kanban workspace `worktree:<path>` with a dedicated branch and an embedded dispatcher (crash/reclaim proven); NEVER rely on `hermes -w` in one-shot. |
 | D5 | Verification of work: completion contracts (`--goal`) with `verify:` on real commands, **re-run by the reviewer**; synchronous `delegate_task` only for short sub-questions. |
-| D6 | LLM: zai provider, GLM coding plan with an explicit endpoint; model `glm-5.2` for worker/reviewer/main, cross-provider fallback on a different family. Family diversity on the reviewer (so the same model does not both write and judge) is desired but requires a billed key: deferred. |
-| D7 | Roles with **separate GitHub identities**: `scrat-ai-dev` (worker: commit/push/PR, fine-grained PAT) and `scrat-ai-rev` (reviewer: author != approver, isolated credentials). No agent merges. The main's persona is Steve Jobs; role SOULs for worker/reviewer. |
+| D6 | LLM: model-agnostic. An instance configures any Hermes-supported provider for worker/reviewer/main, optionally with a cross-provider fallback for resilience. Running the reviewer on a different model family from the worker (so the same model does not both write and judge) is desirable; it is a per-instance choice. |
+| D7 | Roles with **separate GitHub identities**: a worker (commit/push/PR, fine-grained PAT) and a reviewer (author != approver, isolated credentials). No agent merges. The concrete account names and the persona are per-instance (this repository's factory uses `scrat-ai-dev`, `scrat-ai-rev`, and a Steve Jobs persona on the main). |
 | D8 | Governance-as-code in `.steve/`: deterministic path-based tiers (`blast/propagation/safe`, PR = max, fail-safe default), `tools/pr-brief.py` as the gate on every PR, a versioned PR lifecycle. `tools/**` `scripts/**` `.github/**` `.steve/**` in `propagation` (the gate cannot tamper with itself cheaply). |
 | D9 | Anti-drift and health: config-as-code in `instance/` (config plus profiles plus skill plus env.template), `drift-check.sh` that flags and does not restore, `smoke.sh` with 9 checks and main-guard v2, CI (`checks`: brief self-test, `bash -n`, shellcheck, gitleaks), a privacy guard (denylist plus pre-commit plus `check_privacy.sh`), and an append-only ops journal. |
 | D10 | Safe self-hosting: the instance develops the REPO (worktree, PR, human merge gate), never its own runtime/live config; instance upgrades only from the outside, traced. |
-| D11 | One instance per project: reusability via replicating the `instance/` blueprint onto a new service user/VPS, not multi-tenancy. |
+| D11 | One instance per project: reusability via replicating the `instance/` blueprint onto a new service user/host, not multi-tenancy. |
 | D12 | License: Business Source License (BUSL) 1.1: source-available, free for noncommercial use (personal, research, education, nonprofit, evaluation), Change License Apache-2.0 four years after each release. The MIT portions of Hermes Agent remain covered by the `NOTICE`. |
 
 ### 9.2 Phase 2: safe auto-merge (specification, not implementation)
@@ -380,12 +373,12 @@ restricting merge to the App).
 
 | # | Risk / debt | Detail and mitigation |
 |---|---|---|
-| R1 | **LLM provider fragility** | Recurring outages: the primary (zai `glm-5.2`) hits HTTP 429 (overload) and the free-tier fallback exhausts its quota. **Mitigation**: a billed key or a reliable second provider before depending on it as a safety net; current recovery = a read-only probe plus `kanban unblock` when the provider returns. |
+| R1 | **LLM provider fragility** | Outages depend on the chosen provider: a primary can hit HTTP 429 (overload) and a free-tier fallback can exhaust its quota. **Mitigation**: a billed key or a reliable second provider before depending on it as a safety net; recovery = a read-only probe plus `kanban unblock` when the provider returns. |
 | R2 | **Upstream `rc=0` bug on a fatal API error** | A worker can exit clean (exit 0) without `kanban_complete`/`block` on a fatal API error, violating the protocol and making the dispatcher give up on the task. Recurring. **Mitigation**: an upstream issue candidate; workaround = complete/unblock the task manually. |
 | R3 | **Orphaned review dispatch after a session reset** | The daily reset leaves review tasks in `todo` with no auto-dispatch while the main is idle: a task can stay orphaned for hours. **Mitigation**: a message in the Backlog wakes Steve; a candidate for a cron-nudge or a todo auto-dispatcher. |
-| R4 | **LLM-on-LLM chain** | Worker and reviewer are both LLMs: adversarial review reduces but does not eliminate the risk of correlated errors. **Mitigation**: re-run the verify (do not trust the claim), family diversity on the reviewer (D6, deferred), the guard on `main`. |
+| R4 | **LLM-on-LLM chain** | Worker and reviewer are both LLMs: adversarial review reduces but does not eliminate the risk of correlated errors. **Mitigation**: re-run the verify (do not trust the claim), family diversity on the reviewer (D6), the guard on `main`. |
 | R5 | **Completion contracts under the adverse case** | Proven mostly on the happy path. **Mitigation**: the reviewer re-running the verify and the deterministic gate cover most of it; a probe with a task designed to fail would close the remaining trust gap. |
-| R6 | **Shared LLM plan rate limit** | The coding plan is shared: frequent board runs can collide. **Mitigation**: monitor; a dedicated key/plan before increasing worker concurrency. |
+| R6 | **Shared LLM plan rate limit** | If the provider plan is shared or rate-limited, frequent board runs can collide. **Mitigation**: monitor; a dedicated key/plan before increasing worker concurrency. |
 | R7 | **Durability of the private design/journal** | The journal and private design live in `.local/` (gitignored), not versioned elsewhere. **Mitigation**: node backup plus distilling the public installation guide from the journal's seeds (this document is already the first public distillate). |
 
 ## 11. Minimal glossary
@@ -401,7 +394,6 @@ restricting merge to the App).
 | `channel_prompts` | Hermes config: a flat dictionary `{chat_id/thread_id: prompt}` that injects a per-topic system prompt. |
 | Injector | An MTProto user-account (`tools/e2e/injector.py`) that simulates a real human in the group for e2e tests. |
 | Blueprint / drift | `instance/` = the versioned canonical copy of an instance's config; drift = live vs repo divergence, detected by `drift-check.sh` (flags, does not restore). |
-| Squirrels | The agents' GitHub identities: `scrat-ai-dev` (worker) and `scrat-ai-rev` (reviewer), distinct machine accounts. |
 
 ---
 
