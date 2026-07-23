@@ -1,6 +1,6 @@
 # Steve Agent Instance Installation Guide
 
-This guide walks through deploying a new Steve Agent (Hermes Agent) instance on an Ubuntu VPS. It covers prerequisites, Hermes installation, LLM provider setup, Telegram integration, gateway as a systemd service, and blueprint verification.
+This guide walks through deploying a new Steve Agent (Hermes Agent) instance on a Linux host. It covers prerequisites, Hermes installation, LLM provider setup, Telegram integration, gateway as a systemd service, and blueprint verification. The steps use Ubuntu and a GLM coding plan as concrete examples: adapt the package-manager commands to your distribution and the provider settings to any Hermes-supported model.
 
 ## 1. Prerequisites
 
@@ -16,7 +16,7 @@ Ensure `xz-utils`, `git`, `curl`, `ffmpeg`, and `jq` are also present.
 
 ### Dedicated Unprivileged User
 
-Create a dedicated service user following the `ha-<name>` pattern. This user will run the Hermes agent and should not have sudo privileges.
+Create a dedicated service user, using a naming pattern such as `ha-<name>`. This user will run the Hermes agent and should not have sudo privileges.
 
 ```bash
 sudo useradd -r -s /bin/bash -d /srv/ha-<instance-name> -m ha-<instance-name>
@@ -49,7 +49,7 @@ sudo systemctl reload ssh
 Verify login as the service user and that user services are enabled:
 
 ```bash
-ssh ha-<instance-name>@<vps-host>
+ssh ha-<instance-name>@<host>
 systemctl --user is-system-running
 # Expected output: running
 ```
@@ -58,7 +58,7 @@ Configure git identity for the service user (needed for worktree commits):
 
 ```bash
 git config --global user.name "ha-<instance-name>"
-git config --global user.email "ha-<instance-name>@<vps-host>.local"
+git config --global user.email "ha-<instance-name>@<host>.local"
 ```
 
 ## 2. Install Hermes
@@ -93,7 +93,7 @@ Installation creates the following layout:
 
 ## 3. LLM Provider Setup
 
-This guide uses Z.AI GLM as the LLM provider with the coding plan endpoint.
+Steve Agent is model-agnostic: any Hermes-supported provider works (an OpenAI-compatible endpoint, a hosted plan, or a local model). This guide uses a Z.AI GLM coding plan as the concrete example; substitute your provider's key, endpoint, and model in the steps below.
 
 ### API Key Configuration
 
@@ -121,10 +121,10 @@ Set the provider and default model:
 
 ```bash
 hermes config set model.provider zai
-hermes config set model.default glm-4.7
+hermes config set model.default glm-5.2
 ```
 
-The coding plan also supports `glm-5.2`, `glm-5-turbo`, and `glm-4.5-air`. Rate limits are shared across instances on the same plan.
+The coding plan also supports `glm-4.7`, `glm-5-turbo`, and `glm-4.5-air`. Rate limits may be shared across instances on the same plan.
 
 Clean up any default base URL from the template:
 
@@ -267,7 +267,7 @@ The smoke script verifies core functionality:
 ./instance/smoke.sh
 ```
 
-Expected: 8/8 checks PASS (latest version includes GitHub bot push protection).
+Expected: 9/9 checks PASS (includes the main-guard: no bot pushes to main, and merges require an approved review).
 
 ### Run Drift Check
 
