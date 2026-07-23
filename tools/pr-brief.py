@@ -3,7 +3,7 @@
 
 Triage deterministico basato sui path (non LLM): per ogni file modificato
 trova il tier tramite i pattern della policy .steve/review-policy.yaml; il
-tier della PR e' il max tra tutti i file (blast > propagazione > sicuro).
+tier della PR e' il max tra tutti i file (blast > propagation > safe).
 Stampa il brief compilato su stdout seguendo .steve/review-brief-template.md.
 
 L'invio del brief e la decisione di merge NON sono compito di questo tool:
@@ -22,10 +22,10 @@ from pathlib import Path
 
 import yaml
 
-# Ordine di gravita: blast (outage) > propagazione (bug replicato) > sicuro.
-TIER_ORDER = {"sicuro": 0, "propagazione": 1, "blast": 2}
+# Ordine di gravita: blast (outage) > propagation (bug replicato) > safe.
+TIER_ORDER = {"safe": 0, "propagation": 1, "blast": 2}
 # Tier di default quando nessun pattern matcha: fail-safe, non fast.
-DEFAULT_TIER = "propagazione"
+DEFAULT_TIER = "propagation"
 
 # Path coinvolti nel gate D4 (vincoli senza test).
 REVIEW_POLICY_PATH = ".steve/review-policy.yaml"
@@ -63,15 +63,15 @@ def check_d4_gate(files):
 
 
 def escalate_tier_for_d4(pr_tier_name, d4_active):
-    """Se il gate D4 e' attivo, il tier effettivo sale almeno a propagazione.
+    """Se il gate D4 e' attivo, il tier effettivo sale almeno a propagation.
 
-    Se era sicuro diventa propagazione; se era gia' propagazione o blast
+    Se era safe diventa propagation; se era gia' propagation o blast
     resta tale.
     """
     if not d4_active:
         return pr_tier_name
-    if TIER_ORDER.get(pr_tier_name, 1) < TIER_ORDER["propagazione"]:
-        return "propagazione"
+    if TIER_ORDER.get(pr_tier_name, 1) < TIER_ORDER["propagation"]:
+        return "propagation"
     return pr_tier_name
 
 
@@ -234,7 +234,7 @@ def render_brief(template_text, number, title, branch, tier_upper,
             i += 1
             while i < len(lines) and lines[i].lstrip().startswith("- <path>"):
                 i += 1
-            # Inserisci i file critici reali (blast e propagazione)
+            # Inserisci i file critici reali (blast e propagation)
             for path, ftier, pattern in critical_files:
                 perche = pattern if pattern else "default (nessun match)"
                 output.append("- {}  ({}, {})".format(path, ftier, perche))
@@ -287,15 +287,15 @@ def run_self_test():
 
     cases = [
         ("instance/config.yaml", "blast"),
-        (".steve/qualcosa/file.md", "propagazione"),
-        ("tools/x.py", "propagazione"),
-        ("scripts/foo.sh", "propagazione"),
-        (".github/workflows/ci.yml", "propagazione"),
-        ("README.md", "sicuro"),
-        ("CLAUDE.md", "sicuro"),
-        ("AGENTS.md", "sicuro"),
-        (".gitignore", "sicuro"),
-        ("percorso-ignoto.xyz", "propagazione"),
+        (".steve/qualcosa/file.md", "propagation"),
+        ("tools/x.py", "propagation"),
+        ("scripts/foo.sh", "propagation"),
+        (".github/workflows/ci.yml", "propagation"),
+        ("README.md", "safe"),
+        ("CLAUDE.md", "safe"),
+        ("AGENTS.md", "safe"),
+        (".gitignore", "safe"),
+        ("percorso-ignoto.xyz", "propagation"),
     ]
     for path, expected in cases:
         got, _ = file_tier(path, tiers)
@@ -323,7 +323,7 @@ def run_self_test():
     template_text = template_path.read_text()
     sample_brief = render_brief(
         template_text, number=1, title="sample", branch="feat/sample",
-        tier_upper="SICURO", critical_files=[], summary_text="x",
+        tier_upper="SAFE", critical_files=[], summary_text="x",
         task_id=None, d4_active=False)
     assert "Leggi prima (nel worktree): README.md, CLAUDE.md, .steve/review-policy.yaml" in sample_brief, \
         "sezione 'Leggi prima' mancante nel brief renderizzato"
@@ -333,15 +333,15 @@ def run_self_test():
     files_policy_only = [REVIEW_POLICY_PATH]
     assert check_d4_gate(files_policy_only) is True, \
         "D4 dovrebbe attivarsi con solo review-policy.yaml"
-    escalated = escalate_tier_for_d4("sicuro", True)
-    assert escalated == "propagazione", \
-        "D4 attivo: tier sicuro dovrebbe salire a propagazione, ottenuto {}".format(
+    escalated = escalate_tier_for_d4("safe", True)
+    assert escalated == "propagation", \
+        "D4 attivo: tier safe dovrebbe salire a propagation, ottenuto {}".format(
             escalated)
     # Entrambi i file -> D4 NON attivo (il compilatore e' stato toccato)
     files_both = [REVIEW_POLICY_PATH, PR_BRIEF_PATH]
     assert check_d4_gate(files_both) is False, \
         "D4 NON dovrebbe attivarsi quando pr-brief.py e' nel diff"
-    assert escalate_tier_for_d4("sicuro", False) == "sicuro", \
+    assert escalate_tier_for_d4("safe", False) == "safe", \
         "D4 inattivo: tier non deve cambiare"
 
     print("self-test ok")
@@ -401,11 +401,11 @@ def main():
     d4_active = check_d4_gate(files)
     pr_tier_name = escalate_tier_for_d4(pr_tier_name, d4_active)
 
-    # File critici: solo blast e propagazione (con il pattern che ha fatto match)
+    # File critici: solo blast e propagation (con il pattern che ha fatto match)
     critical = [
         (path, ftier, pattern)
         for path, ftier, pattern in file_results
-        if ftier in ("blast", "propagazione")
+        if ftier in ("blast", "propagation")
     ]
 
     summary = extract_summary(body, args.summary)

@@ -26,7 +26,7 @@ Queste non sono Linee guida. Sono confini che non attraversi mai:
   non la fai tu.
 - **Leggi PRIMA** i file di contesto e applichi il tier che ne deriva:
   `README.md`, `CLAUDE.md` e `.steve/review-policy.yaml`. Il tier della PR
-  è il massimo tra i file toccati (`blast > propagazione > sicuro`); per i
+  è il massimo tra i file toccati (`blast > propagation > safe`); per i
   tier che richiedono brief con firma umana la review è più severa.
 - **RIESEGUI i verify** riportati nel brief di review e incolla l'esito
   (stdout + exit code) nel result. Un verify non rieseguito è un verify

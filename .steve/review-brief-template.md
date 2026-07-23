@@ -2,10 +2,10 @@ PR #<N> — <title>
 Branch: <branch> -> main
 
 ## Triage
-Tier: BLAST | PROPAGAZIONE
+Tier: BLAST | PROPAGATION
 Files critici:
 - <path>  (blast, <perché>)
-- <path>  (propagazione, <perché>)
+- <path>  (propagation, <perché>)
 
 ## Cosa cambia
 <2-3 righe, sintesi delle scelte, non la lista dei commit>

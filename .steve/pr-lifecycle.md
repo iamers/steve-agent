@@ -34,7 +34,7 @@ Il criterio di verifica del brief ammette due path.
 1. Una PR viene aperta.
 2. Il compilatore (`tools/pr-brief.py`) calcola il tier di ogni file modificato
    contro `.steve/review-policy.yaml` e produce il brief: il tier della PR e'
-   il massimo tra i file (`blast > propagazione > sicuro`).
+   il massimo tra i file (`blast > propagation > safe`).
 3. Il brief viene consegnato nel topic Backlog (oggi tramite il watcher
    `instance/pr-watch.sh` su cron).
 4. Un revisore risponde `approve` (oppure `approve with: <nota>`).
@@ -62,7 +62,7 @@ la decisione, non il giudizio libero del revisore.
 | CI (`.github/workflows/ci.yml`) | esiste: job `checks`, 4 step (lanciata su ogni PR) | estensione step di validazione del brief |
 | Approvazione | `approve` in chat, merge manuale su GitHub | comando approve tracciato + auto-merge |
 | Auto-merge | non implementato | identita' bot dedicata, solo con marcatura |
-| Check "vincoli senza test" (D4) | esiste: gate D4 minimale nel compilatore (vincolo su review-policy senza test -> tier sale a propagazione + firma umana) | copertura vincoli oltre review-policy |
+| Check "vincoli senza test" (D4) | esiste: gate D4 minimale nel compilatore (vincolo su review-policy senza test -> tier sale a propagation + firma umana) | copertura vincoli oltre review-policy |
 
 Oggi l'approve porta a un merge manuale su GitHub eseguito da un umano: il
 sistema concentra la decisione ma non chiude ancora il ciclo in autonomia.
@@ -88,8 +88,8 @@ la tracciabilita' e la guardia su main. Specifica:
 4. **Tier esclusi dall'auto-merge.** Restano fuori dall'auto-merge i tier per
    cui la policy richiede il brief con firma umana, secondo
    `rules.brief_required_for` in `.steve/review-policy.yaml` (oggi: blast e
-   propagazione). Per quei tier l'approve va oltre la marcatura e richiede
-   firma umana esplicita: l'auto-merge si ferma al tier `sicuro`.
+   propagation). Per quei tier l'approve va oltre la marcatura e richiede
+   firma umana esplicita: l'auto-merge si ferma al tier `safe`.
 
 La fase 2 e' disegno: nessuna di queste parti e' ancora codice. Quando si
 implementera', ogni voce di questa sezione diventera' un task separato, e la
