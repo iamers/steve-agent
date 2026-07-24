@@ -93,6 +93,38 @@ decide_merge() {
     return 0
 }
 
+# ci_verdict <checkruns_ok> <combined_state> <legacy_total_count>
+# Prints "1" (green) or "0" (not green). Pure: no network, no credentials.
+# Encodes the SOLE interpretation of CI state so --self-test can cover it;
+# cond_ci() calls this after gathering the raw fields.
+#
+# Inputs:
+#   checkruns_ok        "1" if every check-run is completed+success, else "0".
+#   combined_state      legacy /commits/<sha>/status "state" field (may be "").
+#   legacy_total_count  legacy /commits/<sha>/status "total_count" field.
+#
+# The legacy combined state is honored ONLY when legacy statuses actually exist
+# (total_count > 0). GitHub sends state="pending" with total_count=0 on repos
+# that use only GitHub Actions: that aggregate "pending" must NOT declass a
+# green check-run result, since there are no real statuses to evaluate.
+ci_verdict() {
+    local checkruns_ok="$1" combined_state="$2" legacy_total_count="$3"
+    # Check-runs are the primary verdict: not all success -> not green.
+    [ "$checkruns_ok" = "1" ] || { echo "0"; return; }
+    # Sanitize total_count to an integer (treat non-numeric/empty as 0).
+    case "$legacy_total_count" in
+        ''|*[!0-9]*) legacy_total_count=0 ;;
+    esac
+    # Degrade only when a real legacy status exists and is not green.
+    if [ "$legacy_total_count" -gt 0 ]; then
+        case "$combined_state" in
+            success) : ;;            # legacy statuses are green
+            *) echo "0"; return ;;   # pending/failure/error/"" -> a legacy status is not green
+        esac
+    fi
+    echo "1"
+}
+
 # ===========================================================================
 # Self-test: exercises decide_merge with injected fixtures (no network).
 # Mirrors tools/pr-brief.py --self-test.
@@ -124,6 +156,20 @@ _selftest_check() {
     echo "ok: ${desc} -> ${verdict}"
 }
 
+# _selftest_ci <desc> <checkruns_ok> <combined_state> <legacy_total_count> <expected(1|0)>
+# Exercises the pure ci_verdict() function with injected inputs.
+_selftest_ci() {
+    local desc="$1" exp="$5"
+    local got
+    got=$(ci_verdict "$2" "$3" "$4")
+    if [ "$got" != "$exp" ]; then
+        echo "FAIL: ${desc}: ci_verdict($2,$3,$4) expected ${exp}, got '${got}'"
+        SELFTEST_FAILS=$((SELFTEST_FAILS + 1))
+        return
+    fi
+    echo "ok: ${desc} -> ${got}"
+}
+
 run_self_test() {
     # All conditions true -> MERGE.
     _selftest_check "all conditions true" "MERGE" "" 1 1 1 safe 1 1 1
@@ -142,6 +188,16 @@ run_self_test() {
 
     # (d) safe-tier reason must not be confused with the others.
     _selftest_check "(d) tier=safe passes" "MERGE" "" 1 1 1 safe 1 1 1
+
+    # ci_verdict: the pure CI interpretation extracted from cond_ci. These guard
+    # the bug where state="pending" with total_count=0 declasses a green
+    # check-run result on repos that use only GitHub Actions.
+    _selftest_ci "ci_verdict: checkruns ok, no legacy statuses (THE BUG)" 1 pending 0 1
+    _selftest_ci "ci_verdict: checkruns ok, legacy green" 1 success 3 1
+    _selftest_ci "ci_verdict: checkruns ok, legacy failure declasses" 1 failure 2 0
+    _selftest_ci "ci_verdict: checkruns red stays red" 0 success 0 0
+    # Edge: non-numeric/empty total_count is treated as 0 (no legacy statuses).
+    _selftest_ci "ci_verdict: garbage total_count treated as 0" 1 pending "" 1
 
     if [ "$SELFTEST_FAILS" -ne 0 ]; then
         echo "self-test FAILED: ${SELFTEST_FAILS} assertion(s) failed"
@@ -332,14 +388,16 @@ PY
 }
 
 # cond_ci <token> <repo> <head_sha>: sets COND_C_CI.
-# Green = all check-runs completed with conclusion success, and combined
-# commit status is success (or absent). Incomplete or failing -> not green.
+# Green = all check-runs completed with conclusion success, and the legacy
+# combined commit status is green OR absent (total_count=0). Incomplete or
+# failing -> not green. The state interpretation lives in ci_verdict() (pure).
 cond_ci() {
-    local token="$1" repo="$2" head_sha="$3" status state
+    local token="$1" repo="$2" head_sha="$3" status
+    local checkruns_ok combined_state legacy_total_count
     COND_C_CI="0"
     status=$(gh_api GET "token ${token}" "/repos/${repo}/commits/${head_sha}/check-runs")
     echo "$status" | grep -q '^2' || return 1
-    COND_C_CI=$(python3 - "$GH_API_BODY" <<'PY' 2>/dev/null
+    checkruns_ok=$(python3 - "$GH_API_BODY" <<'PY' 2>/dev/null
 import sys, json
 try:
     data = json.load(open(sys.argv[1]))
@@ -353,16 +411,15 @@ ok = all(r.get("status") == "completed" and r.get("conclusion") == "success" for
 print("1" if ok else "0")
 PY
 )
-    [ "$COND_C_CI" = "1" ] || return 0
-    # Also honor legacy commit statuses when present.
+    # Legacy combined status: green by default; honored only if it exists.
+    combined_state=""
+    legacy_total_count=0
     status=$(gh_api GET "token ${token}" "/repos/${repo}/commits/${head_sha}/status")
     if echo "$status" | grep -q '^2'; then
-        state=$(read_field "$GH_API_BODY" "state")
-        case "$state" in
-            success|"") : ;;      # green or no statuses
-            *) COND_C_CI="0" ;;   # pending/failure/error -> not green
-        esac
+        combined_state=$(read_field "$GH_API_BODY" "state")
+        legacy_total_count=$(read_field "$GH_API_BODY" "total_count")
     fi
+    COND_C_CI=$(ci_verdict "$checkruns_ok" "$combined_state" "$legacy_total_count")
     return 0
 }
 
