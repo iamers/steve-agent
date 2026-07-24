@@ -61,6 +61,12 @@ Steve Agent is built on [Hermes Agent](https://github.com/nousresearch/hermes-ag
 
 A working factory today: tasks flow from chat to reviewed PRs, with an instance blueprint, CI, and a main-guard all in place. Future roadmap: auto-merge via a GitHub App, a WhatsApp layout, idea round-tables with multi-role subagents, and multi-project support.
 
+## Community
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) - how to contribute: branching, pull requests, review tiers, and the merge flow.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) - the community standards we expect from contributors.
+- [SECURITY.md](SECURITY.md) - how to report a vulnerability responsibly.
+
 ## License
 
 Source-available under the Business Source License (BUSL) 1.1. Free for
