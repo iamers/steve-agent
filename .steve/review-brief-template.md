@@ -3,19 +3,19 @@ Branch: <branch> -> main
 
 ## Triage
 Tier: BLAST | PROPAGATION
-Files critici:
-- <path>  (blast, <perché>)
-- <path>  (propagation, <perché>)
+Critical files:
+- <path>  (blast, <reason>)
+- <path>  (propagation, <reason>)
 
-## Cosa cambia
-<2-3 righe, sintesi delle scelte, non la lista dei commit>
+## What changes
+<2-3 lines, summary of the decisions, not the commit list>
 
-## Scelte non banali
-- <decisione tecnica + ragione>
+## Non-obvious decisions
+- <technical decision + reason>
 
-## Verifica
-- [ ] CI verde
-- [ ] <criterio specifico al tier, es. "config caricata in dry-run senza errori">
+## Verification
+- [ ] CI green
+- [ ] <tier-specific criterion, e.g. "config loads in dry-run without errors">
 
 ---
-Approvazione: rispondere `approve` | `approve with: <nota>` | `reject: <motivo>`
+Approval: reply `approve` | `approve with: <note>` | `reject: <reason>`
