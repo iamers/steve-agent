@@ -17,7 +17,7 @@ echo "== config.yaml (live vs repo) =="
 #    gateway, non configurazione
 strip_blocks='/^(dashboard|onboarding):/{skip=1; next} /^[A-Za-z_]/{skip=0} !skip'
 if diff -u <(awk "$strip_blocks" config.yaml) <(ssh "$HOST" 'cat ~/.hermes/config.yaml' | awk "$strip_blocks") ; then
-  echo "OK: config.yaml allineato (blocchi dashboard e onboarding esclusi)"
+  echo "OK: config.yaml aligned (dashboard and onboarding blocks excluded)"
 else
   drift=1
 fi
@@ -25,37 +25,37 @@ fi
 echo
 echo "== SOUL.md (live vs repo) =="
 if ssh "$HOST" 'cat ~/.hermes/SOUL.md 2>/dev/null' | diff -u SOUL.md - ; then
-  echo "OK: SOUL.md allineato"
+  echo "OK: SOUL.md aligned"
 else
   drift=1
 fi
 
 echo
-echo "== SOUL profili (live vs repo) =="
+echo "== SOUL profiles (live vs repo) =="
 # Confronta il SOUL.md canonico di ogni profilo worker con la copia live.
 for profile in steve-worker steve-reviewer; do
   canonical="profiles/$profile/SOUL.md"
   if [ ! -f "$canonical" ]; then
-    echo "DRIFT: $profile — copia canonica mancante ($canonical)"
+    echo "DRIFT: $profile — missing canonical copy ($canonical)"
     drift=1
     continue
   fi
   if ssh "$HOST" "cat ~/.hermes/profiles/$profile/SOUL.md 2>/dev/null" | diff -u "$canonical" - ; then
-    echo "OK: $profile SOUL.md allineato"
+    echo "OK: $profile SOUL.md aligned"
   else
     drift=1
   fi
 done
 
 echo
-echo "== .env: chiavi valorizzate (nomi, non valori) =="
+echo "== .env: keys set (names, not values) =="
 live_keys=$(ssh "$HOST" 'grep -oE "^[A-Z_]+=" ~/.hermes/.env | sort -u' | tr -d =)
 tmpl_keys=$(grep -oE '^[A-Z_]+=' env.template | tr -d = | sort -u)
 missing=$(comm -23 <(echo "$tmpl_keys") <(echo "$live_keys"))
 extra=$(comm -13 <(echo "$tmpl_keys") <(echo "$live_keys"))
-[ -n "$missing" ] && { echo "MANCANTI sull'istanza:"; echo "$missing"; drift=1; }
-[ -n "$extra" ]   && { echo "PRESENTI live ma non nel template (valutare se aggiungerle):"; echo "$extra"; drift=1; }
-[ -z "$missing$extra" ] && echo "OK: chiavi allineate"
+[ -n "$missing" ] && { echo "MISSING on instance:"; echo "$missing"; drift=1; }
+[ -n "$extra" ]   && { echo "PRESENT live but not in template (consider whether to add them):"; echo "$extra"; drift=1; }
+[ -z "$missing$extra" ] && echo "OK: keys aligned"
 
 echo
 echo "== worker profiles =="
@@ -63,7 +63,7 @@ echo "== worker profiles =="
 profiles=$(ssh "$HOST" 'ls -d ~/.hermes/profiles/*/ 2>/dev/null | xargs -n1 basename | sort -u')
 
 if [ -z "$profiles" ]; then
-  echo "OK: nessun profilo presente"
+  echo "OK: no profiles present"
 else
   profiles_ok=true
   for profile in $profiles; do
@@ -81,12 +81,12 @@ else
       ghconfig_check=$(ssh "$HOST" "[ -L ~/.hermes/profiles/$profile/home/.config/gh ] && [ \"\$(readlink ~/.hermes/profiles/$profile/home/.config/gh)\" = ~/.config/gh ] && echo OK || echo FAIL")
 
       if [ "$gitconfig_check" = "OK" ] && [ "$ghconfig_check" = "OK" ]; then
-        echo "OK: $profile (shared, symlink corretti)"
+        echo "OK: $profile (shared, symlinks correct)"
       else
-        echo "DRIFT: $profile (shared, symlink mancanti o errati)"
+        echo "DRIFT: $profile (shared, symlinks missing or wrong)"
         echo "  - .gitconfig: $gitconfig_check"
         echo "  - .config/gh: $ghconfig_check"
-        echo "  Esegui sull'istanza: cd ~/repos/steve-agent && ./instance/provision-worker.sh $profile"
+        echo "  Run on the instance: cd ~/repos/steve-agent && ./instance/provision-worker.sh $profile"
         drift=1
         profiles_ok=false
       fi
@@ -98,30 +98,30 @@ else
       gitconfig_check=$(ssh "$HOST" "[ ! -L ~/.hermes/profiles/$profile/home/.gitconfig ] && echo OK || echo FAIL")
 
       if [ "$gitconfig_check" = "OK" ] && [ "$ghconfig_check" = "OK" ]; then
-        echo "OK: $profile (isolated, credenziali isolate)"
+        echo "OK: $profile (isolated, credentials isolated)"
       else
-        echo "DRIFT: $profile (isolated, credenziali non conformi)"
-        echo "  - .gitconfig: $gitconfig_check (deve essere assente o file regolare, NON un symlink)"
-        echo "  - .config/gh: $ghconfig_check (deve essere una directory reale contenente hosts.yml)"
-        echo "  Per profili isolated usa: HOME=~/.hermes/profiles/$profile/home gh auth login"
-        echo "  NON eseguire provision-worker.sh per profili isolated"
+        echo "DRIFT: $profile (isolated, credentials non-compliant)"
+        echo "  - .gitconfig: $gitconfig_check (must be absent or a regular file, NOT a symlink)"
+        echo "  - .config/gh: $ghconfig_check (must be a real directory containing hosts.yml)"
+        echo "  For isolated profiles use: HOME=~/.hermes/profiles/$profile/home gh auth login"
+        echo "  Do NOT run provision-worker.sh for isolated profiles"
         drift=1
         profiles_ok=false
       fi
     else
-      echo "DRIFT: $profile (mode non valido: $mode, deve essere 'shared' o 'isolated')"
+      echo "DRIFT: $profile (invalid mode: $mode, must be 'shared' or 'isolated')"
       drift=1
       profiles_ok=false
     fi
   done
 
   if $profiles_ok; then
-    echo "OK: tutti i profili conformi"
+    echo "OK: all profiles compliant"
   fi
 fi
 
 echo
-echo "== profili: config.yaml (live vs repo) =="
+echo "== profiles: config.yaml (live vs repo) =="
 
 # Profili live sull'istanza
 live_profiles=$(ssh "$HOST" 'ls -d ~/.hermes/profiles/*/ 2>/dev/null | xargs -n1 basename | sort -u')
@@ -130,19 +130,19 @@ canonical_profiles=$(find profiles -maxdepth 1 -mindepth 1 -type d -exec basenam
 
 # Nessun profilo live e nessuna copia canonica = OK
 if [ -z "$live_profiles" ] && [ -z "$canonical_profiles" ]; then
-  echo "OK: nessun profilo live e nessuna copia canonica"
+  echo "OK: no live profiles and no canonical copy"
 else
   # 1) Per ogni profilo live: verifica copia canonica e confronta config.yaml
   for profile in $live_profiles; do
     canonical="profiles/$profile/config.yaml"
     if [ -f "$canonical" ]; then
       if ssh "$HOST" "cat ~/.hermes/profiles/$profile/config.yaml" | diff -u "$canonical" - ; then
-        echo "OK: $profile config.yaml allineato"
+        echo "OK: $profile config.yaml aligned"
       else
         drift=1
       fi
     else
-      echo "DRIFT: profilo $profile live senza copia canonica nel repo"
+      echo "DRIFT: profile $profile live without canonical copy in repo"
       drift=1
     fi
   done
@@ -150,7 +150,7 @@ else
   # 2) Per ogni copia canonica senza profilo live corrispondente
   for profile in $canonical_profiles; do
     if ! echo "$live_profiles" | grep -qx "$profile"; then
-      echo "DRIFT: canonico $profile senza profilo live"
+      echo "DRIFT: canonical $profile without live profile"
       drift=1
     fi
   done
@@ -175,19 +175,19 @@ canonical_skills=$(find skills -maxdepth 1 -mindepth 1 -type d -exec basename {}
 
 # Nessuna skill live e nessuna canonica = OK
 if [ -z "$live_skills" ] && [ -z "$canonical_skills" ]; then
-  echo "OK: nessuna skill presente"
+  echo "OK: no skills present"
 else
   # 1) Per ogni skill live: verifica copia canonica e confronta SKILL.md
   for skill in $live_skills; do
     canonical="skills/$skill/SKILL.md"
     if [ -f "$canonical" ]; then
       if ssh "$HOST" "cat ~/.hermes/skills/$skill/SKILL.md" | diff -u "$canonical" - ; then
-        echo "OK: $skill SKILL.md allineato"
+        echo "OK: $skill SKILL.md aligned"
       else
         drift=1
       fi
     else
-      echo "DRIFT: skill $skill live senza copia canonica nel repo"
+      echo "DRIFT: skill $skill live without canonical copy in repo"
       drift=1
     fi
   done
@@ -195,12 +195,12 @@ else
   # 2) Per ogni copia canonica senza skill live corrispondente
   for skill in $canonical_skills; do
     if ! echo "$live_skills" | grep -qx "$skill"; then
-      echo "DRIFT: canonico $skill senza skill live"
+      echo "DRIFT: canonical $skill without live skill"
       drift=1
     fi
   done
 fi
 
 echo "----"
-if [ "$drift" -eq 0 ]; then echo "drift-check: nessuna deriva"; else echo "drift-check: DERIVA RILEVATA (aggiorna repo o istanza, e traccia nel journal)"; fi
+if [ "$drift" -eq 0 ]; then echo "drift-check: no drift"; else echo "drift-check: DRIFT DETECTED (update repo or instance, and log it in the journal)"; fi
 exit $drift
