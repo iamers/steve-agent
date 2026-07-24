@@ -269,6 +269,13 @@ The smoke script verifies core functionality:
 
 Expected: 9/9 checks PASS (includes the main-guard: no bot pushes to main, and merges require an approved review).
 
+The script ships with defaults for the canonical `iamers/steve-agent` instance. Override the following environment variables to run it unchanged against another repo or bot account:
+
+- `STEVE_HOST` — SSH alias for the instance host (or pass it as the first positional argument).
+- `STEVE_BOT_PATTERN` — committer pattern used by the "main free of bot pushes" check, matched case-insensitively against `%cn|%ce` (default: `scrat-ai`).
+- `STEVE_REPO` — `owner/name` passed to `gh pr view --repo` by the "main merges have approved reviews" check (default: `iamers/steve-agent`).
+- `STEVE_REVIEW_BASELINE` — first-parent-history commit subject prefix that anchors the review guard; merges at or before it are treated as historical exceptions (default: `Merge pull request #26 `).
+
 ### Run Drift Check
 
 The drift check compares live configuration against the blueprint:
