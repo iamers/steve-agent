@@ -14,6 +14,13 @@ LLM_CHECK=0
 STEVE_BOT_PATTERN="${STEVE_BOT_PATTERN:-scrat-ai}"
 STEVE_REPO="${STEVE_REPO:-iamers/steve-agent}"
 STEVE_REVIEW_BASELINE="${STEVE_REVIEW_BASELINE:-Merge pull request #26 }"
+# App author identity whose merges are audited by the main-guard v2 check
+# below: a merge executed by the GitHub App has AUTHOR = this identity while
+# COMMITTER = GitHub/web-flow, so App merges are matched by author, not committer.
+STEVE_MERGE_BOT="${STEVE_MERGE_BOT:-steve-merge[bot]}"
+# Approval label required on every App-merged PR (same label the merge gate
+# checks; exact match, no substring, like label_present in merge-gate.sh).
+STEVE_APPROVAL_LABEL="${STEVE_APPROVAL_LABEL:-steve-approved}"
 
 pass=0; fail=0
 check() { # check <label> <command>
@@ -46,6 +53,17 @@ check "main free of bot pushes" 'if [ -d ~/repos/steve-agent/.git ]; then cd ~/r
 # senza review durante outage reviewer) sono eccezioni storiche documentate nel
 # journal ops. I push diretti senza PR restano coperti dal check sopra.
 check "main merges have approved reviews" 'export PATH=$HOME/.local/bin:$PATH; if [ -d ~/repos/steve-agent/.git ]; then cd ~/repos/steve-agent && git fetch -q origin main && baseline=$(git log --first-parent origin/main --format="%H %s" | grep "'"$STEVE_REVIEW_BASELINE"'" | head -1 | cut -d" " -f1); if [ -z "$baseline" ]; then echo "review baseline not in first-parent history (main-guard v2 not yet active; nothing to audit)"; else prs=$(git log --first-parent ${baseline}..origin/main --format="%s" | grep -oE "Merge pull request #[0-9]+" | grep -oE "[0-9]+" || true); for pr in $prs; do data=$(gh pr view "$pr" --repo "'"$STEVE_REPO"'" --json reviews,author 2>/dev/null); [ -n "$data" ] || { echo "REVIEW MISSING: PR #$pr (author: unknown) gh lookup failed or not authenticated" >&2; exit 1; }; author=$(printf "%s" "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[\"author\"][\"login\"])" 2>/dev/null); [ -n "$author" ] || { echo "REVIEW MISSING: PR #$pr (author: unknown) malformed review data" >&2; exit 1; }; approved=$(printf "%s" "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); a=d[\"author\"][\"login\"]; print(any(r.get(\"state\")==\"APPROVED\" and (r.get(\"author\") or {}).get(\"login\") not in (None, \"\", a) for r in d.get(\"reviews\",[])))" 2>/dev/null); [ "$approved" = "True" ] || { echo "REVIEW MISSING: PR #$pr (author: $author) merged without approved review from a different account" >&2; exit 1; }; done; fi; fi'
+
+# Guardia main-guard v2 (mattone 2): per ogni merge commit su origin/main
+# il cui AUTHOR e' l'identita' del merge App (STEVE_MERGE_BOT, es.
+# steve-merge[bot]), richiede che la PR corrispondente abbia ENTRAMBE:
+# 1. L'etichetta di approvazione (STEVE_APPROVAL_LABEL, match esatto)
+# 2. Una review APPROVED da un account diverso dall'autore della PR.
+# Un App-authored merge senza label o senza review e' un INCIDENT (chiave
+# compromessa o gate bypassato): il check FALLISCE e stampa il numero di PR.
+# Se non esiste ancora nessun App-authored merge, passa vacuamente. I merge
+# umani e i push del bot restano coperti dai due check sopra.
+check "app merges are gated (label + review)" 'if [ -d ~/repos/steve-agent/.git ]; then cd ~/repos/steve-agent && git fetch -q origin main bot_prs=$(git log --first-parent origin/main --format="%an|%s" | { while IFS="|" read -r an subject; do [ "$an" = "'"$STEVE_MERGE_BOT"'" ] && printf "%s\n" "$subject"; done; } | grep -oE "Merge pull request #[0-9]+" | grep -oE "[0-9]+" || true) [ -z "$bot_prs" ] && { echo "no App-authored merges in first-parent history (nothing to audit)"; exit 0; } for pr in $bot_prs; do data=$(gh pr view "$pr" --repo "'"$STEVE_REPO"'" --json labels,reviews,author 2>/dev/null) [ -n "$data" ] || { echo "APP MERGE UNGATED: PR #$pr merged by App identity steve-merge[bot]; gh lookup failed or not authenticated" >&2; exit 1; } label_ok=$(printf "%s" "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(any(i.get(\"name\")==sys.argv[1] for i in d.get(\"labels\",[])))" "'"$STEVE_APPROVAL_LABEL"'" 2>/dev/null) approved=$(printf "%s" "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); a=d[\"author\"][\"login\"]; print(any(r.get(\"state\")==\"APPROVED\" and (r.get(\"author\") or {}).get(\"login\") not in (None, \"\", a) for r in d.get(\"reviews\",[])))" 2>/dev/null) [ "$label_ok" = "True" ] && [ "$approved" = "True" ] || { echo "APP MERGE UNGATED: PR #$pr (merged by App identity steve-merge[bot]) missing approval label steve-approved or approved review from a different account" >&2; exit 1; } done fi'
 
 if [ "$LLM_CHECK" = 1 ]; then
   check "llm one-shot reply"   'export PATH=$HOME/.local/bin:$PATH; timeout 120 hermes -z "Rispondi con una sola parola: ok" | grep -qi ok'
