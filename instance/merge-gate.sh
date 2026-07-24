@@ -125,6 +125,21 @@ ci_verdict() {
     echo "1"
 }
 
+# label_present <target> <name1> <name2> ...
+# Prints "1" if <target> exactly equals one of the provided names, else "0".
+# Pure: no network, no file reads. Exact comparison only (no substring), so
+# "steve-approved" will NOT match "steve-approved-x". cond_label() gathers the
+# names from the labels endpoint and hands them here; --self-test covers the
+# membership edge cases directly.
+label_present() {
+    local target="$1"; shift
+    local n
+    for n in "$@"; do
+        [ "$n" = "$target" ] && { echo "1"; return; }
+    done
+    echo "0"
+}
+
 # ===========================================================================
 # Self-test: exercises decide_merge with injected fixtures (no network).
 # Mirrors tools/pr-brief.py --self-test.
@@ -170,6 +185,23 @@ _selftest_ci() {
     echo "ok: ${desc} -> ${got}"
 }
 
+# _selftest_label <desc> <target> <name1> <name2> ... <expected(1|0)>
+# Last positional arg is the expected value. Exercises the pure label_present()
+# function with injected inputs. Guards the array-parsing bug and the substring
+# trap: a partial name must NOT count as a match.
+_selftest_label() {
+    local desc="$1" target="$2"; shift 2
+    local exp="${!#}"        # last positional parameter (indirect expansion)
+    local got
+    got=$(label_present "$target" "${@:1:$#-1}")
+    if [ "$got" != "$exp" ]; then
+        echo "FAIL: ${desc}: label_present($target, [${*}]) expected ${exp}, got '${got}'"
+        SELFTEST_FAILS=$((SELFTEST_FAILS + 1))
+        return
+    fi
+    echo "ok: ${desc} -> ${got}"
+}
+
 run_self_test() {
     # All conditions true -> MERGE.
     _selftest_check "all conditions true" "MERGE" "" 1 1 1 safe 1 1 1
@@ -198,6 +230,16 @@ run_self_test() {
     _selftest_ci "ci_verdict: checkruns red stays red" 0 success 0 0
     # Edge: non-numeric/empty total_count is treated as 0 (no legacy statuses).
     _selftest_ci "ci_verdict: garbage total_count treated as 0" 1 pending "" 1
+
+    # label_present: the pure membership check extracted from cond_label. These
+    # guard the bug where the labels endpoint returns an ARRAY of objects and
+    # read_field("name") threw on int("name") -> empty -> label never found.
+    # They also guard the substring trap: a partial name must NOT match.
+    _selftest_label "label_present: exact single" "steve-approved" "steve-approved" 1
+    _selftest_label "label_present: exact in list" "steve-approved" "other" "steve-approved" 1
+    _selftest_label "label_present: empty list" "steve-approved" 0
+    _selftest_label "label_present: substring must not match" "steve-approved" "steve-approved-x" 0
+    _selftest_label "label_present: split tokens must not match" "steve-approved" "steve" "approved" 0
 
     if [ "$SELFTEST_FAILS" -ne 0 ]; then
         echo "self-test FAILED: ${SELFTEST_FAILS} assertion(s) failed"
@@ -345,10 +387,31 @@ cond_label() {
     COND_A_LABEL="0"
     status=$(gh_api GET "token ${token}" "/repos/${repo}/issues/${pr}/labels")
     echo "$status" | grep -q '^2' || return 1
-    names=$(read_field "$GH_API_BODY" "name")
-    case "$names" in
-        *"$label"*) COND_A_LABEL="1" ;;
-    esac
+    # The labels endpoint returns an ARRAY of objects ([{"name":"steve-approved",...}]).
+    # read_field() walks a dot path and for arrays expects a NUMERIC index, so
+    # read_field(...,"name") does int("name") -> exception -> empty string. That
+    # made the label unreachable for ANY label. Parse the array directly here,
+    # then do an exact membership check via label_present() (no substring match,
+    # so "steve-approved" will not match "steve-approved-x").
+    names=$(python3 - "$GH_API_BODY" <<'PY' 2>/dev/null
+import sys, json
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+if not isinstance(data, list):
+    sys.exit(0)
+print("\n".join(str(l.get("name", "")) for l in data if isinstance(l, dict)))
+PY
+)
+    local -a name_arr=()
+    if [ -n "$names" ]; then
+        # name_arr is the whitespace-separated list of label names.
+        while IFS= read -r ln; do
+            [ -n "$ln" ] && name_arr+=("$ln")
+        done <<<"$names"
+    fi
+    COND_A_LABEL=$(label_present "$label" "${name_arr[@]}")
     return 0
 }
 
