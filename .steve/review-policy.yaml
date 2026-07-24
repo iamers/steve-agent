@@ -6,14 +6,14 @@
 
 tiers:
   blast:
-    description: "Outage immediato o blocco dell'intera factory"
+    description: "Immediate outage or block of the entire factory"
     paths:
       - "instance/config.yaml"
       - "instance/profiles/*/credentials.mode"
       - ".pre-commit-config.yaml"
 
   propagation:
-    description: "Bug replicato su N installazioni/ambienti futuri"
+    description: "Bug replicated across N installations/future environments"
     paths:
       - "instance/env.template"
       - "instance/SOUL.md"
@@ -27,7 +27,7 @@ tiers:
       - ".github/**"
 
   safe:
-    description: "Nessun danno irreversibile"
+    description: "No irreversible damage"
     paths:
       - "README.md"
       - "CLAUDE.md"

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""pr-brief: compila il brief di review approvabile per una PR.
+"""pr-brief: compiles the approvable review brief for a PR.
 
-Triage deterministico basato sui path (non LLM): per ogni file modificato
-trova il tier tramite i pattern della policy .steve/review-policy.yaml; il
-tier della PR e' il max tra tutti i file (blast > propagation > safe).
-Stampa il brief compilato su stdout seguendo .steve/review-brief-template.md.
+Deterministic path-based triage (not LLM): for each modified file it finds
+the tier via the patterns in the .steve/review-policy.yaml policy; the PR's
+tier is the max across all files (blast > propagation > safe).
+It prints the compiled brief to stdout following .steve/review-brief-template.md.
 
-L'invio del brief e la decisione di merge NON sono compito di questo tool:
-il merge resta sempre umano. Questo tool concentra solo la decisione.
+Sending the brief and the merge decision are NOT this tool's job: merging
+always stays human. This tool only concentrates the decision.
 
-Uso:
-  python3 tools/pr-brief.py --repo <owner/name> --pr <N> [--summary "testo"]
+Usage:
+  python3 tools/pr-brief.py --repo <owner/name> --pr <N> [--summary "text"]
   python3 tools/pr-brief.py --self-test
 """
 import argparse
@@ -22,26 +22,26 @@ from pathlib import Path
 
 import yaml
 
-# Ordine di gravita: blast (outage) > propagation (bug replicato) > safe.
+# Severity order: blast (outage) > propagation (replicated bug) > safe.
 TIER_ORDER = {"safe": 0, "propagation": 1, "blast": 2}
-# Tier di default quando nessun pattern matcha: fail-safe, non fast.
+# Default tier when no pattern matches: fail-safe, not fast.
 DEFAULT_TIER = "propagation"
 
-# Path coinvolti nel gate D4 (vincoli senza test).
+# Paths involved in the D4 gate (constraints without tests).
 REVIEW_POLICY_PATH = ".steve/review-policy.yaml"
 PR_BRIEF_PATH = "tools/pr-brief.py"
 
 
 # ---------------------------------------------------------------------------
-# Task id di origine + gate D4 (deterministici, basati su path/pattern)
+# Origin task id + D4 gate (deterministic, based on paths/patterns)
 # ---------------------------------------------------------------------------
 
 def parse_task_id(branch):
-    """Estrae l'id del task di origine dal branch name.
+    """Extract the origin task id from the branch name.
 
-    Matcha il pattern ``steve-agent/t_<id>-...`` dove ``<id>`` e' [a-f0-9]+.
-    Restituisce ``t_<id>`` oppure None se il branch non matcha il prefisso
-    atteso (es. feat/xxx, main, branch senza steve-agent/).
+    Matches the ``steve-agent/t_<id>-...`` pattern where ``<id>`` is [a-f0-9]+.
+    Returns ``t_<id>`` or None if the branch does not match the expected
+    prefix (e.g. feat/xxx, main, branches without steve-agent/).
     """
     if not branch:
         return None
@@ -50,11 +50,11 @@ def parse_task_id(branch):
 
 
 def check_d4_gate(files):
-    """Gate D4: True se il diff tocca review-policy MA NON pr-brief.py.
+    """D4 gate: True if the diff touches review-policy BUT NOT pr-brief.py.
 
-    Modificare la policy di review senza toccare il compilatore che la
-    testesta e' un vincolo non testato: richiede firma umana esplicita.
-    Confronto di set di path, zero euristiche.
+    Modifying the review policy without touching the compiler that tests it
+    is an untested constraint: it requires an explicit human signature.
+    Set comparison of paths, zero heuristics.
     """
     fileset = set(files)
     touches_policy = REVIEW_POLICY_PATH in fileset
@@ -63,10 +63,10 @@ def check_d4_gate(files):
 
 
 def escalate_tier_for_d4(pr_tier_name, d4_active):
-    """Se il gate D4 e' attivo, il tier effettivo sale almeno a propagation.
+    """If the D4 gate is active, the effective tier rises at least to propagation.
 
-    Se era safe diventa propagation; se era gia' propagation o blast
-    resta tale.
+    If it was safe it becomes propagation; if it was already propagation or
+    blast it stays as is.
     """
     if not d4_active:
         return pr_tier_name
@@ -76,19 +76,19 @@ def escalate_tier_for_d4(pr_tier_name, d4_active):
 
 
 # ---------------------------------------------------------------------------
-# Matcher: traduzione glob -> regex
+# Matcher: glob -> regex translation
 # ---------------------------------------------------------------------------
 
 def glob_to_regex(pattern):
-    """Traduce un pattern glob (con * e **) in regex anchorata.
+    """Translates a glob pattern (with * and **) into an anchored regex.
 
-    **  matcha qualsiasi sequenza di caratteri, separatori di directory inclusi
-    *   matcha qualsiasi sequenza eccetto il separatore '/'
-    ?   matcha un singolo carattere eccetto il separatore '/'
-    gli altri caratteri sono letterali (con escape dei metacaratteri regex)
+    **  matches any sequence of characters, including directory separators
+    *   matches any sequence except the '/' separator
+    ?   matches a single character except the '/' separator
+    other characters are literal (with escaping of regex metacharacters)
 
-    fnmatch da solo non basta: tratta '*' come match-all incluso '/',
-    per cui 'tools/*' matcherebbe anche 'tools/sub/dir/file.py'.
+    fnmatch alone is not enough: it treats '*' as match-all including '/',
+    so 'tools/*' would also match 'tools/sub/dir/file.py'.
     """
     out = []
     i = 0
@@ -97,18 +97,17 @@ def glob_to_regex(pattern):
         c = pattern[i]
         if c == "*":
             if i + 1 < n and pattern[i + 1] == "*":
-                # ** attraverso i confini di directory
+                # ** across directory boundaries
                 out.append(".*")
                 i += 2
             else:
-                # * entro un singolo segmento di path
+                # * within a single path segment
                 out.append("[^/]*")
                 i += 1
         elif c == "?":
             out.append("[^/]")
             i += 1
         elif c in ".^$+(){}[]|\\":
-
             out.append("\\" + c)
             i += 1
         else:
@@ -118,13 +117,13 @@ def glob_to_regex(pattern):
 
 
 def file_tier(path, tiers):
-    """Trova il tier di un file via pattern matching.
+    """Finds a file's tier via pattern matching.
 
-    Itera i tier dal piu' grave al meno grave: il primo tier con un pattern
-    che matcha vince (corrisponde al max). Se nessun pattern matcha,
-    restituisce (DEFAULT_TIER, None).
+    Iterates tiers from most severe to least severe: the first tier with a
+    matching pattern wins (the max). If no pattern matches, returns
+    (DEFAULT_TIER, None).
 
-    Restituisce (tier_name, matched_pattern).
+    Returns (tier_name, matched_pattern).
     """
     for tier_name in sorted(tiers, key=lambda t: TIER_ORDER.get(t, 0), reverse=True):
         for pat in tiers[tier_name].get("paths", []):
@@ -134,9 +133,9 @@ def file_tier(path, tiers):
 
 
 def compute_pr_tier(paths, tiers):
-    """Tier della PR = max(tier di tutti i file modificati).
+    """PR tier = max(tier of all modified files).
 
-    Restituisce (pr_tier_name, [(path, file_tier, matched_pattern), ...]).
+    Returns (pr_tier_name, [(path, file_tier, matched_pattern), ...]).
     """
     file_results = []
     for path in paths:
@@ -152,17 +151,17 @@ def compute_pr_tier(paths, tiers):
 
 
 # ---------------------------------------------------------------------------
-# Caricamento policy e template
+# Policy and template loading
 # ---------------------------------------------------------------------------
 
 def find_policy_path():
-    """Trova .steve/review-policy.yaml: dalla cwd verso l'alto, poi dallo script."""
+    """Finds .steve/review-policy.yaml: from cwd upward, then from the script."""
     cwd = Path.cwd()
     for p in [cwd] + list(cwd.parents):
         candidate = p / ".steve" / "review-policy.yaml"
         if candidate.is_file():
             return candidate
-    # Fallback: tools/pr-brief.py -> la root del repo e' due livelli sopra
+    # Fallback: tools/pr-brief.py -> the repo root is two levels up
     script_root = Path(__file__).resolve().parent.parent
     candidate = script_root / ".steve" / "review-policy.yaml"
     if candidate.is_file():
@@ -171,35 +170,35 @@ def find_policy_path():
 
 
 def load_policy(policy_path):
-    """Carica i tiers dalla policy YAML."""
+    """Loads the tiers from the YAML policy."""
     with open(policy_path) as f:
         data = yaml.safe_load(f)
     return data.get("tiers", {})
 
 
 # ---------------------------------------------------------------------------
-# Compilazione del brief
+# Brief compilation
 # ---------------------------------------------------------------------------
 
 def extract_summary(body, override):
-    """Sintesi per 'Cosa cambia': --summary, prime 3 righe non vuote del body, o fallback."""
+    """Summary for 'What changes': --summary, first 3 non-empty lines of the body, or fallback."""
     if override:
         return override
     if body:
         non_empty = [ln for ln in body.split("\n") if ln.strip()]
         if non_empty:
             return "\n".join(non_empty[:3])
-    return "(sintesi non disponibile)"
+    return "(summary unavailable)"
 
 
 def render_brief(template_text, number, title, branch, tier_upper,
                  critical_files, summary_text, task_id=None, d4_active=False):
-    """Compila il template riempiendo i campi dinamici, lasciando intatte
-    le sezioni statiche (footer, placeholder Scelte non banali, checklist).
+    """Compiles the template by filling dynamic fields, leaving static
+    sections intact (footer, 'Non-obvious decisions' placeholder, checklist).
 
-    critical_files: lista di (path, tier_lowercase, matched_pattern_or_None).
-    task_id: id del task di origine (``t_<id>``) o None.
-    d4_active: se True, inserisce il marcatore D4 (vincolo senza test).
+    critical_files: list of (path, tier_lowercase, matched_pattern_or_None).
+    task_id: origin task id (``t_<id>``) or None.
+    d4_active: if True, inserts the D4 marker (constraint without test).
     """
     lines = template_text.split("\n")
     output = []
@@ -207,43 +206,43 @@ def render_brief(template_text, number, title, branch, tier_upper,
     i = 0
     while i < len(lines):
         line = lines[i]
-        # Riga header: PR #<N> — <title>
+        # Header line: PR #<N> — <title>
         if "<N>" in line and "<title>" in line:
             output.append("PR #{} — {}".format(number, title))
-        # Riga branch: Branch: <branch> -> main (+ eventuale riga Origine)
+        # Branch line: Branch: <branch> -> main (+ optional Origin line)
         elif "<branch>" in line:
             output.append("Branch: {} -> main".format(branch))
             if task_id:
-                output.append("Origine: task {}".format(task_id))
-        # Sezione fissa "Leggi prima": iniettata una sola volta, subito prima
-        # del blocco ## Triage (dopo le info della PR, prima dei file critici).
+                output.append("Origin: task {}".format(task_id))
+        # Fixed "Read first" section: injected once, right before
+        # the ## Triage block (after the PR info, before critical files).
         elif not leggi_prima_emitted and line.strip() == "## Triage":
-            output.append("Leggi prima (nel worktree): README.md, CLAUDE.md, .steve/review-policy.yaml")
+            output.append("Read first (in the worktree): README.md, CLAUDE.md, .steve/review-policy.yaml")
             output.append("")
             output.append(line)
             leggi_prima_emitted = True
-        # Riga tier (sostituisce l'intera riga) + eventuale marcatore D4
+        # Tier line (replaces the whole line) + optional D4 marker
         elif line.startswith("Tier:"):
             output.append("Tier: {}".format(tier_upper))
             if d4_active:
-                output.append("D4: vincolo senza test - firma umana obbligatoria")
-        # Sezione Files critici: sostituisce i placeholder con i file reali
-        elif line.strip() == "Files critici:":
+                output.append("D4: untested constraint - human signature required")
+        # Critical files section: replaces placeholders with real files
+        elif line.strip() == "Critical files:":
             output.append(line)
-            # Salta le righe placeholder (- <path> ...)
+            # Skip the placeholder lines (- <path> ...)
             i += 1
             while i < len(lines) and lines[i].lstrip().startswith("- <path>"):
                 i += 1
-            # Inserisci i file critici reali (blast e propagation)
+            # Insert the real critical files (blast and propagation)
             for path, ftier, pattern in critical_files:
-                perche = pattern if pattern else "default (nessun match)"
+                perche = pattern if pattern else "default (no match)"
                 output.append("- {}  ({}, {})".format(path, ftier, perche))
-            continue  # i e' gia' posizionato sulla riga successiva
-        # Sezione Cosa cambia: sostituisce il placeholder con la sintesi
-        elif "<2-3 righe" in line:
+            continue  # i is already positioned on the next line
+        # 'What changes' section: replaces the placeholder with the summary
+        elif "<2-3 lines" in line:
             output.append(summary_text)
         else:
-            # Tutte le altre righe restano cosi' come nel template
+            # All other lines stay as they are in the template
             output.append(line)
         i += 1
     return "\n".join(output)
@@ -254,7 +253,7 @@ def render_brief(template_text, number, title, branch, tier_upper,
 # ---------------------------------------------------------------------------
 
 def fetch_pr(repo, pr_number):
-    """Legge i dati della PR via gh CLI. Restituisce il dict JSON."""
+    """Reads the PR data via the gh CLI. Returns the JSON dict."""
     cmd = [
         "gh", "pr", "view", str(pr_number),
         "--repo", repo,
@@ -263,10 +262,10 @@ def fetch_pr(repo, pr_number):
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except FileNotFoundError:
-        print("errore: gh CLI non trovata nel PATH", file=sys.stderr)
+        print("error: gh CLI not found in PATH", file=sys.stderr)
         sys.exit(1)
     except subprocess.CalledProcessError as e:
-        print("errore: gh pr view fallito (exit {})".format(e.returncode), file=sys.stderr)
+        print("error: gh pr view failed (exit {})".format(e.returncode), file=sys.stderr)
         if e.stderr:
             print(e.stderr, file=sys.stderr)
         sys.exit(1)
@@ -278,10 +277,10 @@ def fetch_pr(repo, pr_number):
 # ---------------------------------------------------------------------------
 
 def run_self_test():
-    """Asserzioni sul matcher usando la policy reale del repo (senza rete)."""
+    """Assertions on the matcher using the repo's real policy (no network)."""
     policy_path = find_policy_path()
     if not policy_path:
-        print("errore: .steve/review-policy.yaml non trovato", file=sys.stderr)
+        print("error: .steve/review-policy.yaml not found", file=sys.stderr)
         sys.exit(1)
     tiers = load_policy(policy_path)
 
@@ -299,50 +298,50 @@ def run_self_test():
     ]
     for path, expected in cases:
         got, _ = file_tier(path, tiers)
-        assert got == expected, "{}: aspettato {}, ottenuto {}".format(
+        assert got == expected, "{}: expected {}, got {}".format(
             path, expected, got)
 
-    # --- Estensione 1: task id di origine dal branch name -----------------
+    # --- Extension 1: origin task id from the branch name -----------------
     tid_cases = [
         ("steve-agent/t_4806977c-ci-workflow-fix-4-finding-shellcheck-ste",
          "t_4806977c"),
     ]
     for branch, expected in tid_cases:
         got = parse_task_id(branch)
-        assert got == expected, "parse_task_id({!r}): aspettato {}, ottenuto {}".format(
+        assert got == expected, "parse_task_id({!r}): expected {}, got {}".format(
             branch, expected, got)
-    # Branch non matching devono dare None
+    # Non-matching branches must return None
     for branch in ("feat/random", "main", "t_solo_id"):
         got = parse_task_id(branch)
-        assert got is None, "parse_task_id({!r}): aspettato None, ottenuto {}".format(
+        assert got is None, "parse_task_id({!r}): expected None, got {}".format(
             branch, got)
 
-    # --- Estensione 2: sezione fissa "Leggi prima" ------------------------
-    # Rendering con input fittizio (senza rete): la stringa deve essere presente.
+    # --- Extension 2: fixed "Read first" section ------------------------
+    # Rendering with dummy input (no network): the string must be present.
     template_path = policy_path.parent / "review-brief-template.md"
     template_text = template_path.read_text()
     sample_brief = render_brief(
         template_text, number=1, title="sample", branch="feat/sample",
         tier_upper="SAFE", critical_files=[], summary_text="x",
         task_id=None, d4_active=False)
-    assert "Leggi prima (nel worktree): README.md, CLAUDE.md, .steve/review-policy.yaml" in sample_brief, \
-        "sezione 'Leggi prima' mancante nel brief renderizzato"
+    assert "Read first (in the worktree): README.md, CLAUDE.md, .steve/review-policy.yaml" in sample_brief, \
+        "'Read first' section missing from rendered brief"
 
-    # --- Estensione 3: gate D4 -------------------------------------------
-    # Solo review-policy (senza pr-brief.py) -> D4 attivo + tier sale
+    # --- Extension 3: D4 gate -------------------------------------------
+    # review-policy only (without pr-brief.py) -> D4 active + tier escalates
     files_policy_only = [REVIEW_POLICY_PATH]
     assert check_d4_gate(files_policy_only) is True, \
-        "D4 dovrebbe attivarsi con solo review-policy.yaml"
+        "D4 should trigger with review-policy.yaml alone"
     escalated = escalate_tier_for_d4("safe", True)
     assert escalated == "propagation", \
-        "D4 attivo: tier safe dovrebbe salire a propagation, ottenuto {}".format(
+        "D4 active: safe tier should escalate to propagation, got {}".format(
             escalated)
-    # Entrambi i file -> D4 NON attivo (il compilatore e' stato toccato)
+    # Both files -> D4 NOT active (the compiler was touched)
     files_both = [REVIEW_POLICY_PATH, PR_BRIEF_PATH]
     assert check_d4_gate(files_both) is False, \
-        "D4 NON dovrebbe attivarsi quando pr-brief.py e' nel diff"
+        "D4 should NOT trigger when pr-brief.py is in the diff"
     assert escalate_tier_for_d4("safe", False) == "safe", \
-        "D4 inattivo: tier non deve cambiare"
+        "D4 inactive: tier must not change"
 
     print("self-test ok")
     sys.exit(0)
@@ -354,12 +353,12 @@ def run_self_test():
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Compila il brief di review per una PR (triage deterministico).")
-    parser.add_argument("--repo", help="Repository owner/name (es. iamers/steve-agent)")
-    parser.add_argument("--pr", type=int, help="Numero della PR")
-    parser.add_argument("--summary", help="Sintesi override per 'Cosa cambia'")
+        description="Compiles the review brief for a PR (deterministic triage).")
+    parser.add_argument("--repo", help="Repository owner/name (e.g. iamers/steve-agent)")
+    parser.add_argument("--pr", type=int, help="PR number")
+    parser.add_argument("--summary", help="Summary override for 'What changes'")
     parser.add_argument("--self-test", action="store_true",
-                        help="Esegui asserzioni sul matcher senza rete")
+                        help="Run assertions on the matcher without network")
     args = parser.parse_args()
 
     if args.self_test:
@@ -367,41 +366,41 @@ def main():
         return
 
     if not args.repo or args.pr is None:
-        parser.error("--repo e --pr sono obbligatori (a meno di --self-test)")
+        parser.error("--repo and --pr are required (unless --self-test)")
 
-    # Carica policy e template dalla root del repo
+    # Load policy and template from the repo root
     policy_path = find_policy_path()
     if not policy_path:
-        print("errore: .steve/review-policy.yaml non trovato", file=sys.stderr)
+        print("error: .steve/review-policy.yaml not found", file=sys.stderr)
         sys.exit(1)
     tiers = load_policy(policy_path)
 
     template_path = policy_path.parent / "review-brief-template.md"
     if not template_path.is_file():
-        print("errore: .steve/review-brief-template.md non trovato", file=sys.stderr)
+        print("error: .steve/review-brief-template.md not found", file=sys.stderr)
         sys.exit(1)
     template_text = template_path.read_text()
 
-    # Legge la PR via gh
+    # Read the PR via gh
     pr_data = fetch_pr(args.repo, args.pr)
 
     number = pr_data.get("number", args.pr)
-    title = pr_data.get("title", "(senza titolo)")
-    branch = pr_data.get("headRefName", "(sconosciuto)")
+    title = pr_data.get("title", "(untitled)")
+    branch = pr_data.get("headRefName", "(unknown)")
     body = pr_data.get("body") or ""
     files = [f["path"] for f in pr_data.get("files", [])]
 
-    # Triage deterministico
+    # Deterministic triage
     pr_tier_name, file_results = compute_pr_tier(files, tiers)
 
-    # Task id di origine dal branch name (deterministico)
+    # Origin task id from the branch name (deterministic)
     task_id = parse_task_id(branch)
 
-    # Gate D4: vincolo su review-policy senza test -> tier sale + firma umana
+    # D4 gate: constraint on review-policy without test -> tier escalates + human signature
     d4_active = check_d4_gate(files)
     pr_tier_name = escalate_tier_for_d4(pr_tier_name, d4_active)
 
-    # File critici: solo blast e propagation (con il pattern che ha fatto match)
+    # Critical files: only blast and propagation (with the matching pattern)
     critical = [
         (path, ftier, pattern)
         for path, ftier, pattern in file_results
@@ -413,7 +412,7 @@ def main():
     brief = render_brief(template_text, number, title, branch,
                          pr_tier_name.upper(), critical, summary,
                          task_id=task_id, d4_active=d4_active)
-    # Normalizza: una sola riga vuota finale
+    # Normalize: a single trailing blank line
     brief = brief.rstrip("\n") + "\n"
     sys.stdout.write(brief)
 
