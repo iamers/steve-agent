@@ -55,14 +55,14 @@ These apply to every change made in a worktree:
    result. Do not describe what would have run — run it. A green self-test in
    `tools/pr-brief.py` counts only if you actually executed it.
 4. **Respect the review tiers.** Every file you touch falls into a tier
-   (`blast` > `propagazione` > `sicuro`) per `.steve/review-policy.yaml`. The
+   (`blast` > `propagation` > `safe`) per `.steve/review-policy.yaml`. The
    PR's tier is the max of its files. Higher tiers require more sign-off; the
    tier determines whether a brief with human signature is required.
 
 ## Review tiers
 
 The review-tier policy lives in `.steve/review-policy.yaml`. That file is the
-single source of truth for which paths are `blast`, `propagazione`, or
-`sicuro`, and what each tier requires. `AGENTS.md` itself is classified
-`sicuro` (context-only, no executable impact). See the policy file for the
+single source of truth for which paths are `blast`, `propagation`, or
+`safe`, and what each tier requires. `AGENTS.md` itself is classified
+`safe` (context-only, no executable impact). See the policy file for the
 mechanism and the full per-repo path list.

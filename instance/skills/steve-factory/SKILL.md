@@ -157,7 +157,12 @@ catena: un `kanban_comment` sul task padre registra l'esito di ogni giro
 Il compilatore (`tools/pr-brief.py`) e' un GATE su ogni PR aperta, come da
 .steve/pr-lifecycle.md: calcola il tier di ogni file modificato contro
 .steve/review-policy.yaml e produce il brief (il tier della PR e' il massimo tra
-i file: blast > propagazione > sicuro).
+i file: blast > propagation > safe).
+
+**Titoli e descrizioni delle PR in inglese.** Il titolo e il corpo della PR
+si scrivono in inglese: coerenza con la convention "identifiers in inglese"
+di AGENTS.md, e perche' il diff e' pubblico. Lo scrivi esplicito nel brief di
+ogni task che apre una PR, cosi' il worker onora la regola.
 
 La decisione resta umana:
 
@@ -234,11 +239,11 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
    `~/.hermes/private/forbidden-strings.txt`. Transitorio, non strutturale.
 
 9. **Verify grep `-A<N>` fragili su policy YAML.** Nei brief, i check
-   `grep -A20 'propagazione' <policy> | grep <path>` producono falsi positivi
+   `grep -A20 'propagation' <policy> | grep <path>` producono falsi positivi
    quando i blocchi YAML sono vicini: `-A20` sfora dal blocco target in quello
    adiacente. Per i verify di classificazione tier su `.steve/review-policy.yaml`,
    **usa un parser YAML** invece di grep contestuale:
-   `python3 -c "import yaml; t=yaml.safe_load(open('.steve/review-policy.yaml')); assert '<path>' not in t['tiers'].get('propagazione',{}).get('paths',[])"`.
+   `python3 -c "import yaml; t=yaml.safe_load(open('.steve/review-policy.yaml')); assert '<path>' not in t['tiers'].get('propagation',{}).get('paths',[])"`.
    Vale anche per i verify nei brief di review.
 
 10. **Profile down dopo deploy di config (model swap).** Quando un profilo

@@ -12,7 +12,7 @@ tiers:
       - "instance/profiles/*/credentials.mode"
       - ".pre-commit-config.yaml"
 
-  propagazione:
+  propagation:
     description: "Bug replicato su N installazioni/ambienti futuri"
     paths:
       - "instance/env.template"
@@ -26,7 +26,7 @@ tiers:
       - "scripts/**"
       - ".github/**"
 
-  sicuro:
+  safe:
     description: "Nessun danno irreversibile"
     paths:
       - "README.md"
@@ -34,10 +34,10 @@ tiers:
       - "AGENTS.md"
       - ".gitignore"
 
-# Anything not matched defaults to propagazione (fail safe, not fast).
+# Anything not matched defaults to propagation (fail safe, not fast).
 
 rules:
-  brief_required_for: [blast, propagazione]
-  auto_merge: sicuro            # requires green CI
+  brief_required_for: [blast, propagation]
+  auto_merge: safe            # requires green CI
   merge_on: "approve in chat"   # agent merges after explicit approve
   revert: manual                # no auto-revert
