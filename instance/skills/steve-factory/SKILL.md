@@ -308,7 +308,9 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
       un `kanban_comment` con "retry" + `kanban_unblock` fa ripartire il task al
       prossimo dispatch.
 
-14. **Testo canonico da fonti esterne: verify con diff, non con grep marker.**
+14. **Accoppiamento assert/stringa in pr-brief.py: la dipendenza e' interna al tool.** Nei brief che toccano pr-brief.py, l'accoppiamento critico tra `run_self_test()` e il template NON e' template→tool (come si potrebbe pensare): la stringa emessa nel brief la inietta pr-brief.py stesso, non il template. Quindi la dipendenza da cercare e' tutta interna al tool — se traduci una stringa emessa da render_brief(), l'assert in run_self_test() che la controlla va aggiornato nello stesso file, nello stesso commit.
+
+15. **Testo canonico da fonti esterne: verify con diff, non con grep marker.**
     Quando un worker deve riprodurre un testo canonico verbatim (licenze,
     standard, specifiche), i verify basati su grep marker (`grep -c
     'Covenants'`, `grep -c 'Notice'`) **non sono sufficienti**: confermano che
@@ -326,6 +328,25 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
       estrai il testo dalla sezione 'Terms' in poi, confronta col file LICENSE
       nel worktree. Tolleranza solo su whitespace/wrapping. Se trovi
       discrepanze materiali nel testo legale -> REQUEST_CHANGES."
+
+16. **Race condition sui commenti di review ai task running.** Quando il coordinatore posta un `kanban_comment` con findings aggiuntivi su un task di review gia' in stato `running`, il reviewer puo' completare e approvare PRIMA di leggere il commento. La finestra e' di decine di secondi: il commento arriva dopo che il reviewer ha gia' passato la fase di lettura del brief, o addirittura dopo che ha gia' chiamato `gh pr review --approve`.
+    - **Sintomi:** il reviewer completa con APPROVED, e il coordinatore vede il proprio commento marcato "just now" accanto a un task gia' done. I difetti segnalati non sono nella review su GitHub.
+    - **Causa:** il dispatcher spawna il reviewer al `dispatch`; il commento arriva dopo, ma il reviewer non rilegge i commenti durante l'esecuzione.
+    - **Gestione (approccio adottato):** se il reviewer salta il commento, scatena comunque il fix sul branch esistente (come si fa per qualsiasi REQUEST_CHANGES post-approve). L'approve su GitHub resta valido; il fix commit aggiorna la PR e richiede re-review.
+    - **Prevenzione (protocollo operativo):** quando il coordinatore (o il repo owner) manda rilievi su review in corso, **sempre opzione (a) prima**: `kanban_block` il task di review **prima** di commentare, poi `kanban_unblock` dopo aver postato il commento. Questo garantisce che il reviewer rilegga i commenti quando riprende. Solo se il reviewer ha gia' chiuso (task `done`), ricorrere all'opzione (b): fix task sul branch + re-review. Non commentare MAI un task `running` senza averlo prima bloccato: e' il bug che questa sessione ha confermato (reviewer ha approvato #38 e #39 senza incorporare i rilievi, #37 e #40 hanno richiesto fix post-approve).
+
+17. **Shell scripts: `bash -n` non basta, la CI esegue `shellcheck --severity=warning`.** Quando un worker modifica file `.sh`, `bash -n` verifica solo la sintassi (parse) ma non catcha i warning di shellcheck (variabili non quotate, pattern di quoting annidato, ecc.). La CI di steve-agent esegue `shellcheck --severity=warning instance/*.sh scripts/*.sh`: un warning e' rosso.
+    - **Nei brief di task che toccano `.sh`:** il verify DEVE includere
+      `shellcheck --severity=warning <file>` oltre a `bash -n <file>`. Se
+      shellcheck non e' installato nel worktree, il worker lo installa
+      (`apt-get install -qq shellcheck` o equivalente) o dichiara l'assenza.
+    - **Quoting SSH e SC2027:** il pattern `'"'"$VAR"'"'` per passare variabili
+      localmente espandendole dentro single-quote SSH e' fragilissimo: shellcheck
+      lo flagga come SC2027 ("surrounding quotes actually unquote this"). Se il
+      task richiede quoting di variabili dentro stringhe SSH single-quoted,
+      testa il pattern esplicitamente con shellcheck prima di pushare, e verifica
+      empiricamente (sourcing con stub) che il comando remoto assemblato sia
+      corretto sotto default e override.
 
 ## Verification Checklist
 
@@ -347,4 +368,14 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
       `kanban_unblock` invece di bruciare retry (pitfall #13).
 - [ ] Se il worker produce testo canonico verbatim (licenze, standard), il
       brief della review include un verify che scarica la fonte ufficiale e
-      confronta riga per riga, non solo grep marker (pitfall #14).
+      confronta riga per riga, non solo grep marker (pitfall #15).
+- [ ] Se aggiungi rilievi a una review in corso, BLOCCA il task con
+      `kanban_block` PRIMA di commentare, poi `kanban_unblock`. Non
+      commentare MAI un task `running` senza bloccarlo prima (pitfall #16).
+- [ ] Se il task tocca file `.sh`, il verify include `shellcheck
+      --severity=warning` oltre a `bash -n`, e il worker lo esegue prima del
+      push (pitfall #17).
+- [ ] Il repo ha `dismiss_stale_reviews_on_push` attivo: un commit spinto
+      dopo l'approvazione INVALIDA la review. Ogni fix post-approve richiede
+      una re-review esplicita. Pianifica il ciclo fix -> re-review, non
+      assumere che l'approve precedente copra il nuovo commit (pitfall #16).
