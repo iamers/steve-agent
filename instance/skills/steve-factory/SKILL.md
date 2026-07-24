@@ -37,8 +37,10 @@ produce file committati.
   conversazione diretta (la regola vive in SOUL.md, qui la si onora).
 - Mai modificare il runtime dell'istanza (config live, profili, credenziali):
   quelle sono operazioni di ops, non di orchestrazione.
-- Mai mergiare. Fino all'attivazione della fase 2 (vedi .steve/pr-lifecycle.md)
-  il merge e' una decisione umana eseguita a mano su GitHub.
+- Mai mergiare. La fase 2 ha un merge gate implementato (`instance/merge-gate.sh`)
+  ma non ancora attivo in produzione: fino al deploy e al primo merge reale
+  testato, il merge resta umano. Il gate automatizza il lavoro meccanico, NON
+  la decisione (vedi .steve/pr-lifecycle.md).
 - La board e' la verita': se un lavoro non e' un task sulla board, non esiste.
 
 ## 2. Creare un task di sviluppo
@@ -335,18 +337,30 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
     - **Gestione (approccio adottato):** se il reviewer salta il commento, scatena comunque il fix sul branch esistente (come si fa per qualsiasi REQUEST_CHANGES post-approve). L'approve su GitHub resta valido; il fix commit aggiorna la PR e richiede re-review.
     - **Prevenzione (protocollo operativo):** quando il coordinatore (o il repo owner) manda rilievi su review in corso, **sempre opzione (a) prima**: `kanban_block` il task di review **prima** di commentare, poi `kanban_unblock` dopo aver postato il commento. Questo garantisce che il reviewer rilegga i commenti quando riprende. Solo se il reviewer ha gia' chiuso (task `done`), ricorrere all'opzione (b): fix task sul branch + re-review. Non commentare MAI un task `running` senza averlo prima bloccato: e' il bug che questa sessione ha confermato (reviewer ha approvato #38 e #39 senza incorporare i rilievi, #37 e #40 hanno richiesto fix post-approve).
 
-17. **Shell scripts: `bash -n` non basta, la CI esegue `shellcheck --severity=warning`.** Quando un worker modifica file `.sh`, `bash -n` verifica solo la sintassi (parse) ma non catcha i warning di shellcheck (variabili non quotate, pattern di quoting annidato, ecc.). La CI di steve-agent esegue `shellcheck --severity=warning instance/*.sh scripts/*.sh`: un warning e' rosso.
+17. **Redazione del display layer su pattern `Authorization:` (falsi positivi nei review).** Il terminal layer di Hermes maschera qualsiasi pattern `Authorization: *** come `Authorization: ***`. Questo vale per `cat`, `sed -n <N>p`, `grep`, `git show :file | cat`: tutti mostrano `***` anche quando i byte reali sono `${auth}` o `token xyz`. Un reviewer che legge il diff o il file via terminal vede un bug che non esiste.
+    - **Sintomi:** il reviewer flagga `Authorization: ***` come literal placeholder, REQUEST_CHANGES. Il worker giustamente dice "il fix e' gia' presente". Si crea un deadlock di review basato su un fantasma.
+    - **Diagnosi:** verifica con hex dump (`xxd`, `od -An -tx1`) o Python byte-level (`b"${auth}" in line`). L'hex bypassa il display layer.
+    - **Prevenzione:** quando un worker o un reviewer flagga un pattern `Authorization: ***`, prima di dispatchare un fix, verifica i byte reali con `xxd`. Non fidarti di `cat`, `sed`, `grep` per linee che contengono header di autenticazione.
+    - **Nel brief di review:** quando si chiede al reviewer di tracciare il flusso auth nel codice, specificare esplicitamente di usare `xxd` o `od` per verificare i byte delle righe con `Authorization:`.
+
+18. **Shell scripts: `bash -n` non basta, la CI esegue `shellcheck --severity=warning`.** Quando un worker modifica file `.sh`, `bash -n` verifica solo la sintassi (parse) ma non catcha i warning di shellcheck (variabili non quotate, pattern di quoting annidato, ecc.). La CI di steve-agent esegue `shellcheck --severity=warning instance/*.sh scripts/*.sh`: un warning e' rosso.
     - **Nei brief di task che toccano `.sh`:** il verify DEVE includere
       `shellcheck --severity=warning <file>` oltre a `bash -n <file>`. Se
       shellcheck non e' installato nel worktree, il worker lo installa
       (`apt-get install -qq shellcheck` o equivalente) o dichiara l'assenza.
     - **Quoting SSH e SC2027:** il pattern `'"'"$VAR"'"'` per passare variabili
       localmente espandendole dentro single-quote SSH e' fragilissimo: shellcheck
-      lo flagga come SC2027 ("surrounding quotes actually unquote this"). Se il
-      task richiede quoting di variabili dentro stringhe SSH single-quoted,
+      lo flagga come SC2027 ("surrounding quotes actually unquote this"). La
+      forma corretta e' `"'$VAR'"` (close-single-quote dopo la virgoletta
+      letterale, expand double-quoted, reopen prima della virgoletta di chiusura).
+      Se il task richiede quoting di variabili dentro stringhe SSH single-quoted,
       testa il pattern esplicitamente con shellcheck prima di pushare, e verifica
       empiricamente (sourcing con stub) che il comando remoto assemblato sia
       corretto sotto default e override.
+
+19. **Code path non testabili senza credenziali: il brief di review DEVE imporre code-tracing manuale.** Quando un worker implementa uno script con path che non possono essere esercitati nel worktree (flussi di auth, chiamate di rete, gestione credenziali), il `--self-test` copre solo la logica pura. Il path di auth/rete e' codice morto fino al deploy. Il brief di review DEVE istruire esplicitamente il reviewer di tracciare quei path LEGGENDO il codice, non solo eseguendo i verify. Verificare che ogni parametro ricevuto da una funione arrivi effettivamente alla chiamata di rete (es. `curl -H "Authorization: $auth"`, non un literal placeholder). Questa sessione: merge-gate.sh `gh_api()` aveva `-H "Authorization: ***"` (asterischi letterali) invece di `$auth`: self-test 10/10 verde, shellcheck verde, CI verde. Solo il code-tracing manuale del reviewer ha catturato il bug.
+
+20. **Fix task con `--parent` resta in `todo` se il parent non e' `done`.** Quando crei un task di fix con `--parent` che punta a un task ancora in `ready` (bloccato con review-required), il task figlio resta in `todo` e non si promuove finche' il parent non raggiunge `done`. Il dispatcher ritorna `Spawned: 0` silenziosamente, e il coordinatore potrebbe pensare che il dispatcher sia rotto. **Sintomo:** `hermes kanban dispatch` ritorna zero spawned, il task e' in `todo` con zero run. **Fix:** completa manualmente il parent con `kanban_complete` PRIMA di dispatchare il figlio. E' lo stesso pattern del pitfall #12 (il parent bloccato non si risolve da solo), ma il sintomo e' diverso: invece di respawn_guarded loop, e' silenzio totale.
 
 ## Verification Checklist
 
@@ -374,8 +388,24 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
       commentare MAI un task `running` senza bloccarlo prima (pitfall #16).
 - [ ] Se il task tocca file `.sh`, il verify include `shellcheck
       --severity=warning` oltre a `bash -n`, e il worker lo esegue prima del
-      push (pitfall #17).
+      push (pitfall #18).
 - [ ] Il repo ha `dismiss_stale_reviews_on_push` attivo: un commit spinto
       dopo l'approvazione INVALIDA la review. Ogni fix post-approve richiede
       una re-review esplicita. Pianifica il ciclo fix -> re-review, non
       assumere che l'approve precedente copra il nuovo commit (pitfall #16).
+- [ ] Se uno script ha path non testabili senza credenziali (auth, rete), il
+      brief della review impone al reviewer di tracciare quei path LEGGENDO
+      il codice, non solo eseguendo i verify (pitfall #19).
+- [ ] Se un reviewer o un worker flagga `Authorization: ***` in un file,
+      verifica i byte reali con `xxd` o `od` prima di dispatchare un fix:
+      il display layer maschera i pattern Authorization (pitfall #17).
+ - [ ] Se crei un fix task con `--parent`, assicurati che il parent sia `done`
+ PRIMA di dispatchare: un parent in `ready`/`blocked` lascia il figlio in
+ `todo` e il dispatcher ritorna `Spawned: 0` in silenzio (pitfall #20).
+
+## References
+
+- `references/deterministic-gate-pattern.md` — architettura per script di
+  decisione sicura (merge gate, review guard): separazione pure-decision /
+  execution, fixture matrix, SSH quoting pattern, blind spot dei parametri
+  non cablati alle chiamate di rete.
