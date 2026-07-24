@@ -326,7 +326,76 @@ Schedule automated backups of `~/.hermes/kanban.db` (retains last 7 backups):
 
 The backup script uses SQLite online backup API (safe with active databases) and is silent on success (designed for cron watchdog mode).
 
-## 8. Gotchas and Common Issues
+## 8. GitHub merge App
+
+The deterministic merge gate (`instance/merge-gate.sh`) merges safe-tier PRs
+under a dedicated GitHub App identity. Each instance owns its OWN App and
+installs it on its repo only; the App private key is never shared. The reason
+is technical: a GitHub App private key lives at the App level, so whoever
+holds it can mint tokens for every installation of that App. A shared App
+would let one instance merge into every other instance's repo. See
+`.steve/pr-lifecycle.md` for the full design.
+
+### Create the App
+
+1. Under the owning org/user, create a new GitHub App
+   (Settings -> Developer settings -> GitHub Apps -> New GitHub App).
+2. Name and slug it for this instance. The canonical instance uses App slug
+   `steve-merge`, owner `iamers`, installed on repo `steve-agent` only.
+3. Set the permissions:
+   - Repository permissions -> `Contents`: Read and write (required by the
+     merge endpoint).
+   - Repository permissions -> `Pull requests`: Read-only.
+   - Repository permissions -> `Checks`: Read-only. Without `checks=read`,
+     the check-runs endpoint returns 403 and condition (c) of the gate fails
+     for every PR.
+4. Leave `Webhook` disabled: the gate is invoked by cron or an operator, not
+   by webhook events. No webhook URL is configured.
+5. Create the App, then generate and download a private key (`.pem`). Store
+   it on the instance host only.
+
+### Install the App
+
+Install the App on the repo only (the per-instance contract). After
+installing, note the numeric App id shown on the App's General settings page.
+
+### Configure the merge gate
+
+Set these in `~/.hermes/.env` on the instance host (or pass them in the
+environment when running the gate):
+
+```bash
+printf "STEVE_REPO=iamers/steve-agent\n" >> ~/.hermes/.env
+printf "STEVE_MERGE_APP_ID=<numeric-app-id>\n" >> ~/.hermes/.env
+printf "STEVE_MERGE_KEY_PATH=/srv/ha-<name>/keys/steve-merge.private-key.pem\n" >> ~/.hermes/.env
+printf "STEVE_APPROVAL_LABEL=approved\n" >> ~/.hermes/.env
+```
+
+Optional:
+
+- `STEVE_REVIEWER_LOGIN` restricts condition (b) to an APPROVED review from
+  this specific login. If unset, the gate accepts an APPROVED review from any
+  account other than the PR author.
+
+The installation id is NOT configured. The gate derives it at runtime from
+the repo via the GitHub API, so a reinstall (which changes the id) is handled
+automatically. The private key never appears in stdout, stderr, logs, or
+error messages; on API failure the gate reports only the HTTP status.
+
+### Verify the gate (no merge)
+
+```bash
+./instance/merge-gate.sh --self-test        # decision logic, no network
+./instance/merge-gate.sh --dry-run <pr>      # evaluate one PR, print decision
+```
+
+`--self-test` exercises the decision logic with injected fixtures and needs
+no credentials. `--dry-run` evaluates all conditions for a PR and prints the
+decision without merging. Run `<pr>` (no flag) to evaluate and merge if every
+condition passes; the gate always uses a merge commit, never squash (see the
+comment in the script).
+
+## 9. Gotchas and Common Issues
 
 | # | Issue | Solution |
 |---|-------|----------|
@@ -339,7 +408,7 @@ The backup script uses SQLite online backup API (safe with active databases) and
 | 7 | The `--commit` pin must use a commit hash, not a tag | Tags break on `git pull --ff-only` when re-running the installer |
 | 8 | Interactive prompts appear even with `--skip-setup` when running in a TTY (tmux) | Answer `n` to install prompts for ripgrep and build tools (pre-installed) |
 
-## 9. Next Steps
+## 10. Next Steps
 
 After installation is complete:
 
@@ -349,7 +418,7 @@ After installation is complete:
 4. Set up branch protection and rulesets on the main branch (requires paid GitHub plan)
 5. Configure GitHub authentication for bot commits if needed
 
-## 10. Maintenance
+## 11. Maintenance
 
 - Upgrades: Run the installer with the same `--commit` pin or a new commit hash
 - Config changes: Commit changes to the blueprint repo, then apply to the instance

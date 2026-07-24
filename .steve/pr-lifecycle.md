@@ -130,12 +130,12 @@ instance owns its own App rather than sharing one centrally.
   is green. A merge-bot that cannot override anything is safer than one
   with an exception.
 
-### Not documented yet: App creation and operational permissions
+### App creation and operational permissions
 
-The App does not exist yet. Documenting unexecuted steps is exactly how
-documentation drifts from reality, so App creation, installation steps, and
-operational permissions are deliberately omitted here. That piece arrives
-in the implementation block, written against the real App.
+App creation, installation steps, and the required permissions are documented
+in `instance/INSTALL.md`, written against the real App. See that file for the
+per-instance setup. Each instance creates its OWN App and the private key is
+never shared, for the technical reason above.
 
 ## Phase 2 is design, not code
 
