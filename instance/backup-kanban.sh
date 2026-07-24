@@ -43,7 +43,7 @@ try:
     dst.close()
     sys.exit(0)
 except Exception as e:
-    print(f'Errore backup: {e}', file=sys.stderr)
+    print(f'Backup error: {e}', file=sys.stderr)
     sys.exit(1)
 " || exit 1
 
