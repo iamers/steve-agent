@@ -38,6 +38,6 @@ tiers:
 
 rules:
   brief_required_for: [blast, propagation]
-  auto_merge: safe            # requires green CI
-  merge_on: "approve in chat"   # agent merges after explicit approve
+  auto_merge: backlog          # safe tier only, behind a deterministic gate; not active today
+  merge_on: "human on GitHub"  # no agent merges until the auto-merge gate is built
   revert: manual                # no auto-revert
