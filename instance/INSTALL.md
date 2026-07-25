@@ -1,6 +1,6 @@
 # Steve Agent Instance Installation Guide
 
-This guide walks through deploying a new Steve Agent (Hermes Agent) instance on a Linux host. It covers prerequisites, Hermes installation, LLM provider setup, Telegram integration, gateway as a systemd service, and blueprint verification. The steps use Ubuntu and a GLM coding plan as concrete examples: adapt the package-manager commands to your distribution and the provider settings to any Hermes-supported model.
+This guide walks through deploying a new Steve Agent (Hermes Agent) instance on a Linux host. It covers prerequisites, Hermes installation, LLM provider setup, Telegram integration, gateway as a systemd service, and blueprint verification. The steps use Ubuntu and a subscription-backed Codex plan as concrete examples: adapt the package-manager commands to your distribution and the provider settings to any Hermes-supported model.
 
 ## 1. Prerequisites
 
@@ -93,21 +93,56 @@ Installation creates the following layout:
 
 ## 3. LLM Provider Setup
 
-Steve Agent is model-agnostic: any Hermes-supported provider works (an OpenAI-compatible endpoint, a hosted plan, or a local model). This guide uses a Z.AI GLM coding plan as the concrete example; substitute your provider's key, endpoint, and model in the steps below.
+Steve Agent is model-agnostic: any Hermes-supported provider works (an API key, a subscription-backed plan, or a local OpenAI-compatible endpoint). Two things matter more than the specific model:
 
-### API Key Configuration
+- **Do not put the whole factory on one quota.** Configure a `fallback_model` chain whose links sit on *different* providers, and make at least one link a provider that cannot run out of quota (a local endpoint). If the primary and the fallback are two external quotas, a busy day exhausts both and turns die with no retry.
+- **Assign models per role.** The orchestrator, the worker, and the reviewer are separate Hermes profiles with their own `config.yaml`, so each can run a different model. See §5.
 
-Add the API key to `~/.hermes/.env`:
+This guide uses a ChatGPT/Codex subscription as the concrete example, because it needs no API key. Substitute your provider's credentials and model ids if you use something else.
+
+### Option A: subscription-backed provider (no API key)
+
+Install the Codex CLI for the instance user. Set a user-level npm prefix so this needs no `sudo` and stays inside the instance's home:
 
 ```bash
-printf "\nGLM_API_KEY=<your-zai-api-key>\n" >> ~/.hermes/.env
+npm config set prefix ~/.local
+npm i -g @openai/codex
+codex --version   # 0.130.0 or newer
 ```
 
-Set the base URL explicitly for the coding plan (Hermes can auto-detect, but explicit is deterministic):
+Authenticate. On a headless host use `--device-auth`: the default flow starts a callback server on `localhost:1455`, which a browser on another machine cannot reach.
 
 ```bash
-printf "GLM_BASE_URL=https://api.z.ai/api/coding/paas/v4\n" >> ~/.hermes/.env
+codex login --device-auth
+# Open the printed URL, enter the one-time code, then verify:
+codex login status   # -> "Logged in using ChatGPT"
 ```
+
+That writes `~/.codex/auth.json`. Hermes keeps its own credential store, so register the credential with Hermes too, otherwise turns fail with `No Codex credentials stored`:
+
+```bash
+hermes auth add openai-codex --type oauth
+# Offers to import the existing ~/.codex/auth.json. Requires a real terminal:
+# with piped stdin the prompt is skipped and nothing is registered.
+```
+
+Two cautions:
+
+- That command writes `model.provider` into `config.yaml` when it completes. On an instance where `config.yaml` is version-controlled and drift-checked, verify the file afterwards and keep the canonical copy authoritative.
+- Models with a `-codex` suffix (for example `gpt-5.2-codex`) are **not** reachable on a ChatGPT subscription; the API returns `HTTP 400: The '<model>' model is not supported when using Codex with a ChatGPT account`. Use the current general models instead.
+
+### Option B: API key provider
+
+Add the key to `~/.hermes/.env` and set the base URL explicitly, since explicit beats auto-detection:
+
+```bash
+printf "\n<PROVIDER>_API_KEY=<your-api-key>\n" >> ~/.hermes/.env
+printf "<PROVIDER>_BASE_URL=<https://your-provider/v1>\n" >> ~/.hermes/.env
+```
+
+Record the key name in `instance/env.template` as well: `drift-check.sh` compares the *names* of the populated keys, so an undocumented key reads as drift.
+
+### Common steps
 
 Secure the `.env` file:
 
@@ -115,16 +150,12 @@ Secure the `.env` file:
 chmod 600 ~/.hermes/.env
 ```
 
-### Hermes Configuration
-
 Set the provider and default model:
 
 ```bash
-hermes config set model.provider zai
-hermes config set model.default glm-5.2
+hermes config set model.provider <provider>
+hermes config set model.default <model-id>
 ```
-
-The coding plan also supports `glm-4.7`, `glm-5-turbo`, and `glm-4.5-air`. Rate limits may be shared across instances on the same plan.
 
 Clean up any default base URL from the template:
 
@@ -399,9 +430,10 @@ comment in the script).
 
 | # | Issue | Solution |
 |---|-------|----------|
-| 1 | In another agent runtime's config file, the `models.providers.zai.apiKey` field may be a JSON reference to an env var (`{"id": "ZAI_API_KEY", "source": "env"}`), not the actual key | Place the actual key in `~/.hermes/.env` as `GLM_API_KEY=...` |
+| 1 | When migrating from another agent runtime, its config may store an API key as a JSON *reference* to an env var (`{"id": "SOME_API_KEY", "source": "env"}`) rather than the literal secret | Resolve the reference and place the actual value in `~/.hermes/.env` |
 | 2 | The `.env` file seeded by the installer doesn't end with a newline | Use `printf "\nKEY=...\n"` instead of `echo` or appending with `\n` prefix |
-| 3 | The default `config.yaml` contains `model.base_url: https://openrouter.ai/api/v1` | Remove it with `sed -i '/^model.base_url/d'` for the Z.AI provider (it's ignored but affects clarity) |
+| 3 | The default `config.yaml` contains `model.base_url: https://openrouter.ai/api/v1` | Remove it with `sed -i '/^model.base_url/d'` once your provider is set (it's ignored, but it misleads readers) |
+| 3b | `hermes auth add <provider> --type oauth` silently registers nothing when stdin is piped: the import prompt is skipped | Run it from a real terminal, or the first turn fails with `No Codex credentials stored` |
 | 4 | `getUpdates` returns empty until the bot receives a fresh event after being added to the group | Send a mention or message to the bot after adding it, then call `getUpdates` |
 | 5 | `journalctl --user` as the service user via non-interactive SSH gives "No journal files were opened" | Use `~/.hermes/logs/gateway.log` or `sudo journalctl _UID=<uid>` as a sudo user |
 | 6 | `hermes gateway restart` makes the old process exit with status=75/TEMPFAIL, appearing as an error in logs | This is normal restart mechanics, not an error |

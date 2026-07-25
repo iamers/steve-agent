@@ -36,7 +36,11 @@ check "ssh reachable"        'true'
 check "hermes version pinned" "export PATH=\$HOME/.local/bin:\$PATH; hermes --version | grep -q $HERMES_PIN"
 check "gateway service active" 'systemctl --user is-active hermes-gateway | grep -qx active'
 check "telegram connected (log)" 'grep -q "telegram connected" ~/.hermes/logs/gateway.log'
-check "env keys present"     'for k in GLM_API_KEY TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_USERS TELEGRAM_GROUP_ALLOWED_CHATS TELEGRAM_HOME_CHANNEL; do grep -qE "^$k=." ~/.hermes/.env || exit 1; done'
+# Credenziali: le chiavi Telegram vivono nel .env, quella del provider LLM nel
+# pool `hermes auth` (OAuth, non una variabile d'ambiente). Verificarle entrambe
+# nello stesso check tiene il conto degli step invariato e copre il percorso LLM
+# vero, non la sola presenza di una stringa nel .env.
+check "credentials present"  'for k in TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_USERS TELEGRAM_GROUP_ALLOWED_CHATS TELEGRAM_HOME_CHANNEL; do grep -qE "^$k=." ~/.hermes/.env || exit 1; done; export PATH=$HOME/.local/bin:$PATH; hermes auth status openai-codex 2>&1 | grep -q "logged in"'
 check "env perms 600"        'stat -c %a ~/.hermes/.env | grep -qx 600'
 check "no unexpected listeners" '! ss -tln 2>/dev/null | grep -vE "127.0.0.1|\[::1\]" | grep -q LISTEN || true'
 # Guardia post-hoc su main (finche' branch protection non e' disponibile sul
