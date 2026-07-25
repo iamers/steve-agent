@@ -9,17 +9,60 @@ drift=0
 
 echo "== config.yaml (live vs repo) =="
 # Due blocchi top-level vivono solo sull'istanza live e non devono mai
-# entrare nel repo, quindi li escludiamo dal confronto applicando lo stesso
-# filtro awk a entrambi i lati (il canonico resta senza questi blocchi e il
-# drift-check li ignora, senza falsi positivi):
+# entrare nel repo, quindi li escludiamo dal confronto su entrambi i lati:
 #  - "dashboard:": credenziali basic-auth (password_hash e secret)
 #  - "onboarding:": flag first-run (onboarding.seen.*) scritti a runtime dal
 #    gateway, non configurazione
+# Escluderli PRIMA di stampare qualsiasi diff e' anche una garanzia di
+# sicurezza: nessun hash o secret puo' finire nell'output del check.
+#
+# Il confronto e' SEMANTICO (YAML parsato, chiavi ordinate), non testuale.
+# Motivo: il file live e' scritto da Hermes, che quando riscrive il config
+# rimuove TUTTI i commenti e normalizza le virgolette (misurato il 2026-07-25:
+# live 0 righe di commento, canonico 24, contenuto funzionale identico).
+# Confrontare a testo pretenderebbe che due artefatti con proprietari diversi
+# coincidano byte per byte, e costringerebbe a spogliare il canonico della
+# documentazione che serve a chi lo legge. Il confronto semantico cattura ogni
+# differenza che conta (chiavi, valori, struttura) e ignora solo la
+# formattazione che non controlliamo.
 strip_blocks='/^(dashboard|onboarding):/{skip=1; next} /^[A-Za-z_]/{skip=0} !skip'
-if diff -u <(awk "$strip_blocks" config.yaml) <(ssh "$HOST" 'cat ~/.hermes/config.yaml' | awk "$strip_blocks") ; then
-  echo "OK: config.yaml aligned (dashboard and onboarding blocks excluded)"
+live_cfg=$(mktemp); trap 'rm -f "$live_cfg"' EXIT
+ssh "$HOST" 'cat ~/.hermes/config.yaml' > "$live_cfg"
+
+if python3 -c 'import yaml' 2>/dev/null; then
+  sem=$(mktemp); trap 'rm -f "$live_cfg" "$sem"' EXIT
+  cat > "$sem" <<'PY'
+import sys, json, difflib, yaml
+
+INSTANCE_ONLY = ("dashboard", "onboarding")
+
+def norm(path):
+    data = yaml.safe_load(open(path)) or {}
+    for key in INSTANCE_ONLY:
+        data.pop(key, None)
+    return json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False).splitlines()
+
+repo, live = norm(sys.argv[1]), norm(sys.argv[2])
+if repo == live:
+    sys.exit(0)
+sys.stdout.write("\n".join(difflib.unified_diff(repo, live, "repo", "live", lineterm="")) + "\n")
+sys.exit(1)
+PY
+  if python3 "$sem" config.yaml "$live_cfg"; then
+    echo "OK: config.yaml aligned (semantic compare; dashboard/onboarding excluded)"
+  else
+    drift=1
+  fi
 else
-  drift=1
+  # Degradazione: senza pyyaml si torna al confronto testuale storico. E' piu'
+  # rumoroso (segnala commenti e virgolette che Hermes normalizza) ma non piu'
+  # debole: meglio un falso positivo che un buco nella guardia.
+  echo "NOTE: pyyaml non disponibile, confronto testuale (piu' rumoroso)"
+  if diff -u <(awk "$strip_blocks" config.yaml) <(awk "$strip_blocks" "$live_cfg") ; then
+    echo "OK: config.yaml aligned (textual compare; dashboard/onboarding excluded)"
+  else
+    drift=1
+  fi
 fi
 
 echo
