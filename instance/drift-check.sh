@@ -25,7 +25,15 @@ echo "== config.yaml (live vs repo) =="
 # documentazione che serve a chi lo legge. Il confronto semantico cattura ogni
 # differenza che conta (chiavi, valori, struttura) e ignora solo la
 # formattazione che non controlliamo.
-strip_blocks='/^(dashboard|onboarding):/{skip=1; next} /^[A-Za-z_]/{skip=0} !skip'
+# Il confine di fine-blocco è QUALSIASI costrutto in colonna 0, non solo una
+# chiave che inizia per lettera: una chiave YAML top-level può essere quotata
+# ("chiave": valore) e del contenuto malformato può iniziare con un altro
+# carattere. Con il vecchio confine /^[A-Za-z_]/ quelle righe restavano dentro
+# il blocco e venivano INGHIOTTITE, e la guardia dichiarava "no drift" su un
+# file che aveva contenuto top-level in più: un falso negativo.
+# I commenti in colonna 0 NON chiudono il blocco (un commento dentro dashboard
+# non deve far riemergere le righe successive del blocco stesso).
+strip_blocks='/^(dashboard|onboarding):/{skip=1; next} /^[^[:space:]#]/{skip=0} !skip'
 live_cfg=$(mktemp); trap 'rm -f "$live_cfg"' EXIT
 ssh "$HOST" 'cat ~/.hermes/config.yaml' > "$live_cfg"
 
