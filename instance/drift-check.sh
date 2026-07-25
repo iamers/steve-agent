@@ -13,11 +13,11 @@ echo "== config.yaml (live vs repo) =="
 #  - "dashboard:": credenziali basic-auth (password_hash e secret)
 #  - "onboarding:": flag first-run (onboarding.seen.*) scritti a runtime dal
 #    gateway, non configurazione
-# Escluderli PRIMA di stampare qualsiasi diff e' anche una garanzia di
-# sicurezza: nessun hash o secret puo' finire nell'output del check.
+# Escluderli PRIMA di stampare qualsiasi diff è anche una garanzia di
+# sicurezza: nessun hash o secret può finire nell'output del check.
 #
-# Il confronto e' SEMANTICO (YAML parsato, chiavi ordinate), non testuale.
-# Motivo: il file live e' scritto da Hermes, che quando riscrive il config
+# Il confronto è SEMANTICO (YAML parsato, chiavi ordinate), non testuale.
+# Motivo: il file live è scritto da Hermes, che quando riscrive il config
 # rimuove TUTTI i commenti e normalizza le virgolette (misurato il 2026-07-25:
 # live 0 righe di commento, canonico 24, contenuto funzionale identico).
 # Confrontare a testo pretenderebbe che due artefatti con proprietari diversi
@@ -36,13 +36,48 @@ import sys, json, difflib, yaml
 
 INSTANCE_ONLY = ("dashboard", "onboarding")
 
-def norm(path):
-    data = yaml.safe_load(open(path)) or {}
+
+class StrictLoader(yaml.SafeLoader):
+    """SafeLoader che RIFIUTA le chiavi duplicate.
+
+    yaml.safe_load, di suo, tiene silenziosamente l'ultima occorrenza di una
+    chiave ripetuta. Su un confronto semantico questo aprirebbe un buco: un file
+    live con una chiave duplicata il cui ULTIMO valore coincide col canonico
+    verrebbe dichiarato allineato, mentre il file è realmente diverso e
+    malformato. Il confronto testuale lo intercettava; questo lo intercetta
+    fallendo CHIUSO, cioè segnalando drift invece di tacere.
+    """
+
+
+def _no_duplicate_keys(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                None, None, f"chiave duplicata: {key!r}", key_node.start_mark
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+StrictLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys
+)
+
+
+def norm(path, label):
+    try:
+        data = yaml.load(open(path), Loader=StrictLoader) or {}
+    except yaml.YAMLError as exc:
+        print(f"{label}: YAML non valido o con chiavi duplicate: {exc}")
+        sys.exit(1)
     for key in INSTANCE_ONLY:
         data.pop(key, None)
     return json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False).splitlines()
 
-repo, live = norm(sys.argv[1]), norm(sys.argv[2])
+
+repo, live = norm(sys.argv[1], "repo"), norm(sys.argv[2], "live")
 if repo == live:
     sys.exit(0)
 sys.stdout.write("\n".join(difflib.unified_diff(repo, live, "repo", "live", lineterm="")) + "\n")
@@ -54,10 +89,10 @@ PY
     drift=1
   fi
 else
-  # Degradazione: senza pyyaml si torna al confronto testuale storico. E' piu'
-  # rumoroso (segnala commenti e virgolette che Hermes normalizza) ma non piu'
+  # Degradazione: senza pyyaml si torna al confronto testuale storico. È più
+  # rumoroso (segnala commenti e virgolette che Hermes normalizza) ma non più
   # debole: meglio un falso positivo che un buco nella guardia.
-  echo "NOTE: pyyaml non disponibile, confronto testuale (piu' rumoroso)"
+  echo "NOTE: pyyaml unavailable, falling back to textual compare (noisier)"
   if diff -u <(awk "$strip_blocks" config.yaml) <(awk "$strip_blocks" "$live_cfg") ; then
     echo "OK: config.yaml aligned (textual compare; dashboard/onboarding excluded)"
   else
