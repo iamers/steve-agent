@@ -211,6 +211,17 @@ l'admin approva in chat: applica la label e si ferma.
    gate legge resta sulla PR** (label + review APPROVED + CI verde + SHA
    match). La label da sola non basta: il gate verifica tutte le 5
    condizioni. Applicare la label e' necessario ma non sufficiente.
+6. **Istanza senza merge gate.** Il gate e la GitHub App sono OPZIONALI:
+   l'adopter sceglie in fase di installazione se attivarli. Se sull'istanza
+   il merge gate NON e' configurato (nessuna GitHub App, chiavi
+   `STEVE_MERGE_*` non valorizzate), **NON applicare la label
+   `steve-approved`**: nessuno la legge, sarebbe una marcatura morta. In
+   quel caso un approve in chat significa solo che il merge lo fa l'umano su
+   GitHub. Dillo esplicitamente all'admin: \"approve registrato, merge
+   manuale su GitHub (nessun gate configurato su questa istanza).\" Il
+   flusso e' identico a quello pre-gate: review approvata -> merge umano,
+   nulla cambia per l'adopter. La label serve SOLO quando esiste un gate
+   che la consuma.
 
 **Scanner cron.** L'orchestratore non esegue il gate direttamente, ne' esegue
 lo scanner. Deve pero' sapere che `instance/merge-gate-scan.sh` esiste: e' il
