@@ -57,14 +57,25 @@ class StrictLoader(yaml.SafeLoader):
     """
 
 
+class DuplicateKey(Exception):
+    """Chiave duplicata. Porta con se' SOLO nome della chiave e posizione.
+
+    Il nome di una chiave e' struttura, non contenuto: e' utile in diagnostica e
+    non espone valori. I VALORI non compaiono mai, qui ne' altrove.
+    """
+
+    def __init__(self, key, mark):
+        self.key = key
+        self.line = None if mark is None else mark.line + 1
+        self.column = None if mark is None else mark.column + 1
+
+
 def _no_duplicate_keys(loader, node, deep=False):
     mapping = {}
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
         if key in mapping:
-            raise yaml.constructor.ConstructorError(
-                None, None, f"duplicate key: {key!r}", key_node.start_mark
-            )
+            raise DuplicateKey(key, key_node.start_mark)
         mapping[key] = loader.construct_object(value_node, deep=deep)
     return mapping
 
@@ -82,13 +93,25 @@ def norm(path, label):
     # dell'esclusione, portandosi dietro il token incriminato: un hash o un
     # secret della dashboard finirebbe nell'output del check. Rimuovendoli
     # prima, quel contenuto non raggiunge mai il parser.
+    # Un errore del parser NON deve mai riportare testo preso dal documento: il
+    # messaggio di PyYAML cita il token incriminato, e quel token puo' trovarsi
+    # dentro un blocco instance-only (una password_hash, un secret). Stampiamo
+    # quindi solo TIPO e POSIZIONE. Cosi' la riservatezza non dipende piu' dal
+    # riuscire a riconoscere lessicalmente i blocchi da escludere prima del
+    # parsing, che con le molte grafie equivalenti di YAML e' una partita persa.
     try:
         data = yaml.load(open(path), Loader=StrictLoader) or {}
+    except DuplicateKey as exc:
+        where = "" if exc.line is None else f" at line {exc.line}, column {exc.column}"
+        print(f"{label}: duplicate key {exc.key!r}{where}")
+        sys.exit(1)
     except yaml.YAMLError as exc:
-        print(f"{label}: invalid YAML or duplicate keys: {exc}")
+        mark = getattr(exc, "problem_mark", None) or getattr(exc, "context_mark", None)
+        where = "" if mark is None else f" at line {mark.line + 1}, column {mark.column + 1}"
+        print(f"{label}: invalid YAML{where}")
         sys.exit(1)
     for key in INSTANCE_ONLY:
-        data.pop(key, None)  # difesa in profondità: già rimossi a monte
+        data.pop(key, None)  # dopo il parsing ogni grafia collassa qui
     return json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False).splitlines()
 
 
