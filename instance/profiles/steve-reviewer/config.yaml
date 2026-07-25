@@ -1,9 +1,11 @@
 model:
-  default: glm-5.2
-  provider: zai
+  default: gpt-5.6-sol
+  provider: openai-codex
 fallback_model:
-  provider: gemini
-  model: gemini-3.5-flash
+  - provider: lab-gpu
+    model: qwen36-35b-a3b-fp8
+  - provider: gemini
+    model: gemini-3.5-flash
 terminal:
   backend: local
   cwd: .
