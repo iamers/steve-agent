@@ -417,6 +417,79 @@ Schedule automated backups of `~/.hermes/kanban.db` (retains last 7 backups):
 
 The backup script uses SQLite online backup API (safe with active databases) and is silent on success (designed for cron watchdog mode).
 
+#### Merge-Gate Scan (Phase 2 Automation)
+
+`instance/merge-gate-scan.sh` is the deterministic scanner that sits in front of
+`merge-gate.sh`: every tick it finds open PRs carrying the approval label
+(`steve-approved`) and invokes the gate on each one. It has no merge logic of
+its own and no LLM — it is designed to run under a `--no-agent` cron job where
+empty stdout means silence (nothing to report), exactly like `pr-watch.sh` and
+`backup-kanban.sh`.
+
+Anti-noise behavior (a cron ticks every 5 minutes, so it must not flood the
+channel):
+
+- No labeled PRs → empty stdout (total silence).
+- A reject already reported with the same reason → silence (state tracked in
+  `~/.hermes/state/merge-gate-seen.txt`, keyed by `<pr>\t<reason>`).
+- A reject with a NEW reason → printed once, then recorded.
+- A successful merge → ALWAYS printed (one-shot event) and the state for that
+  PR is cleared.
+
+Anti-concurrency: the scanner takes `flock` on
+`~/.hermes/state/merge-gate-scan.lock`; if an instance is already running it
+exits 0 silently.
+
+Verify the scanner locally before registering it (both degrade cleanly without
+credentials — the gate reports the missing auth, the scanner stays silent if
+`gh` is unauthenticated):
+
+```bash
+./instance/merge-gate-scan.sh --dry-run      # list candidates + gate decisions, no merge
+./instance/merge-gate-scan.sh                # runtime scan (silent on nothing-to-do)
+```
+
+##### Registering the cron job
+
+Hermes cron jobs live in the Hermes DB, not on the filesystem. Register the
+scanner as a thin wrapper that `exec`s the canonical repo script (same pattern
+as the pr-watch and backup-kanban wrappers). Create
+`~/.hermes/scripts/merge-gate-cron.sh`:
+
+```bash
+#!/usr/bin/env bash
+# Wrapper cron: esegue lo scanner canonico del repo. Stdout vuoto = silenzio.
+exec bash "$HOME/repos/steve-agent/instance/merge-gate-scan.sh" 2>&1
+```
+
+Then register it with the Hermes scheduler:
+
+```bash
+hermes cron create '*/5 * * * *' --script merge-gate-cron.sh --no-agent --deliver <platform:chat:thread>
+```
+
+Flag breakdown:
+
+- `*/5 * * * *` — every 5 minutes.
+- `--script merge-gate-cron.sh` — points at the wrapper (resolved under
+  `~/.hermes/scripts/`).
+- `--no-agent` — no LLM is spawned; the scheduler runs the script and delivers
+  its stdout verbatim. Empty stdout = nothing is sent (the watchdog pattern).
+- `--deliver <platform:chat:thread>` — the destination the scanner output is
+  fanned out to (e.g. `telegram:<group-chat-id>:<topic-thread-id>`). Replace
+  with the instance's merge-notifications topic.
+
+The cron inherits `STEVE_REPO`, `STEVE_APPROVAL_LABEL`, and the merge App
+credentials from `~/.hermes/.env` (see section 8), so no secrets are hardcoded
+in the script or the wrapper.
+
+IMPORTANT: cron jobs are NOT covered by `drift-check.sh`. The drift check
+compares repo files against the live instance filesystem; cron jobs live in
+the Hermes DB, so they are runtime state that must be re-created by hand on a
+new instance. Re-run the `hermes cron create` command above after a fresh
+deploy (the wrapper script and `instance/merge-gate-scan.sh` ARE drift-checked,
+since both are repo files).
+
 ## 8. GitHub merge App
 
 The deterministic merge gate (`instance/merge-gate.sh`) merges safe-tier PRs
