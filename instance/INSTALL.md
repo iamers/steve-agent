@@ -358,7 +358,7 @@ The smoke script verifies core functionality:
 ./instance/smoke.sh
 ```
 
-Expected: 9/9 checks PASS (includes the main-guard: no bot pushes to main, and merges require an approved review).
+Expected: 10/10 checks PASS. Three of them are the main-guard: no bot pushes to `main`, every merge carries an approved review from a different account, and any merge performed by the optional merge App carries both the approval label and an approved review. The last one passes vacuously on an instance that does not use the merge App.
 
 The script ships with defaults for the canonical `iamers/steve-agent` instance. Override the following environment variables to run it unchanged against another repo or bot account:
 
