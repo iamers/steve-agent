@@ -9,7 +9,7 @@ This guide walks through deploying a new Steve Agent (Hermes Agent) instance on 
 Install required system packages before running the Hermes installer. The installer will prompt for these, but installing them system-wide first avoids permission issues with the service user.
 
 ```bash
-sudo apt-get install -y ripgrep build-essential python3-dev libffi-dev
+sudo apt-get install -y ripgrep build-essential python3-dev libffi-dev pipx
 ```
 
 Ensure `xz-utils`, `git`, `curl`, `ffmpeg`, and `jq` are also present.
@@ -290,6 +290,66 @@ git clone https://github.com/iamers/steve-agent.git
 cd steve-agent
 ```
 
+### Install the privacy guard hook
+
+The privacy guard lives in the repository clone, so install it in the clone on the instance, not only in the operator's workstation clone. Install `pre-commit` as an isolated user-level tool and verify that it is available before installing the hook:
+
+```bash
+pipx install pre-commit
+pre-commit --version
+```
+
+From the root of the instance clone, install the hook and verify that its file exists in the repository hooks directory:
+
+```bash
+cd ~/repos/steve-agent
+pre-commit install
+test -f "$(git rev-parse --git-path hooks/pre-commit)"
+```
+
+Git worktrees share the hooks of the main repository, so installing the hook once in the instance clone also covers its task worktrees.
+
+Create the clone-local denylist before configuring the hook to use it. The file contains one case-insensitive extended-regex pattern per line; blank lines and lines beginning with `#` are ignored. Populate it only with instance-specific identifiers that must not appear in a public repository, such as categories of internal host names, operator identities, internal paths, private network addresses, and unannounced project names. Do not copy those values into this guide or any other tracked file.
+
+```bash
+mkdir -p .local
+install -m 600 /dev/null .local/privacy-denylist.txt
+# Populate .local/privacy-denylist.txt with the instance-specific patterns now.
+```
+
+The `.local/` path is gitignored, and the denylist must never be committed. A literal string is also a valid pattern, so an operator can enter a token directly. However, extended-regex metacharacters such as periods, asterisks, plus signs, parentheses, pipes, and backslashes are interpreted rather than matched literally unless escaped. An unescaped metacharacter can prevent the pattern from matching the literal token that the operator intended to block, creating a false negative that lets the sensitive identifier pass. Escape metacharacters when the intended value is literal, and verify every entry against the exact token it must catch rather than assuming that the pattern is correct.
+
+Test one pattern and its intended token with the same matching flags used by the privacy script. For example, this deliberately generic escaped pattern must match the literal token and exit 0:
+
+```bash
+pattern='alpha\+beta'
+token='alpha+beta'
+printf '%s\n' "$token" | grep -nHiE -I -e "$pattern"
+```
+
+Replace both values when validating a real entry. Test the token the pattern is intended to catch; a project regex does not necessarily need to match its own pattern text.
+
+Do not continue with an absent or empty denylist: in either case the privacy guard exits successfully without scanning and becomes a silent no-op. The active-pattern check below is therefore evidence that the guard is actually enabled, not an optional validation.
+
+The clone-local `.local/privacy-denylist.txt` fallback works only when the check runs from the main clone. Task worktrees do not contain that file. Set `PRIVACY_DENYLIST` in the instance `~/.hermes/.env` to the denylist's absolute path so Hermes workers inherit a path that is readable from every task worktree:
+
+```dotenv
+PRIVACY_DENYLIST=<instance-home>/repos/steve-agent/.local/privacy-denylist.txt
+```
+
+Replace `<instance-home>` with the instance user's absolute home path. Worker profiles and task worktrees do not exist yet at this point in the installation. Verify the configured path immediately from the main clone by exporting the same value for the current shell, then prove that the file is readable and contains at least one active pattern before running the check:
+
+```bash
+cd ~/repos/steve-agent
+export PRIVACY_DENYLIST=<instance-home>/repos/steve-agent/.local/privacy-denylist.txt
+test -n "${PRIVACY_DENYLIST:-}"
+test -r "$PRIVACY_DENYLIST"
+grep -qEv '^[[:space:]]*(#|$)' "$PRIVACY_DENYLIST"
+bash scripts/check_privacy.sh instance/INSTALL.md
+```
+
+The export and the next three commands prove that the configured denylist is actually reached. The privacy script also exits 0 when the denylist is missing or empty, so its exit status alone does not prove that a scan occurred. Without a reachable denylist, the installed hook is a silent no-op: it blocks nothing and emits no warning. Repeat the inheritance check from the first real task worktree after creating the worker profiles and kanban board, as required in the Next Steps section.
+
 ### Run Smoke Tests
 
 The smoke script verifies core functionality:
@@ -439,6 +499,7 @@ comment in the script).
 | 6 | `hermes gateway restart` makes the old process exit with status=75/TEMPFAIL, appearing as an error in logs | This is normal restart mechanics, not an error |
 | 7 | The `--commit` pin must use a commit hash, not a tag | Tags break on `git pull --ff-only` when re-running the installer |
 | 8 | Interactive prompts appear even with `--skip-setup` when running in a TTY (tmux) | Answer `n` to install prompts for ripgrep and build tools (pre-installed) |
+| 9 | The pre-commit hook is not installed, or its denylist is not reachable | The privacy guard silently protects nothing and emits no warning; install the hook in the instance clone and verify that the denylist is reachable |
 
 ## 10. Next Steps
 
@@ -446,9 +507,18 @@ After installation is complete:
 
 1. Create worker profiles for your team: `hermes profile create --clone`
 2. Initialize the kanban board: `hermes kanban init`
-3. Configure topic-skill bindings and channel prompts for your workflow
-4. Set up branch protection and rulesets on the main branch (requires paid GitHub plan)
-5. Configure GitHub authentication for bot commits if needed
+3. Assign the first real repository task so Hermes creates its task worktree and launches a worker. From that worker process, verify that the denylist configured during privacy guard installation was inherited and is active:
+
+   ```bash
+   test -n "${PRIVACY_DENYLIST:-}"
+   test -r "$PRIVACY_DENYLIST"
+   grep -qEv '^[[:space:]]*(#|$)' "$PRIVACY_DENYLIST"
+   bash scripts/check_privacy.sh instance/INSTALL.md
+   ```
+
+4. Configure topic-skill bindings and channel prompts for your workflow
+5. Set up branch protection and rulesets on the main branch (requires paid GitHub plan)
+6. Configure GitHub authentication for bot commits if needed
 
 ## 11. Maintenance
 
