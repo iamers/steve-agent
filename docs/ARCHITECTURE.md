@@ -260,7 +260,7 @@ born in the repo and applied to the instance; if one is born live (an emergency)
 back to the repo immediately and noted in the journal. `drift-check.sh` compares live vs repo and
 **flags without restoring** (exit 1 on drift), covering config, the main's SOUL, the SOUL and
 config of the worker/reviewer profiles, `.env` keys (names, not values), profile conformance, and
-the skill. `smoke.sh` verifies 9 health checks (8.7).
+the skill. `smoke.sh` verifies 10 health checks (8.7).
 
 ### 8.3 Process governance as code (`.steve/`)
 
@@ -449,7 +449,7 @@ restricting merge to the App).
 | Completion contract | The completion contract of a `--goal` task: outcome plus `verify:` with a real command; "done" judged on evidence (re-run by the reviewer), not on self-assertion. |
 | Review tier | The risk class of a file (`blast > propagation > safe`) in `.steve/review-policy.yaml`; a PR's tier is the max of its files; it determines the sign-off and human signature required. |
 | Brief compiler / gate | `tools/pr-brief.py`: derives the tier from the touched files and produces the review brief; the deterministic gate on every PR. |
-| main-guard | Smoke checks 8-9: no bot push/merge to `main`, and every merge has an approved review from a different account. |
+| main-guard | Smoke checks 8-10: no bot push/merge to `main`, every merge has an approved review from a different account, and any merge performed by the merge App carries both the approval label and an approved review. |
 | Worktree workspace | The Kanban workspace `worktree:<path>`: a git worktree with a dedicated branch, `main` never touched. |
 | `channel_prompts` | Hermes config: a flat dictionary `{chat_id/thread_id: prompt}` that injects a per-topic system prompt. |
 | Injector | An MTProto user-account (`tools/e2e/injector.py`) that simulates a real human in the group for e2e tests. |
