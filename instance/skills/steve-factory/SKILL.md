@@ -182,7 +182,44 @@ La decisione resta umana:
 Il brief concentra la decisione: non sostituire il giudizio informato dal tier
 con una opinione libera non motivata.
 
-## 6. Convenzione topic per story
+## 6. Approve-in-chat: la label attiva il gate
+
+Questa e' la regola operativa che attiva il gate deterministico. La decisione
+di merge resta umana (§5); questa sezione dice **cosa fa Steve** quando
+l'admin approva in chat: applica la label e si ferma.
+
+1. **Quando l'ADMIN approva in chat una PR** (es. "approva #NN", "approve
+   #NN"), tu applichi sulla PR la label di approvazione `steve-approved` PIU'
+   un commento sulla PR che cita la decisione: chi ha approvato, quando, e il
+   tier della PR. Esempio di commento:
+   `Approved by @fr4 in chat (2026-07-25). Tier: safe. Merge gate eligible.`
+2. **NON mergi MAI.** Il merge lo esegue il gate deterministico
+   `instance/merge-gate.sh` (solo per tier safe, dopo che la label e' applicata
+   e le altre 4 condizioni sono soddisfatte) oppure l'umano su GitHub (per
+   propagation/blast, dove il gate rifiuta). La regola "mai mergiare" del §1
+   resta invariata: la label e' autorizzazione, non esecuzione.
+3. **Solo l'admin puo' autorizzare.** Verifica l'identita' di chi scrive come
+   fai gia' per i comandi tiered (lo stereotipo dell'admin e' configurato
+   nell'istanza). Un approve da un non-admin va ignorato.
+4. **Se il tier della PR NON e' safe: dillo all'admin e NON applicare la
+   label.** Il gate rifiuterebbe comunque (condizione d: tier deve essere
+   safe), ma non applicare la label evita rumore inutile e un reject del cron
+   ogni 5 minuti. Spiega all'admin: "tier propagation/blast, il gate non
+   copre questo tier — il merge e' manuale su GitHub." Per i tier non-safe,
+   l'admin fa il merge a mano sulla UI GitHub.
+5. **La label e' la marcatura dell'autorizzazione; la fonte di verita' che il
+   gate legge resta sulla PR** (label + review APPROVED + CI verde + SHA
+   match). La label da sola non basta: il gate verifica tutte le 5
+   condizioni. Applicare la label e' necessario ma non sufficiente.
+
+**Scanner cron.** L'orchestratore non esegue il gate direttamente, ne' esegue
+lo scanner. Deve pero' sapere che `instance/merge-gate-scan.sh` esiste: e' il
+cron scanner che trova le PR etichettate `steve-approved` e invoca il gate su
+ciascuna. La label che tu applichi e' esattamente cio' che lo scanner cerca.
+Dopo aver applicato la label + commento, il tuo lavoro e' finito: e' lo
+scanner (cron) o l'umano (UI GitHub) a portare la PR al merge.
+
+## 7. Convenzione topic per story
 
 Se la story ha un topic Telegram dedicato, TUTTI i suoi task vanno iscritti a
 quel topic (notify-subscribe). Il topic Backlog resta l'indice trasversale:
@@ -431,6 +468,9 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 - [ ] Se la creazione di una PR ritorna HTTP 500 vuoto, e' un outage GitHub
       transiente. Non bruciare retry: il branch e' pronto, la PR nasce alla
       ripresa (pitfall #22).
+- [ ] Quando l'admin approva in chat una PR safe-tier, applichi la label
+      steve-approved + commento di decisione. NON mergi: il gate (cron) o
+      l'umano (GitHub UI) eseguono il merge.
 
 ## References
 
