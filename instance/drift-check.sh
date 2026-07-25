@@ -58,10 +58,10 @@ class StrictLoader(yaml.SafeLoader):
 
 
 class DuplicateKey(Exception):
-    """Chiave duplicata. Porta con se' SOLO nome della chiave e posizione.
+    """Chiave duplicata. Porta con sé SOLO nome della chiave e posizione.
 
-    Il nome di una chiave e' struttura, non contenuto: e' utile in diagnostica e
-    non espone valori. I VALORI non compaiono mai, qui ne' altrove.
+    Il nome di una chiave è struttura, non contenuto: è utile in diagnostica e
+    non espone valori. I VALORI non compaiono mai, qui né altrove.
     """
 
     def __init__(self, key, mark):
@@ -94,11 +94,11 @@ def norm(path, label):
     # secret della dashboard finirebbe nell'output del check. Rimuovendoli
     # prima, quel contenuto non raggiunge mai il parser.
     # Un errore del parser NON deve mai riportare testo preso dal documento: il
-    # messaggio di PyYAML cita il token incriminato, e quel token puo' trovarsi
+    # messaggio di PyYAML cita il token incriminato, e quel token può trovarsi
     # dentro un blocco instance-only (una password_hash, un secret). Stampiamo
-    # quindi solo TIPO e POSIZIONE. Cosi' la riservatezza non dipende piu' dal
+    # quindi solo TIPO e POSIZIONE. Così la riservatezza non dipende più dal
     # riuscire a riconoscere lessicalmente i blocchi da escludere prima del
-    # parsing, che con le molte grafie equivalenti di YAML e' una partita persa.
+    # parsing, che con le molte grafie equivalenti di YAML è una partita persa.
     try:
         data = yaml.load(open(path), Loader=StrictLoader) or {}
     except DuplicateKey as exc:
@@ -133,15 +133,21 @@ PY
     drift=1
   fi
 else
-  # Degradazione: senza pyyaml si torna al confronto testuale storico. È più
-  # rumoroso (segnala commenti e virgolette che Hermes normalizza) ma non più
-  # debole: meglio un falso positivo che un buco nella guardia.
-  echo "NOTE: pyyaml unavailable, falling back to textual compare (noisier)"
-  if diff -u <(awk "$strip_blocks" config.yaml) <(awk "$strip_blocks" "$live_cfg") ; then
-    echo "OK: config.yaml aligned (textual compare; dashboard/onboarding excluded)"
-  else
-    drift=1
-  fi
+  # NESSUNA degradazione: senza pyyaml il confronto non si fa.
+  # Il ramo testuale che c'era prima riconosceva i blocchi da escludere con un
+  # filtro a righe, e YAML ammette molte grafie equivalenti della stessa chiave
+  # ("dashboard":, 'dashboard':, dashboard :, forme con tag o esplicite). Con
+  # una grafia non riconosciuta il blocco restava nel diff CON I SUOI VALORI,
+  # cioè password_hash e secret finivano nell'output del check. Non è un
+  # confronto più rumoroso: è più debole, e su una guardia che tratta segreti
+  # non è un compromesso accettabile.
+  # Quindi si fallisce CHIUSO e in modo azionabile: non poter verificare non è
+  # "nessun drift", è un controllo non eseguito, e va contato come tale.
+  echo "ERROR: pyyaml is required to compare config.yaml safely."
+  echo "       Install it (e.g. 'pip install --user pyyaml') and re-run."
+  echo "       Refusing to fall back to a textual compare: it cannot exclude"
+  echo "       instance-only blocks reliably and would print their values."
+  drift=1
 fi
 
 echo
