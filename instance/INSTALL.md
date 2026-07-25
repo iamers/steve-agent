@@ -479,9 +479,11 @@ Flag breakdown:
   fanned out to (e.g. `telegram:<group-chat-id>:<topic-thread-id>`). Replace
   with the instance's merge-notifications topic.
 
-The cron inherits `STEVE_REPO`, `STEVE_APPROVAL_LABEL`, and the merge App
-credentials from `~/.hermes/.env` (see section 8), so no secrets are hardcoded
-in the script or the wrapper.
+The cron inherits its configuration from the instance `~/.hermes/.env`:
+`STEVE_REPO`, `STEVE_MERGE_APP_ID`, `STEVE_MERGE_KEY_PATH`, and
+`STEVE_APPROVAL_LABEL` (see section 8 for the full list). These variables must
+be present in the cron's environment — the wrapper relies on them, and no
+secrets are hardcoded in the script or the wrapper itself.
 
 IMPORTANT: cron jobs are NOT covered by `drift-check.sh`. The drift check
 compares repo files against the live instance filesystem; cron jobs live in
@@ -489,6 +491,14 @@ the Hermes DB, so they are runtime state that must be re-created by hand on a
 new instance. Re-run the `hermes cron create` command above after a fresh
 deploy (the wrapper script and `instance/merge-gate-scan.sh` ARE drift-checked,
 since both are repo files).
+
+##### Activation is an ops step
+
+The repo ships only the scanner (`instance/merge-gate-scan.sh`) and this
+documentation. Creating the wrapper at `~/.hermes/scripts/merge-gate-cron.sh`
+and registering the cron job with `hermes cron create` are **runtime
+activation steps** performed by the coordinator on the instance host, not
+files committed to the repo. A fresh deploy needs both steps re-run by hand.
 
 ## 8. GitHub merge App (optional)
 
