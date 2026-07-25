@@ -9,7 +9,7 @@ This guide walks through deploying a new Steve Agent (Hermes Agent) instance on 
 Install required system packages before running the Hermes installer. The installer will prompt for these, but installing them system-wide first avoids permission issues with the service user.
 
 ```bash
-sudo apt-get install -y ripgrep build-essential python3-dev libffi-dev
+sudo apt-get install -y ripgrep build-essential python3-dev libffi-dev pipx
 ```
 
 Ensure `xz-utils`, `git`, `curl`, `ffmpeg`, and `jq` are also present.
@@ -292,7 +292,12 @@ cd steve-agent
 
 ### Install the privacy guard hook
 
-The privacy guard lives in the repository clone, so install it in the clone on the instance, not only in the operator's workstation clone. The `pre-commit` command must be available in `PATH` before running this step.
+The privacy guard lives in the repository clone, so install it in the clone on the instance, not only in the operator's workstation clone. Install `pre-commit` as an isolated user-level tool and verify that it is available before installing the hook:
+
+```bash
+pipx install pre-commit
+pre-commit --version
+```
 
 From the root of the instance clone, install the hook and verify that its file exists in the repository hooks directory:
 
@@ -304,7 +309,23 @@ test -f "$(git rev-parse --git-path hooks/pre-commit)"
 
 Git worktrees share the hooks of the main repository, so installing the hook once in the instance clone also covers its task worktrees.
 
-Before relying on the guard, verify that the clone can reach the denylist through `PRIVACY_DENYLIST` or the local `.local/privacy-denylist.txt` file. If neither path is reachable, the privacy check is a silent no-op: it blocks nothing and emits no warning, even though the hook itself is installed.
+The clone-local `.local/privacy-denylist.txt` fallback works only when the check runs from the main clone. Task worktrees do not contain that file. Set `PRIVACY_DENYLIST` in the instance `~/.hermes/.env` to the denylist's absolute path so Hermes workers inherit a path that is readable from every task worktree:
+
+```dotenv
+PRIVACY_DENYLIST=<instance-home>/repos/steve-agent/.local/privacy-denylist.txt
+```
+
+Replace `<instance-home>` with the instance user's absolute home path. Then, from a real task worktree in a worker process launched by Hermes, verify the inherited value, the readable file, and at least one active pattern before running the check:
+
+```bash
+cd <path-to-a-real-task-worktree>
+test -n "${PRIVACY_DENYLIST:-}"
+test -r "$PRIVACY_DENYLIST"
+grep -qEv '^[[:space:]]*(#|$)' "$PRIVACY_DENYLIST"
+bash scripts/check_privacy.sh instance/INSTALL.md
+```
+
+The first three commands prove that the configured denylist is actually reached. The privacy script also exits 0 when the denylist is missing or empty, so its exit status alone does not prove that a scan occurred. Without a reachable denylist, the installed hook is a silent no-op: it blocks nothing and emits no warning.
 
 ### Run Smoke Tests
 
