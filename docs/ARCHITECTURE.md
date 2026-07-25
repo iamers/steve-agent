@@ -45,7 +45,7 @@ built by its factory. The same instance can drive any software repository the sa
 | Platform | Telegram-first: a group in forum mode (topics -> backlog room, admin room, per-feature rooms); interaction via a bot, long polling. The Hermes base also speaks Discord, Slack, Teams, and Matrix; WhatsApp is on the roadmap. |
 | Runtime | Hermes Agent, pinned **by commit** (not by tag): re-running the installer does `git pull --ff-only`, which breaks on tags. |
 | Hosting | Any Linux host. Native install (no Docker), running as a non-sudoer service user. Low footprint: long polling means no inbound ports, and the runtime is modest, so a small machine is enough. No special hardware requirement. |
-| LLM | Model-agnostic: any provider Hermes supports (OpenAI-compatible endpoints, hosted coding plans, or local models). A cross-provider fallback can be configured for resilience. Nothing in the design depends on a specific model. |
+| LLM | Model-agnostic: any provider Hermes supports (OpenAI-compatible endpoints, hosted coding plans, subscription-backed plans, or local models). Credentials are either an API key in `.env` or an OAuth entry in the credential pool, depending on the provider. Each role is a separate profile, so worker, reviewer, and orchestrator can run different models. A fallback chain is expected, not optional: see §8.9. Nothing in the design depends on a specific model. |
 | Repo policy | No internal hostname/id/chat in versioned files: a local (gitignored) denylist plus `scripts/check_privacy.sh` plus a pre-commit hook plus gitleaks in CI act as guards. A gitignored `.local/` holds private design drafts, the ops journal, and e2e secrets. |
 | Language | English for user-facing strings (README, errors, brief output) and for all identifiers. Some in-repo prose is still Italian (the current contributor community), migrating to English over time. |
 | Merge | Human only. No agent merges to `main`; auto-merge (phase 2) is design, not code. |
@@ -138,7 +138,7 @@ In the steve-agent repository (control and governance side):
 - **`instance/` blueprint**: the canonical copy of `config.yaml`, the profiles
   (`profiles/steve-worker`, `profiles/steve-reviewer`: SOUL, config, `credentials.mode`), the
   skill (`skills/steve-factory/SKILL.md`), plus `env.template` (key names and non-secret
-  defaults, never values), `smoke.sh` (9 checks over SSH), `drift-check.sh` (live vs repo diff,
+  defaults, never values), `smoke.sh` (10 checks over SSH), `drift-check.sh` (live vs repo diff,
   flags but does not restore), `provision-worker.sh`, `backup-kanban.sh`, `pr-watch.sh`,
   `INSTALL.md`, and the main's `SOUL.md`;
 - **`.steve/` governance**: `review-policy.yaml` (deterministic tiers), `pr-lifecycle.md` (the
@@ -229,7 +229,7 @@ The real environment (node-specific values live in the server-side `.env`, not h
 | Service | `hermes gateway install` -> systemd user unit; linger guarantees boot startup without login. |
 | Network | Long polling: **zero listening ports**. The dashboard/API port is always loopback only, started on demand. |
 | Logs | `~/.hermes/logs/gateway.log` (preferred: `journalctl --user` over a non-interactive SSH fails on journald permissions); per-task Kanban logs in `~/.hermes/kanban/logs/`. |
-| Provider | The configured LLM provider's key lives in `~/.hermes/.env`, never in chat or logs, with an explicit endpoint. Model choice is per-instance; a cross-provider fallback can be set for resilience. |
+| Provider | LLM credentials live either in `~/.hermes/.env` (API key, with an explicit endpoint) or in the credential pool `~/.hermes/auth.json` (OAuth, for subscription-backed providers) — never in chat, logs, or the repository. A pool entry in the root profile is inherited read-only by profiles that lack their own, so one login serves every role. Model choice is per-role; a fallback chain is expected (§8.9). |
 | Bot | The instance's bot is an admin of the team's forum group. |
 
 Remote administration from an ops workstation via an SSH alias; `smoke.sh` and `drift-check.sh`
@@ -260,7 +260,7 @@ born in the repo and applied to the instance; if one is born live (an emergency)
 back to the repo immediately and noted in the journal. `drift-check.sh` compares live vs repo and
 **flags without restoring** (exit 1 on drift), covering config, the main's SOUL, the SOUL and
 config of the worker/reviewer profiles, `.env` keys (names, not values), profile conformance, and
-the skill. `smoke.sh` verifies 9 health checks (8.7).
+the skill. `smoke.sh` verifies 10 health checks (8.7).
 
 ### 8.3 Process governance as code (`.steve/`)
 
@@ -303,17 +303,20 @@ date, commands, outcomes, gotchas, never secret values. It is the operational so
 the seed of the future public installation guide. Every technical assumption is validated with a
 probe (verify at the source before claiming that an option exists).
 
-### 8.7 The 9 smoke checks (main-guard)
+### 8.7 The 10 smoke checks (main-guard)
 
 `smoke.sh` runs over SSH and verifies: (1) ssh reachable; (2) pinned Hermes version; (3) gateway
-active; (4) telegram connected (log); (5) `.env` keys present; (6) `.env` perms 600; (7) no
-unexpected listeners (loopback only); (8) **main free of bot pushes**: on the first-parent history
-of `origin/main` there is no commit whose committer is a bot identity (direct pushes or merges
-executed by the bot; commits *authored* by the bot that arrived via a human merge are legitimate);
-(9) **main merges have approved reviews**: every merge on `main` after a dynamic baseline has at
-least one APPROVED review from an account different from the author. Checks 8 and 9 are the
-**main-guard v2**: a detective guard while branch protection is not available (Free repo),
-preventive after the flip to public.
+active; (4) telegram connected (log); (5) credentials present — the channel keys in `.env` plus the
+LLM provider credential, wherever it lives for the configured provider (`.env` or the credential
+pool); (6) `.env` perms 600; (7) no unexpected listeners (loopback only); (8) **main free of bot
+pushes**: on the first-parent history of `origin/main` there is no commit whose committer is a bot
+identity (direct pushes or merges executed by the bot; commits *authored* by the bot that arrived
+via a human merge are legitimate); (9) **main merges have approved reviews**: every merge on `main`
+after a dynamic baseline has at least one APPROVED review from an account different from the author;
+(10) **app merges are gated**: any merge performed by the merge App carries both the approval label
+and an approved review. Checks 8 to 10 are the **main-guard v2**: a detective guard while branch
+protection is not available (Free repo), preventive after the flip to public. Check 10 passes
+vacuously on an instance that does not use the optional merge App, by construction.
 
 ### 8.8 Things that bite (structural gotchas)
 
@@ -331,6 +334,63 @@ preventive after the flip to public.
 >   verbatim. After a change touching the admin allowlist, a canary with a rollback backup is
 >   required, to avoid locking out the admin.
 
+### 8.9 Choosing the LLM: roles, modes, and the fallback rule
+
+The design is model-agnostic, but the *shape* of the choice is not arbitrary. What follows is
+guidance distilled from running the factory, not a requirement.
+
+**Assign models per role.** Worker, reviewer, and orchestrator are already separate Hermes
+profiles, each with its own `config.yaml`. Giving them different models needs no new machinery, only
+different values. A shape that works:
+
+| role | what the role actually demands | consequence |
+|---|---|---|
+| orchestrator | highest message volume, but real judgement (it facilitates discussion and decides what to dispatch) | a mid tier is usually the right trade; a flagship here burns the budget on routing |
+| worker | code quality — this is the system's output | the strongest model the budget allows; volume is low (few long sessions) |
+| reviewer | care and rigour more than raw generation | a strong model with high reasoning effort. A *weaker* reviewer is a false economy: a false positive blocks a correct PR and costs a full cycle |
+| auxiliary tasks (title generation, context compression, background review) | nothing — quality is irrelevant | route to the cheapest or a local endpoint; by default they silently consume the main provider's budget |
+
+Reviewer independence deserves an explicit note: the same model both writing and judging shares its
+own blind spots. A different model family on the reviewer is the better default. Trading that away
+for judgement quality is a legitimate choice, but make it knowingly.
+
+**The fallback rule.** A fallback chain is expected. One rule matters more than the choice of
+models:
+
+> The links must sit on **different providers**, and at least one link must be **incapable of
+> exhausting a quota** (typically a local endpoint).
+
+A chain whose links share the primary's failure mode is decorative. A primary and a free-tier
+fallback saturating together within the same hour is not hypothetical: it happened here, and it
+kills the turn with no retry (see R1). `fallback_model` accepts a list, not just a single entry, so
+the chain can be more than one deep.
+
+**Two integration modes, and which to prefer.** Some providers can be reached two ways: as a normal
+HTTP provider, or by having the runtime spawn the vendor's official CLI as a subprocess. The
+subprocess mode is appealing (it is the vendor's own client, so it is durable against client
+fingerprinting) but it is **outside** the normal request path, and that costs:
+
+| | HTTP provider | CLI-subprocess runtime |
+|---|---|---|
+| fallback chain | works | **not available** — the turn returns before the fallback is considered |
+| memory, conversation search, todo, task delegation | work | not available |
+| streaming | works | not available |
+| model chosen per profile | yes | no — the CLI's own config decides, shared by all profiles |
+| usable as a fallback target or in a mixture-of-agents slot | yes | no |
+| reasoning-effort passthrough | provider-dependent | not available |
+
+Prefer **HTTP**. Losing the fallback chain is precisely the failure this architecture defends
+against, so a mode that forfeits it is a poor default even when it works. Keep the subprocess mode
+documented as an escape hatch: if a vendor ever blocks the HTTP path for third-party clients,
+switching to the official binary is the way back, at the cost of the row above.
+
+**Subscription-backed plans have a caveat worth testing rather than assuming.** The set of models a
+subscription can reach is not the same as the set the paid API exposes, and it changes over time:
+newer models often reach subscriptions first, while some older ones get retired from the
+subscription surface while staying available on the API. A model id that is valid on the API can
+therefore be rejected with an explicit HTTP 400 on a subscription. Test the matrix when configuring
+an instance, and re-test it after a provider's generation change.
+
 ## 9. Decisions
 
 ### 9.1 Fixed decisions (ADR-light)
@@ -342,10 +402,10 @@ preventive after the flip to public.
 | D3 | ACL: whole-group posture (`TELEGRAM_GROUP_ALLOWED_CHATS`) for the team group plus `allow_from` for DMs; axes in OR with short-circuit on the group. |
 | D4 | Factory isolation: Kanban workspace `worktree:<path>` with a dedicated branch and an embedded dispatcher (crash/reclaim proven); NEVER rely on `hermes -w` in one-shot. |
 | D5 | Verification of work: completion contracts (`--goal`) with `verify:` on real commands, **re-run by the reviewer**; synchronous `delegate_task` only for short sub-questions. |
-| D6 | LLM: model-agnostic. An instance configures any Hermes-supported provider for worker/reviewer/main, optionally with a cross-provider fallback for resilience. Running the reviewer on a different model family from the worker (so the same model does not both write and judge) is desirable; it is a per-instance choice. |
+| D6 | LLM: model-agnostic, assigned **per role**. Each role is already a separate Hermes profile with its own config, so worker, reviewer, and orchestrator take independent models with no extra machinery. A fallback chain is expected, and its links must sit on different providers with at least one that cannot exhaust a quota (§8.9). Running the reviewer on a different model family from the worker (so the same model does not both write and judge) is desirable; it is a per-instance choice, and an instance may knowingly trade it for judgement quality. Where a provider offers both an HTTP path and a CLI-subprocess runtime, prefer HTTP: the subprocess runtime forfeits the fallback chain (§8.9). |
 | D7 | Roles with **separate GitHub identities**: a worker (commit/push/PR, fine-grained PAT) and a reviewer (author != approver, isolated credentials). No agent merges. The concrete account names and the persona are per-instance (this repository's factory uses `scrat-ai-dev`, `scrat-ai-rev`, and a Steve Jobs persona on the main). |
 | D8 | Governance-as-code in `.steve/`: deterministic path-based tiers (`blast/propagation/safe`, PR = max, fail-safe default), `tools/pr-brief.py` as the gate on every PR, a versioned PR lifecycle. `tools/**` `scripts/**` `.github/**` `.steve/**` in `propagation` (the gate cannot tamper with itself cheaply). |
-| D9 | Anti-drift and health: config-as-code in `instance/` (config plus profiles plus skill plus env.template), `drift-check.sh` that flags and does not restore, `smoke.sh` with 9 checks and main-guard v2, CI (`checks`: brief self-test, `bash -n`, shellcheck, gitleaks), a privacy guard (denylist plus pre-commit plus `check_privacy.sh`), and an append-only ops journal. |
+| D9 | Anti-drift and health: config-as-code in `instance/` (config plus profiles plus skill plus env.template), `drift-check.sh` that flags and does not restore, `smoke.sh` with 10 checks and main-guard v2, CI (`checks`: brief self-test, `bash -n`, shellcheck, gitleaks), a privacy guard (denylist plus pre-commit plus `check_privacy.sh`), and an append-only ops journal. |
 | D10 | Safe self-hosting: the instance develops the REPO (worktree, PR, human merge gate), never its own runtime/live config; instance upgrades only from the outside, traced. |
 | D11 | One instance per project: reusability via replicating the `instance/` blueprint onto a new service user/host, not multi-tenancy. |
 | D12 | License: Business Source License (BUSL) 1.1: source-available, free for noncommercial use (personal, research, education, nonprofit, evaluation), Change License Apache-2.0 four years after each release. The MIT portions of Hermes Agent remain covered by the `NOTICE`. |
@@ -373,7 +433,7 @@ restricting merge to the App).
 
 | # | Risk / debt | Detail and mitigation |
 |---|---|---|
-| R1 | **LLM provider fragility** | Outages depend on the chosen provider: a primary can hit HTTP 429 (overload) and a free-tier fallback can exhaust its quota. **Mitigation**: a billed key or a reliable second provider before depending on it as a safety net; recovery = a read-only probe plus `kanban unblock` when the provider returns. |
+| R1 | **LLM provider fragility** | Outages depend on the chosen provider: a primary can hit HTTP 429 and a free-tier fallback can exhaust its own quota at the same time, which kills the turn outright. Observed: an orchestration turn that dies this way is **not** retried or re-queued (the message is consumed, the task is never created), unlike a task already on the board, which the dispatcher reclaims. **Mitigation**: the fallback rule in §8.9 (different providers, at least one link that cannot exhaust a quota) — a fallback sharing the primary's failure mode is decorative; recovery = a read-only probe plus `kanban unblock` when the provider returns. |
 | R2 | **Upstream `rc=0` bug on a fatal API error** | A worker can exit clean (exit 0) without `kanban_complete`/`block` on a fatal API error, violating the protocol and making the dispatcher give up on the task. Recurring. **Mitigation**: an upstream issue candidate; workaround = complete/unblock the task manually. |
 | R3 | **Orphaned review dispatch after a session reset** | The daily reset leaves review tasks in `todo` with no auto-dispatch while the main is idle: a task can stay orphaned for hours. **Mitigation**: a message in the Backlog wakes Steve; a candidate for a cron-nudge or a todo auto-dispatcher. |
 | R4 | **LLM-on-LLM chain** | Worker and reviewer are both LLMs: adversarial review reduces but does not eliminate the risk of correlated errors. **Mitigation**: re-run the verify (do not trust the claim), family diversity on the reviewer (D6), the guard on `main`. |
@@ -389,7 +449,7 @@ restricting merge to the App).
 | Completion contract | The completion contract of a `--goal` task: outcome plus `verify:` with a real command; "done" judged on evidence (re-run by the reviewer), not on self-assertion. |
 | Review tier | The risk class of a file (`blast > propagation > safe`) in `.steve/review-policy.yaml`; a PR's tier is the max of its files; it determines the sign-off and human signature required. |
 | Brief compiler / gate | `tools/pr-brief.py`: derives the tier from the touched files and produces the review brief; the deterministic gate on every PR. |
-| main-guard | Smoke checks 8-9: no bot push/merge to `main`, and every merge has an approved review from a different account. |
+| main-guard | Smoke checks 8-10: no bot push/merge to `main`, every merge has an approved review from a different account, and any merge performed by the merge App carries both the approval label and an approved review. |
 | Worktree workspace | The Kanban workspace `worktree:<path>`: a git worktree with a dedicated branch, `main` never touched. |
 | `channel_prompts` | Hermes config: a flat dictionary `{chat_id/thread_id: prompt}` that injects a per-topic system prompt. |
 | Injector | An MTProto user-account (`tools/e2e/injector.py`) that simulates a real human in the group for e2e tests. |
