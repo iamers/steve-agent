@@ -45,7 +45,48 @@ MERGE_GATE="$REPO_ROOT/instance/merge-gate.sh"
 REPO="${STEVE_REPO:-iamers/steve-agent}"
 APPROVAL_LABEL="${STEVE_APPROVAL_LABEL:-steve-approved}"
 
-# Stato runtime in ~/.hermes/state (come pr-watch.sh e backup-kanban.sh).
+# Valida la modalità prima di qualunque side effect. Il runtime non accetta
+# argomenti; --dry-run è l'unica modalità esplicita.
+MODE="runtime"
+case "$#:${1:-}" in
+    0:) ;;
+    1:--dry-run) MODE="dry-run" ;;
+    *)
+        echo "usage: $0 [--dry-run]" >&2
+        exit 2
+        ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Feature OPZIONALE. Il merge gate (e la sua GitHub App) è facoltativo: un
+# adopter può non volerlo. Se le credenziali non sono configurate, il prodotto
+# deve funzionare IDENTICO. In modalità runtime esci 0 in SILENZIO (non è un
+# guasto, è un'istanza che non usa il gate). Solo con --dry-run stampi una
+# riga esplicativa (esplorazione manuale: il rumore è accettabile).
+# ---------------------------------------------------------------------------
+if [ -z "${STEVE_MERGE_APP_ID:-}" ] || [ -z "${STEVE_MERGE_KEY_PATH:-}" ]; then
+    if [ "$MODE" = "dry-run" ]; then
+        echo "merge gate feature not configured: STEVE_MERGE_APP_ID/STEVE_MERGE_KEY_PATH not set"
+    fi
+    exit 0
+fi
+
+# Modalità --dry-run: esplorazione manuale senza lock né stato. Elenca i
+# candidati e chiama merge-gate.sh --dry-run per ciascuno.
+if [ "$MODE" = "dry-run" ]; then
+    CANDIDATES=$(gh pr list --repo "$REPO" --state open \
+        --label "$APPROVAL_LABEL" --json number --jq '.[].number' 2>/dev/null) || exit 0
+    [ -z "$CANDIDATES" ] && exit 0
+    while IFS= read -r pr; do
+        [ -z "$pr" ] && continue
+        echo "=== PR #${pr} (${REPO}, label ${APPROVAL_LABEL}) ==="
+        "$MERGE_GATE" --dry-run "$pr" || true
+    done <<< "$CANDIDATES"
+    exit 0
+fi
+
+# Da qui in poi esiste solo la modalità runtime. Stato e lock vengono creati
+# dopo guard opzionale, query candidati e uscita dry-run.
 STATE_DIR="$HOME/.hermes/state"
 STATE_FILE="$STATE_DIR/merge-gate-seen.txt"
 LOCKFILE="$STATE_DIR/merge-gate-scan.lock"
@@ -57,19 +98,11 @@ touch "$STATE_FILE"
 exec 9>"$LOCKFILE"
 flock -n 9 || exit 0
 
-# ---------------------------------------------------------------------------
-# Feature OPZIONALE. Il merge gate (e la sua GitHub App) è facoltativo: un
-# adopter può non volerlo. Se le credenziali non sono configurate, il prodotto
-# deve funzionare IDENTICO. In modalità runtime esci 0 in SILENZIO (non è un
-# guasto, è un'istanza che non usa il gate). Solo con --dry-run stampi una
-# riga esplicativa (esplorazione manuale: il rumore è accettabile).
-# ---------------------------------------------------------------------------
-if [ -z "${STEVE_MERGE_APP_ID:-}" ] || [ -z "${STEVE_MERGE_KEY_PATH:-}" ]; then
-    if [ "${1:-}" = "--dry-run" ]; then
-        echo "merge gate feature not configured: STEVE_MERGE_APP_ID/STEVE_MERGE_KEY_PATH not set"
-    fi
-    exit 0
-fi
+# La query runtime resta sotto lock: due tick concorrenti non devono valutare
+# o mutare la stessa PR in parallelo. Errori di gh restano silenziosi.
+CANDIDATES=$(gh pr list --repo "$REPO" --state open \
+    --label "$APPROVAL_LABEL" --json number --jq '.[].number' 2>/dev/null) || exit 0
+[ -z "$CANDIDATES" ] && exit 0
 
 # ---------------------------------------------------------------------------
 # Helper per lo stato anti-rumore. Una riga per evento già riportato, nel
@@ -146,33 +179,6 @@ run_one() {
     esac
     return 0
 }
-
-# ---------------------------------------------------------------------------
-# Trova le PR candidate.
-# ---------------------------------------------------------------------------
-
-# Lista delle PR aperte con la label di approvazione: una per riga, solo il
-# numero. Se gh non è disponibile o la rete fallisce, esci 0 silenzioso
-# (watchdog: ci riproverà al prossimo tick, come pr-watch.sh).
-CANDIDATES=$(gh pr list --repo "$REPO" --state open \
-    --label "$APPROVAL_LABEL" --json number --jq '.[].number' 2>/dev/null) || exit 0
-
-# Nessuna PR etichettata = silenzio totale (stdout vuoto, exit 0).
-[ -z "$CANDIDATES" ] && exit 0
-
-# ---------------------------------------------------------------------------
-# Modalità --dry-run: esplorazione manuale. Elenca candidati e, per ciascuno,
-# chiama merge-gate.sh --dry-run (nessun merge, nessuna scrittura di stato).
-# Qui il rumore è accettabile: è un'esplorazione esplicita dell'operatore.
-# ---------------------------------------------------------------------------
-if [ "${1:-}" = "--dry-run" ]; then
-    while IFS= read -r pr; do
-        [ -z "$pr" ] && continue
-        echo "=== PR #${pr} (${REPO}, label ${APPROVAL_LABEL}) ==="
-        "$MERGE_GATE" --dry-run "$pr" || true
-    done <<< "$CANDIDATES"
-    exit 0
-fi
 
 # ---------------------------------------------------------------------------
 # Modalità runtime: una run_one per candidata. L'anti-rumore decide cosa stampare.

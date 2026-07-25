@@ -481,16 +481,17 @@ Flag breakdown:
 
 The cron inherits its configuration from the instance `~/.hermes/.env`:
 `STEVE_REPO`, `STEVE_MERGE_APP_ID`, `STEVE_MERGE_KEY_PATH`, and
-`STEVE_APPROVAL_LABEL` (see section 8 for the full list). These variables must
-be present in the cron's environment — the wrapper relies on them, and no
-secrets are hardcoded in the script or the wrapper itself.
+`STEVE_APPROVAL_LABEL=steve-approved` (see section 8 for the full list). The
+coordinator applies this canonical label and the scanner queries the same
+value. These variables must be present in the cron's environment — the wrapper
+relies on them, and no secrets are hardcoded in the script or the wrapper
+itself.
 
-IMPORTANT: cron jobs are NOT covered by `drift-check.sh`. The drift check
-compares repo files against the live instance filesystem; cron jobs live in
-the Hermes DB, so they are runtime state that must be re-created by hand on a
-new instance. Re-run the `hermes cron create` command above after a fresh
-deploy (the wrapper script and `instance/merge-gate-scan.sh` ARE drift-checked,
-since both are repo files).
+IMPORTANT: none of this runtime wiring is covered by `drift-check.sh`. The
+wrapper is runtime-only, the cron registration lives in the Hermes DB, and the
+current drift check does not compare the versioned scanner with its deployed
+copy. On a fresh instance, manually deploy or copy the scanner, recreate the
+wrapper, re-run the `hermes cron create` command above, and verify all three.
 
 ##### Activation is an ops step
 
@@ -549,7 +550,7 @@ environment when running the gate):
 printf "STEVE_REPO=iamers/steve-agent\n" >> ~/.hermes/.env
 printf "STEVE_MERGE_APP_ID=<numeric-app-id>\n" >> ~/.hermes/.env
 printf "STEVE_MERGE_KEY_PATH=/srv/ha-<name>/keys/steve-merge.private-key.pem\n" >> ~/.hermes/.env
-printf "STEVE_APPROVAL_LABEL=approved\n" >> ~/.hermes/.env
+printf "STEVE_APPROVAL_LABEL=steve-approved\n" >> ~/.hermes/.env
 ```
 
 Optional:
