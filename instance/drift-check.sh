@@ -58,14 +58,16 @@ class StrictLoader(yaml.SafeLoader):
 
 
 class DuplicateKey(Exception):
-    """Chiave duplicata. Porta con sé SOLO nome della chiave e posizione.
+    """Chiave duplicata. Porta con sé SOLO la posizione, mai il nome.
 
-    Il nome di una chiave è struttura, non contenuto: è utile in diagnostica e
-    non espone valori. I VALORI non compaiono mai, qui né altrove.
+    Il nome NON viene conservato di proposito. Sembrava "struttura e non
+    contenuto", ma una chiave dentro un blocco instance-only può essere essa
+    stessa sensibile, e gli errori vengono emessi PRIMA che pop() rimuova quel
+    blocco. Un'eccezione alla regola "mai testo preso dal documento" è bastata a
+    riaprire il buco che la regola chiudeva: qui non ci sono eccezioni.
     """
 
-    def __init__(self, key, mark):
-        self.key = key
+    def __init__(self, mark):
         self.line = None if mark is None else mark.line + 1
         self.column = None if mark is None else mark.column + 1
 
@@ -75,7 +77,7 @@ def _no_duplicate_keys(loader, node, deep=False):
     for key_node, value_node in node.value:
         key = loader.construct_object(key_node, deep=deep)
         if key in mapping:
-            raise DuplicateKey(key, key_node.start_mark)
+            raise DuplicateKey(key_node.start_mark)
         mapping[key] = loader.construct_object(value_node, deep=deep)
     return mapping
 
@@ -103,7 +105,7 @@ def norm(path, label):
         data = yaml.load(open(path), Loader=StrictLoader) or {}
     except DuplicateKey as exc:
         where = "" if exc.line is None else f" at line {exc.line}, column {exc.column}"
-        print(f"{label}: duplicate key {exc.key!r}{where}")
+        print(f"{label}: duplicate key{where}")
         sys.exit(1)
     except yaml.YAMLError as exc:
         mark = getattr(exc, "problem_mark", None) or getattr(exc, "context_mark", None)
