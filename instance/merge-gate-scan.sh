@@ -41,7 +41,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 MERGE_GATE="$REPO_ROOT/instance/merge-gate.sh"
 
 # Defaults dell'istanza. La label canonica è `steve-approved`, non il default
-# "approved" interno del gate (il gate accetta qualunque label gli si passi).
+# "approved" interno del gate (il gate legge la label dall'ambiente).
 REPO="${STEVE_REPO:-iamers/steve-agent}"
 APPROVAL_LABEL="${STEVE_APPROVAL_LABEL:-steve-approved}"
 
@@ -80,7 +80,7 @@ if [ "$MODE" = "dry-run" ]; then
     while IFS= read -r pr; do
         [ -z "$pr" ] && continue
         echo "=== PR #${pr} (${REPO}, label ${APPROVAL_LABEL}) ==="
-        "$MERGE_GATE" --dry-run "$pr" || true
+        STEVE_APPROVAL_LABEL="$APPROVAL_LABEL" "$MERGE_GATE" --dry-run "$pr" || true
     done <<< "$CANDIDATES"
     exit 0
 fi
@@ -149,7 +149,7 @@ run_one() {
     # Cattura stdout+stderr del gate. Il token e la chiave privata NON appaiono
     # mai nell'output del gate (garanzia di merge-gate.sh): qui li passiamo solo
     # attraverso, non li logghiamo noi.
-    out=$("$MERGE_GATE" "$pr" 2>&1); rc=$?
+    out=$(STEVE_APPROVAL_LABEL="$APPROVAL_LABEL" "$MERGE_GATE" "$pr" 2>&1); rc=$?
 
     # La riga di verdetto è l'ultima che inizia con MERGE: o REJECT:.
     verdict_line=$(printf '%s\n' "$out" | grep -E '^(MERGE|REJECT):' | tail -1)
