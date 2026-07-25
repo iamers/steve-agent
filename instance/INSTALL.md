@@ -290,6 +290,22 @@ git clone https://github.com/iamers/steve-agent.git
 cd steve-agent
 ```
 
+### Install the privacy guard hook
+
+The privacy guard lives in the repository clone, so install it in the clone on the instance, not only in the operator's workstation clone. The `pre-commit` command must be available in `PATH` before running this step.
+
+From the root of the instance clone, install the hook and verify that its file exists in the repository hooks directory:
+
+```bash
+cd ~/repos/steve-agent
+pre-commit install
+test -f "$(git rev-parse --git-path hooks/pre-commit)"
+```
+
+Git worktrees share the hooks of the main repository, so installing the hook once in the instance clone also covers its task worktrees.
+
+Before relying on the guard, verify that the clone can reach the denylist through `PRIVACY_DENYLIST` or the local `.local/privacy-denylist.txt` file. If neither path is reachable, the privacy check is a silent no-op: it blocks nothing and emits no warning, even though the hook itself is installed.
+
 ### Run Smoke Tests
 
 The smoke script verifies core functionality:
@@ -439,6 +455,7 @@ comment in the script).
 | 6 | `hermes gateway restart` makes the old process exit with status=75/TEMPFAIL, appearing as an error in logs | This is normal restart mechanics, not an error |
 | 7 | The `--commit` pin must use a commit hash, not a tag | Tags break on `git pull --ff-only` when re-running the installer |
 | 8 | Interactive prompts appear even with `--skip-setup` when running in a TTY (tmux) | Answer `n` to install prompts for ripgrep and build tools (pre-installed) |
+| 9 | The pre-commit hook is not installed, or its denylist is not reachable | The privacy guard silently protects nothing and emits no warning; install the hook in the instance clone and verify that the denylist is reachable |
 
 ## 10. Next Steps
 
