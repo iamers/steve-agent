@@ -37,10 +37,15 @@ produce file committati.
   conversazione diretta (la regola vive in SOUL.md, qui la si onora).
 - Mai modificare il runtime dell'istanza (config live, profili, credenziali):
   quelle sono operazioni di ops, non di orchestrazione.
-- Mai mergiare. La fase 2 ha un merge gate implementato (`instance/merge-gate.sh`)
-  ma non ancora attivo in produzione: fino al deploy e al primo merge reale
-  testato, il merge resta umano. Il gate automatizza il lavoro meccanico, NON
-  la decisione (vedi .steve/pr-lifecycle.md).
+- Mai mergiare direttamente. La fase 2 e' **attiva**: il merge gate
+  (`instance/merge-gate.sh`) e' deployato, testato con canary reale (#46,
+  HTTP 200). Il gate automatizza il lavoro meccanico, NON la decisione: quando
+  il coordinatore (owner) da' l'approve in chat, Steve applica la label
+  `steve-approved` sulla PR e l'owner (o un cron) esegue il gate. Il gate
+  verifica le 5 condizioni (label, review, CI, tier safe, SHA match) e solo
+  se tutte vere esegue il merge commit. Steve NON esegue il gate lui stesso:
+  applica la label, l'esecuzione e' dell'owner o del cron (vedi
+  .steve/pr-lifecycle.md).
 - La board e' la verita': se un lavoro non e' un task sulla board, non esiste.
 
 ## 2. Creare un task di sviluppo
@@ -198,8 +203,10 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
    worker originale e' gia' `done`: crea un nuovo task di fix con `--parent`
    (vedi §4) e registra l'esito di ogni giro con `kanban_comment` sul task padre.
 
-5. **Merge fai-da-te.** Il merge e' umano fino alla fase 2. Un approve in chat
-   autorizza, non esegue.
+5. **L'approve in chat non esegue il merge.** L'approve autorizza. Il merge
+   e' eseguito dal gate (`instance/merge-gate.sh`) dopo che Steve ha applicato
+   la label `steve-approved`. Il gate e' deployato e attivo (canary #46
+   riuscito). Steve NON esegue il gate lui stesso.
 
 6. **Worker in loop su attesa CI (budget esaurito).** Nei task che aprono una
    PR, il worker puo' bruciare tutto il budget iterazioni (60/60) aspettando
@@ -360,7 +367,18 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 
 19. **Code path non testabili senza credenziali: il brief di review DEVE imporre code-tracing manuale.** Quando un worker implementa uno script con path che non possono essere esercitati nel worktree (flussi di auth, chiamate di rete, gestione credenziali), il `--self-test` copre solo la logica pura. Il path di auth/rete e' codice morto fino al deploy. Il brief di review DEVE istruire esplicitamente il reviewer di tracciare quei path LEGGENDO il codice, non solo eseguendo i verify. Verificare che ogni parametro ricevuto da una funione arrivi effettivamente alla chiamata di rete (es. `curl -H "Authorization: $auth"`, non un literal placeholder). Questa sessione: merge-gate.sh `gh_api()` aveva `-H "Authorization: ***"` (asterischi letterali) invece di `$auth`: self-test 10/10 verde, shellcheck verde, CI verde. Solo il code-tracing manuale del reviewer ha catturato il bug.
 
+**Sottocaso: code-trace della stringa SSH interna va ESEGUITO, non estratto a mano (falso positivo #49).** Quando il path da tracciare e' dentro una stringa single-quoted passata a `ssh "$HOST" "$@"` (come i check di smoke.sh), la tecnica e' giusta (parsare la stringa interna con `bash -n`) ma **l'estrazione manuale/regex della stringa "tra il primo e l'ultimo apice" e' il difetto**: perde caratteri sui boundary `'"$VAR"'` e fabbrica il bug fantasma che poi "trova". PR #49: il reviewer ha estratto la stringa a mano, perso 5 `;` ai boundary `); if`/`); [`/`); then`, verificato la stringa CORROTTA con `bash -n`, visto fallire e attribuito il difetto al codice. I `;` c'erano tutti nel codice reale. **Metodo corretto (affidabile, niente SSH):** stub della funzione `check()` che rimpiazza `ssh` con `bash -nc` per PARSE-only, definisce le STEVE_* ai default, poi source la SOLA riga del check preso dal file: bash espande variabili e quote-transition ESATTAMENTE come a runtime, `bash -nc` parsa il comando REALE. Mai estrarre a occhio o con regex: il code-trace si fa ESEGUENDO il parse sul comando espanso.
+
 20. **Fix task con `--parent` resta in `todo` se il parent non e' `done`.** Quando crei un task di fix con `--parent` che punta a un task ancora in `ready` (bloccato con review-required), il task figlio resta in `todo` e non si promuove finche' il parent non raggiunge `done`. Il dispatcher ritorna `Spawned: 0` silenziosamente, e il coordinatore potrebbe pensare che il dispatcher sia rotto. **Sintomo:** `hermes kanban dispatch` ritorna zero spawned, il task e' in `todo` con zero run. **Fix:** completa manualmente il parent con `kanban_complete` PRIMA di dispatchare il figlio. E' lo stesso pattern del pitfall #12 (il parent bloccato non si risolve da solo), ma il sintomo e' diverso: invece di respawn_guarded loop, e' silenzio totale.
+
+21. **Bug nei path di rete non testabili: pattern ricorrente e tecnica di scoperta (canary).** L'implementazione del merge-gate ha rivelato una classe di bug sistematica: codice che parsa risposte API GitHub e che e' invisibile a self-test, shellcheck e CI perche' il path di rete non si esercita nel worktree. Tre bug trovati in una sessione, tutti della stessa classe:
+    - **Bug tipo 1 (read_field su array):** `cond_label()` usava `read_field(body, "name")` su un endpoint che ritorna un ARRAY di oggetti. `read_field` cammina dot-path e per array pretende indice numerico: `int("name")` → eccezione → stringa vuota → label mai trovata. Fix: parse diretto con Python inline.
+    - **Bug tipo 2 (semantica API misconosciuta):** `cond_ci()` declassava a 0 quando GitHub rispondeva `state: "pending"` con `total_count: 0`. Su repo con solo GitHub Actions (zero legacy status), quello "pending" e' sintetico (nessuno status reale). Fix: onorare il legacy status solo se `total_count > 0`.
+    - **Bug tipo 3 (substring match dove serve exact):** il `case *"$label"*` faceva match substring. `steve-approved` avrebbe matchato `steve-approved-x`. Fix: funzione pura con confronto esatto.
+    - **Tecnica di scoperta (il canary):** nessuno di questi bug era visibile finche' il gate non e' stato eseguito contro un PR reale con credenziali vere (dry-run). Il `--self-test` copriva la logica pura (decide_merge, ci_verdict, label_present), ma i gatherer (cond_label, cond_ci, cond_review) fanno rete e sono codice morto nel worktree. **Il canary e' la tecnica per scoprire questi bug**: una PR safe-tier reale, con label applicata, su cui il gate viene eseguito in dry-run. Ogni condizione che risulta 0 quando dovrebbe essere 1 e' un bug da fixare con regression guard (funzione pura estratta + fixture).
+    - **Lezione strutturale:** quando implementi uno script con path di rete, estrai SEMPRE la logica di interpretazione in funzioni pure (come `ci_verdict`, `label_present`) e coprile nel self-test. I gatherer diventano thin wrapper che leggono i dati e li passano alle funzioni pure. Il canary scopre i bug residui.
+
+22. **Outage GitHub transiente (create-PR path).** GitHub puo' andare in outage sul `POST /repos/.../pulls` con HTTP 500 vuoto per decine di minuti. I GET funzionano, il push del branch funziona, il rate-limit e' sano. Il worker non puo' aprire la PR. **Non e' un errore nostro.** Il branch e' pronto, la PR nasce alla ripresa. Sintomi: `gh pr create` ritorna "Something went wrong while executing your query", `gh api -X POST .../pulls` ritorna "unexpected end of JSON input". **Azione:** non bruciare retry. Aspetta che GitHub recuperi (controlla githubstatus.com). Il worktree conserva il codice (pitfall #7). Se il timeout del worker scade, il coordinatore puo' aprire la PR dal main profile quando GitHub e' tornato.
 
 ## Verification Checklist
 
@@ -396,12 +414,23 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 - [ ] Se uno script ha path non testabili senza credenziali (auth, rete), il
       brief della review impone al reviewer di tracciare quei path LEGGENDO
       il codice, non solo eseguendo i verify (pitfall #19).
+      **Sottocaso stringhe SSH interne (smoke.sh):** il code-trace va fatto
+      ESEGUENDO `bash -nc` sul comando ESPANSO (stub check() + source della
+      riga dal file), MAI estraendo la stringa a mano/regex: l'estrazione
+      perde caratteri e fabbrica falsi positivi (lesson da #49).
 - [ ] Se un reviewer o un worker flagga `Authorization: ***` in un file,
       verifica i byte reali con `xxd` o `od` prima di dispatchare un fix:
       il display layer maschera i pattern Authorization (pitfall #17).
  - [ ] Se crei un fix task con `--parent`, assicurati che il parent sia `done`
  PRIMA di dispatchare: un parent in `ready`/`blocked` lascia il figlio in
  `todo` e il dispatcher ritorna `Spawned: 0` in silenzio (pitfall #20).
+- [ ] Se implementi uno script con path di rete (API, auth), estrai la logica
+      di interpretazione in funzioni pure e coprile nel self-test. Usa una
+      PR canary safe-tier per testare end-to-end prima della produzione
+      (pitfall #21).
+- [ ] Se la creazione di una PR ritorna HTTP 500 vuoto, e' un outage GitHub
+      transiente. Non bruciare retry: il branch e' pronto, la PR nasce alla
+      ripresa (pitfall #22).
 
 ## References
 
