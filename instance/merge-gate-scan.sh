@@ -6,6 +6,9 @@
 # modificarlo).
 #
 # Progettato per girare sotto cron --no-agent: stdout VUOTO = silenzio.
+# - Feature non configurata       -> stdout vuoto (STEVE_MERGE_APP_ID o
+#                                   STEVE_MERGE_KEY_PATH assenti/vuote: il
+#                                   merge gate è OPZIONALE, non è un guasto).
 # - Nessuna PR etichettata        -> stdout vuoto (silenzio totale, come
 #                                   pr-watch.sh).
 # - Stesso reject già riportato  -> stdout vuoto (anti-rumore via state file).
@@ -53,6 +56,20 @@ touch "$STATE_FILE"
 # resta aperto per tutta la vita del processo; flock lo rilascia all'uscita.
 exec 9>"$LOCKFILE"
 flock -n 9 || exit 0
+
+# ---------------------------------------------------------------------------
+# Feature OPZIONALE. Il merge gate (e la sua GitHub App) è facoltativo: un
+# adopter può non volerlo. Se le credenziali non sono configurate, il prodotto
+# deve funzionare IDENTICO. In modalità runtime esci 0 in SILENZIO (non è un
+# guasto, è un'istanza che non usa il gate). Solo con --dry-run stampi una
+# riga esplicativa (esplorazione manuale: il rumore è accettabile).
+# ---------------------------------------------------------------------------
+if [ -z "${STEVE_MERGE_APP_ID:-}" ] || [ -z "${STEVE_MERGE_KEY_PATH:-}" ]; then
+    if [ "${1:-}" = "--dry-run" ]; then
+        echo "merge gate feature not configured: STEVE_MERGE_APP_ID/STEVE_MERGE_KEY_PATH not set"
+    fi
+    exit 0
+fi
 
 # ---------------------------------------------------------------------------
 # Helper per lo stato anti-rumore. Una riga per evento già riportato, nel
