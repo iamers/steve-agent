@@ -49,13 +49,38 @@ done
 
 echo
 echo "== .env: keys set (names, not values) =="
+# Chiavi opzionali (marcate "@optional" nel commento di riga di env.template):
+# sono facoltative (es. tutto il blocco del merge gate). La loro assenza o
+# presenza sull'istanza è legittima, quindi NON generano drift: vengono escluse
+# dal confronto missing/extra e riportate solo come riga informativa.
+optional_keys=$(grep -E '^[A-Z_]+=.*@optional' env.template | grep -oE '^[A-Z_]+' | sort -u)
+# filter_optional: rimuove le chiavi opzionali da un set (già ordinato). Se la
+# lista è vuota restituisce l'input invariato: grep -f su un file vuoto non ha
+# pattern, ma `echo "$vuota"` produrrebbe una riga vuota che con -v escluderebbe
+# tutto — da qui la guardia esplicita.
+filter_optional() {
+  if [ -n "$optional_keys" ]; then
+    grep -vxF -f <(printf '%s\n' "$optional_keys")
+  else
+    cat
+  fi
+}
 live_keys=$(ssh "$HOST" 'grep -oE "^[A-Z_]+=" ~/.hermes/.env | sort -u' | tr -d =)
-tmpl_keys=$(grep -oE '^[A-Z_]+=' env.template | tr -d = | sort -u)
-missing=$(comm -23 <(echo "$tmpl_keys") <(echo "$live_keys"))
-extra=$(comm -13 <(echo "$tmpl_keys") <(echo "$live_keys"))
+tmpl_keys=$(grep -oE '^[A-Z_]+=' env.template | tr -d = | sort -u | filter_optional)
+live_filtered=$(echo "$live_keys" | filter_optional)
+missing=$(comm -23 <(echo "$tmpl_keys") <(echo "$live_filtered"))
+extra=$(comm -13 <(echo "$tmpl_keys") <(echo "$live_filtered"))
 [ -n "$missing" ] && { echo "MISSING on instance:"; echo "$missing"; drift=1; }
 [ -n "$extra" ]   && { echo "PRESENT live but not in template (consider whether to add them):"; echo "$extra"; drift=1; }
 [ -z "$missing$extra" ] && echo "OK: keys aligned"
+
+# Chiavi opzionali: solo informativo, MAI drift.
+if [ -n "$optional_keys" ]; then
+  opt_set=$(comm -12 <(echo "$optional_keys") <(echo "$live_keys"))
+  opt_unset=$(comm -23 <(echo "$optional_keys") <(echo "$live_keys"))
+  [ -n "$opt_set" ]   && echo "optional keys set on instance: $(echo "$opt_set" | paste -sd, -)"
+  [ -n "$opt_unset" ] && echo "optional keys not set on instance: $(echo "$opt_unset" | paste -sd, -)"
+fi
 
 echo
 echo "== worker profiles =="
