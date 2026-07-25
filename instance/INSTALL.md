@@ -309,6 +309,18 @@ test -f "$(git rev-parse --git-path hooks/pre-commit)"
 
 Git worktrees share the hooks of the main repository, so installing the hook once in the instance clone also covers its task worktrees.
 
+Create the clone-local denylist before configuring the hook to use it. The file contains one case-insensitive extended-regex pattern per line; blank lines and lines beginning with `#` are ignored. Populate it only with instance-specific identifiers that must not appear in a public repository, such as categories of internal host names, operator identities, internal paths, private network addresses, and unannounced project names. Do not copy those values into this guide or any other tracked file.
+
+```bash
+mkdir -p .local
+install -m 600 /dev/null .local/privacy-denylist.txt
+# Populate .local/privacy-denylist.txt with the instance-specific patterns now.
+```
+
+The `.local/` path is gitignored, and the denylist must never be committed. A literal string is also a valid pattern, so an operator can enter a token directly. However, extended-regex metacharacters such as periods, asterisks, plus signs, parentheses, pipes, and backslashes are interpreted rather than matched literally unless escaped. This can make a pattern match more broadly than it appears; for a denylist that fails in the safer direction by blocking more content, but operators should account for it when writing patterns.
+
+Do not continue with an absent or empty denylist: in either case the privacy guard exits successfully without scanning and becomes a silent no-op. The active-pattern check below is therefore evidence that the guard is actually enabled, not an optional validation.
+
 The clone-local `.local/privacy-denylist.txt` fallback works only when the check runs from the main clone. Task worktrees do not contain that file. Set `PRIVACY_DENYLIST` in the instance `~/.hermes/.env` to the denylist's absolute path so Hermes workers inherit a path that is readable from every task worktree:
 
 ```dotenv
