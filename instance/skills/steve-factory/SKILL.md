@@ -192,7 +192,7 @@ l'admin approva in chat: applica la label e si ferma.
    #NN"), tu applichi sulla PR la label di approvazione `steve-approved` PIU'
    un commento sulla PR che cita la decisione: chi ha approvato, quando, e il
    tier della PR. Esempio di commento:
-   `Approved by @fr4 in chat (2026-07-25). Tier: safe. Merge gate eligible.`
+   `Approved by @<admin-handle> in chat (<data>). Tier: safe. Merge gate eligible.`
 2. **NON mergi MAI.** Il merge lo esegue il gate deterministico
    `instance/merge-gate.sh` (solo per tier safe, dopo che la label e' applicata
    e le altre 4 condizioni sono soddisfatte) oppure l'umano su GitHub (per
@@ -352,7 +352,7 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
       `blocked`/`respawn_guarded` automaticamente.
 
 13. **Provider rate-limit (429) causa crash review transienti.** Non solo i
-    model swap (pitfall #10): anche un rate-limit 429 del provider (es. zai)
+    model swap (pitfall #10): anche un rate-limit 429 del provider LLM
     causa crash `pid not alive` e `protocol_violation` sui profili worker e
     reviewer. Diversamente dal pitfall #10 (sistemico), questo e' **transiente**:
     la quota si libera, e al retry il profilo completa pulito.
