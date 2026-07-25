@@ -9,16 +9,146 @@ drift=0
 
 echo "== config.yaml (live vs repo) =="
 # Due blocchi top-level vivono solo sull'istanza live e non devono mai
-# entrare nel repo, quindi li escludiamo dal confronto applicando lo stesso
-# filtro awk a entrambi i lati (il canonico resta senza questi blocchi e il
-# drift-check li ignora, senza falsi positivi):
+# entrare nel repo, quindi li escludiamo dal confronto su entrambi i lati:
 #  - "dashboard:": credenziali basic-auth (password_hash e secret)
 #  - "onboarding:": flag first-run (onboarding.seen.*) scritti a runtime dal
 #    gateway, non configurazione
-strip_blocks='/^(dashboard|onboarding):/{skip=1; next} /^[A-Za-z_]/{skip=0} !skip'
-if diff -u <(awk "$strip_blocks" config.yaml) <(ssh "$HOST" 'cat ~/.hermes/config.yaml' | awk "$strip_blocks") ; then
-  echo "OK: config.yaml aligned (dashboard and onboarding blocks excluded)"
+# Escluderli PRIMA di stampare qualsiasi diff è anche una garanzia di
+# sicurezza: nessun hash o secret può finire nell'output del check.
+#
+# Il confronto è SEMANTICO (YAML parsato, chiavi ordinate), non testuale.
+# Motivo: il file live è scritto da Hermes, che quando riscrive il config
+# rimuove TUTTI i commenti e normalizza le virgolette (misurato il 2026-07-25:
+# live 0 righe di commento, canonico 24, contenuto funzionale identico).
+# Confrontare a testo pretenderebbe che due artefatti con proprietari diversi
+# coincidano byte per byte, e costringerebbe a spogliare il canonico della
+# documentazione che serve a chi lo legge. Il confronto semantico cattura ogni
+# differenza che conta (chiavi, valori, struttura) e ignora solo la
+# formattazione che non controlliamo.
+# Il confine di fine-blocco è QUALSIASI costrutto in colonna 0, non solo una
+# chiave che inizia per lettera: una chiave YAML top-level può essere quotata
+# ("chiave": valore) e del contenuto malformato può iniziare con un altro
+# carattere. Con il vecchio confine /^[A-Za-z_]/ quelle righe restavano dentro
+# il blocco e venivano INGHIOTTITE, e la guardia dichiarava "no drift" su un
+# file che aveva contenuto top-level in più: un falso negativo.
+# I commenti in colonna 0 NON chiudono il blocco (un commento dentro dashboard
+# non deve far riemergere le righe successive del blocco stesso).
+strip_blocks='/^(dashboard|onboarding):/{skip=1; next} /^[^[:space:]#]/{skip=0} !skip'
+live_cfg=$(mktemp); trap 'rm -f "$live_cfg"' EXIT
+ssh "$HOST" 'cat ~/.hermes/config.yaml' > "$live_cfg"
+
+if python3 -c 'import yaml' 2>/dev/null; then
+  sem=$(mktemp); trap 'rm -f "$live_cfg" "$sem"' EXIT
+  cat > "$sem" <<'PY'
+import sys, json, difflib, yaml
+
+INSTANCE_ONLY = ("dashboard", "onboarding")
+
+
+class StrictLoader(yaml.SafeLoader):
+    """SafeLoader che RIFIUTA le chiavi duplicate.
+
+    yaml.safe_load, di suo, tiene silenziosamente l'ultima occorrenza di una
+    chiave ripetuta. Su un confronto semantico questo aprirebbe un buco: un file
+    live con una chiave duplicata il cui ULTIMO valore coincide col canonico
+    verrebbe dichiarato allineato, mentre il file è realmente diverso e
+    malformato. Il confronto testuale lo intercettava; questo lo intercetta
+    fallendo CHIUSO, cioè segnalando drift invece di tacere.
+    """
+
+
+class DuplicateKey(Exception):
+    """Chiave duplicata. Porta con sé SOLO la posizione, mai il nome.
+
+    Il nome NON viene conservato di proposito. Sembrava "struttura e non
+    contenuto", ma una chiave dentro un blocco instance-only può essere essa
+    stessa sensibile, e gli errori vengono emessi PRIMA che pop() rimuova quel
+    blocco. Un'eccezione alla regola "mai testo preso dal documento" è bastata a
+    riaprire il buco che la regola chiudeva: qui non ci sono eccezioni.
+    """
+
+    def __init__(self, mark):
+        self.line = None if mark is None else mark.line + 1
+        self.column = None if mark is None else mark.column + 1
+
+
+def _no_duplicate_keys(loader, node, deep=False):
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise DuplicateKey(key_node.start_mark)
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+StrictLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys
+)
+
+
+def norm(path, label):
+    # I blocchi instance-only sono già stati rimossi A MONTE, prima di arrivare
+    # qui: vedi il filtro awk applicato a entrambi i lati. È deliberato e non
+    # ridondante. Se li rimuovessimo dopo il parsing, un errore del parser
+    # DENTRO un blocco escluso verrebbe formattato e stampato prima
+    # dell'esclusione, portandosi dietro il token incriminato: un hash o un
+    # secret della dashboard finirebbe nell'output del check. Rimuovendoli
+    # prima, quel contenuto non raggiunge mai il parser.
+    # Un errore del parser NON deve mai riportare testo preso dal documento: il
+    # messaggio di PyYAML cita il token incriminato, e quel token può trovarsi
+    # dentro un blocco instance-only (una password_hash, un secret). Stampiamo
+    # quindi solo TIPO e POSIZIONE. Così la riservatezza non dipende più dal
+    # riuscire a riconoscere lessicalmente i blocchi da escludere prima del
+    # parsing, che con le molte grafie equivalenti di YAML è una partita persa.
+    try:
+        data = yaml.load(open(path), Loader=StrictLoader) or {}
+    except DuplicateKey as exc:
+        where = "" if exc.line is None else f" at line {exc.line}, column {exc.column}"
+        print(f"{label}: duplicate key{where}")
+        sys.exit(1)
+    except yaml.YAMLError as exc:
+        mark = getattr(exc, "problem_mark", None) or getattr(exc, "context_mark", None)
+        where = "" if mark is None else f" at line {mark.line + 1}, column {mark.column + 1}"
+        print(f"{label}: invalid YAML{where}")
+        sys.exit(1)
+    for key in INSTANCE_ONLY:
+        data.pop(key, None)  # dopo il parsing ogni grafia collassa qui
+    return json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False).splitlines()
+
+
+repo, live = norm(sys.argv[1], "repo"), norm(sys.argv[2], "live")
+if repo == live:
+    sys.exit(0)
+sys.stdout.write("\n".join(difflib.unified_diff(repo, live, "repo", "live", lineterm="")) + "\n")
+sys.exit(1)
+PY
+  # Filtra i blocchi instance-only PRIMA del parsing: così il loro contenuto
+  # non raggiunge mai il parser e non può finire nel messaggio di un errore.
+  repo_s=$(mktemp); live_s=$(mktemp)
+  trap 'rm -f "$live_cfg" "$sem" "$repo_s" "$live_s"' EXIT
+  awk "$strip_blocks" config.yaml  > "$repo_s"
+  awk "$strip_blocks" "$live_cfg"  > "$live_s"
+  if python3 "$sem" "$repo_s" "$live_s"; then
+    echo "OK: config.yaml aligned (semantic compare; dashboard/onboarding excluded)"
+  else
+    drift=1
+  fi
 else
+  # NESSUNA degradazione: senza pyyaml il confronto non si fa.
+  # Il ramo testuale che c'era prima riconosceva i blocchi da escludere con un
+  # filtro a righe, e YAML ammette molte grafie equivalenti della stessa chiave
+  # ("dashboard":, 'dashboard':, dashboard :, forme con tag o esplicite). Con
+  # una grafia non riconosciuta il blocco restava nel diff CON I SUOI VALORI,
+  # cioè password_hash e secret finivano nell'output del check. Non è un
+  # confronto più rumoroso: è più debole, e su una guardia che tratta segreti
+  # non è un compromesso accettabile.
+  # Quindi si fallisce CHIUSO e in modo azionabile: non poter verificare non è
+  # "nessun drift", è un controllo non eseguito, e va contato come tale.
+  echo "ERROR: pyyaml is required to compare config.yaml safely."
+  echo "       Install it (e.g. 'pip install --user pyyaml') and re-run."
+  echo "       Refusing to fall back to a textual compare: it cannot exclude"
+  echo "       instance-only blocks reliably and would print their values."
   drift=1
 fi
 
