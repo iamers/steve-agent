@@ -55,7 +55,7 @@ def _no_duplicate_keys(loader, node, deep=False):
         key = loader.construct_object(key_node, deep=deep)
         if key in mapping:
             raise yaml.constructor.ConstructorError(
-                None, None, f"chiave duplicata: {key!r}", key_node.start_mark
+                None, None, f"duplicate key: {key!r}", key_node.start_mark
             )
         mapping[key] = loader.construct_object(value_node, deep=deep)
     return mapping
@@ -67,13 +67,20 @@ StrictLoader.add_constructor(
 
 
 def norm(path, label):
+    # I blocchi instance-only sono già stati rimossi A MONTE, prima di arrivare
+    # qui: vedi il filtro awk applicato a entrambi i lati. È deliberato e non
+    # ridondante. Se li rimuovessimo dopo il parsing, un errore del parser
+    # DENTRO un blocco escluso verrebbe formattato e stampato prima
+    # dell'esclusione, portandosi dietro il token incriminato: un hash o un
+    # secret della dashboard finirebbe nell'output del check. Rimuovendoli
+    # prima, quel contenuto non raggiunge mai il parser.
     try:
         data = yaml.load(open(path), Loader=StrictLoader) or {}
     except yaml.YAMLError as exc:
-        print(f"{label}: YAML non valido o con chiavi duplicate: {exc}")
+        print(f"{label}: invalid YAML or duplicate keys: {exc}")
         sys.exit(1)
     for key in INSTANCE_ONLY:
-        data.pop(key, None)
+        data.pop(key, None)  # difesa in profondità: già rimossi a monte
     return json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False).splitlines()
 
 
@@ -83,7 +90,13 @@ if repo == live:
 sys.stdout.write("\n".join(difflib.unified_diff(repo, live, "repo", "live", lineterm="")) + "\n")
 sys.exit(1)
 PY
-  if python3 "$sem" config.yaml "$live_cfg"; then
+  # Filtra i blocchi instance-only PRIMA del parsing: così il loro contenuto
+  # non raggiunge mai il parser e non può finire nel messaggio di un errore.
+  repo_s=$(mktemp); live_s=$(mktemp)
+  trap 'rm -f "$live_cfg" "$sem" "$repo_s" "$live_s"' EXIT
+  awk "$strip_blocks" config.yaml  > "$repo_s"
+  awk "$strip_blocks" "$live_cfg"  > "$live_s"
+  if python3 "$sem" "$repo_s" "$live_s"; then
     echo "OK: config.yaml aligned (semantic compare; dashboard/onboarding excluded)"
   else
     drift=1
