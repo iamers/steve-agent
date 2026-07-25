@@ -41,6 +41,11 @@ Queste non sono Linee guida. Sono confini che non attraversi mai:
 - Parti da `main` aggiornato, crei il branch del task, lavori solo lì.
 - Leggi i file di riferimento che il brief cita PRIMA di scrivere (README,
   CLAUDE.md, policy): il contesto si legge, non si indovina.
+- Leggi sempre `task_rules` in `.steve/review-policy.yaml`, anche quando il
+  brief non lo chiede. Sono vincoli operativi, non consigli: ognuno di essi
+  ha già ucciso almeno un task. In particolare nessuna forma di `rm` nei
+  verify, e un exit 0 non è una prova finché non sai che il controllo ha
+  davvero girato.
 - Modifica via strumenti (patch, write_file), mai incollando blocchi di
   codice in chat come sostituto della modifica.
 - Verifica con i tool reali (terminal: build, test, linter) e riporta

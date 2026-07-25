@@ -41,3 +41,78 @@ rules:
   auto_merge: backlog          # safe tier only, behind a deterministic gate; not active today
   merge_on: "human on GitHub"  # no agent merges until the auto-merge gate is built
   revert: manual                # no auto-revert
+
+# ---------------------------------------------------------------------------
+# Operational rules for review and fix tasks.
+#
+# These are not style preferences. Each one cost the factory at least one dead
+# task on 2026-07-25, because it lived in whoever wrote the brief rather than
+# here, where every brief inherits it.
+# ---------------------------------------------------------------------------
+
+task_rules:
+
+  no_file_deletion_in_verifies:
+    rule: "Never use rm in any form inside a verify. Not rm -rf, not rm -f, not plain rm."
+    why: >-
+      The safety gate denies every form, and a dispatched task has no approval
+      channel, so the command hangs until the approval timeout and is then
+      denied. The task dies with its work unpublished. Cost: four blocked tasks
+      in one day.
+    instead: >-
+      Create fixtures under a fresh mktemp -d and do not clean up; files under
+      /tmp are nobody's problem. If an emptiness assertion is wanted, use rmdir,
+      which only succeeds on an empty directory and is therefore not destructive.
+
+  review_body_is_public:
+    rule: >-
+      The text published as a review body goes to GitHub. It must contain no
+      instance paths, SSH aliases, hostnames or personal identities. Commands
+      may use them; the published prose may not.
+    why: >-
+      The repository is public. The privacy denylist covers these tokens, so a
+      draft containing them fails the privacy check and the reviewer cannot
+      publish its verdict, losing the whole review.
+    instead: >-
+      Refer to them generically ("the instance clone", "a task worktree", "the
+      configured alias") and verify the draft with scripts/check_privacy.sh
+      before publishing. If it fails, rewrite generically; do not try to inspect
+      the matches, as that command is itself denied.
+
+  review_depth_matches_consequence:
+    rule: >-
+      Decide how deep a review goes from what happens if the thing breaks, not
+      from what can still be found by looking harder.
+    why: >-
+      A configuration change was reviewed as an adversarial security audit for
+      six rounds. The findings were real, but the confidentiality property being
+      defended protected a local diagnostic script against the operator who
+      already has SSH access to the file. Applying the standard of an exposed
+      endpoint to a local tool is disproportion, not rigour.
+    instead: >-
+      State a sufficiency criterion in the brief ("approve if X holds and there
+      are no regressions; block only for Y"). When an idea for a further probe
+      appears after that bar is met, record it as a non-blocking note instead of
+      blocking on it.
+
+  keep_runs_short:
+    rule: "Prefer few targeted checks over exhaustive batteries."
+    why: >-
+      Long runs crash. Dozens of short reviews completed on 2026-07-25; the only
+      ones that died were the five- and six-minute exhaustive audits, killed by
+      worker crashes unrelated to the code under review. A proportionate review
+      is not merely cheaper, it is more likely to reach a verdict at all.
+    instead: >-
+      Single ordinary commands. If a probe genuinely needs complexity, write it
+      to a file and run it as one invocation rather than as a long inline chain.
+
+  verify_the_verifier:
+    rule: "An exit code of 0 is not evidence until the check is known to have run."
+    why: >-
+      A broken check that exits 0 is indistinguishable from a passing one, and
+      is more dangerous than no check at all because it manufactures confidence.
+      On 2026-07-25 a test extracted its own script with a pattern that matched
+      nothing, ran an empty file, exited 0, and read as a pass.
+    instead: >-
+      Before trusting a green result, confirm the fixture contains what it is
+      meant to contain and that the thing under test actually executed.
