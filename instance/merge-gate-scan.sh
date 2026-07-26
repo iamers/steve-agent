@@ -14,8 +14,9 @@
 # - Stesso reject già riportato  -> stdout vuoto (anti-rumore via state file).
 # - Reject con reason NUOVA       -> stampa (una sola volta per la coppia
 #                                   <pr, reason>).
-# - Merge riuscito                -> stampa SEMPRE e pulisce lo stato per
-#                                   quella PR (evento one-shot).
+# - Merge riuscito                -> stampa SEMPRE un annuncio leggibile con
+#                                   link e pulisce lo stato per quella PR
+#                                   (evento one-shot).
 #
 # Anti-concorrenza: flock su un lockfile in ~/.hermes/state. Se un'istanza
 # è già in corso, esci silenzioso (exit 0).
@@ -25,6 +26,8 @@
 #   ./merge-gate-scan.sh --dry-run  elenca candidati + decisioni del gate,
 #                                   NON mergia, NON scrive stato (esplorazione
 #                                   manuale: qui il rumore è accettabile).
+#   ./merge-gate-scan.sh --self-test
+#                                   verifica il formatter senza side effect
 #
 # Env vars (ereditate dall'ambiente del cron, NON passate in argv; le credenziali
 # vivono nel .env dell'istanza e NON vanno mai hardcodate qui):
@@ -34,6 +37,52 @@
 #   STEVE_MERGE_APP_ID, STEVE_MERGE_KEY_PATH, STEVE_REVIEWER_LOGIN
 #                         credenziali/identità del gate (lette da merge-gate.sh)
 set -u
+
+# format_merge_announcement <repository> <pr>
+# Costruisce l'annuncio di merge. Funzione pura: nessuna rete, stato o lettura.
+format_merge_announcement() {
+    local repository="$1" pr="$2"
+    printf 'merged: PR #%s was merged by the gate.\n' "$pr"
+    printf 'https://github.com/%s/pull/%s\n' "$repository" "$pr"
+    printf 'Tier safe, and the label, the approved review, green CI and an unchanged head were all\n'
+    printf 'verified before merging. Nothing for you to do.\n'
+}
+
+run_self_test() {
+    local expected actual
+    expected=$(printf '%s\n' \
+        'merged: PR #123 was merged by the gate.' \
+        'https://github.com/octo/example/pull/123' \
+        'Tier safe, and the label, the approved review, green CI and an unchanged head were all' \
+        'verified before merging. Nothing for you to do.')
+    actual=$(format_merge_announcement "octo/example" "123")
+
+    if [ "$actual" != "$expected" ]; then
+        echo "FAIL: format_merge_announcement returned unexpected text"
+        return 1
+    fi
+    echo "ok: format_merge_announcement -> https://github.com/octo/example/pull/123"
+    echo "self-test ok"
+    return 0
+}
+
+# Valida la modalità prima di qualunque side effect. Il runtime non accetta
+# argomenti; --dry-run e --self-test sono le modalità esplicite.
+MODE="runtime"
+case "$#:${1:-}" in
+    0:) ;;
+    1:--dry-run) MODE="dry-run" ;;
+    1:--self-test) MODE="self-test" ;;
+    *)
+        echo "usage: $0 [--dry-run|--self-test]" >&2
+        exit 2
+        ;;
+esac
+
+if [ "$MODE" = "self-test" ]; then
+    run_self_test
+    exit $?
+fi
 
 # Trova la root del repo dal path dello script: instance/merge-gate-scan.sh -> root.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -45,18 +94,6 @@ MERGE_GATE="$REPO_ROOT/instance/merge-gate.sh"
 # Ogni fallback risolto qui va riesportato a ogni invocazione del gate.
 REPO="${STEVE_REPO:-iamers/steve-agent}"
 APPROVAL_LABEL="${STEVE_APPROVAL_LABEL:-steve-approved}"
-
-# Valida la modalità prima di qualunque side effect. Il runtime non accetta
-# argomenti; --dry-run è l'unica modalità esplicita.
-MODE="runtime"
-case "$#:${1:-}" in
-    0:) ;;
-    1:--dry-run) MODE="dry-run" ;;
-    *)
-        echo "usage: $0 [--dry-run]" >&2
-        exit 2
-        ;;
-esac
 
 # ---------------------------------------------------------------------------
 # Feature OPZIONALE. Il merge gate (e la sua GitHub App) è facoltativo: un
@@ -164,7 +201,7 @@ run_one() {
             if [ "$rc" -eq 0 ]; then
                 # Merge riuscito: riporta SEMPRE e resetta il rumore per la PR.
                 clear_state "$pr"
-                printf '%s\n' "$out"
+                format_merge_announcement "$REPO" "$pr"
             else
                 # Verdetto MERGE ma do_merge fallito: anomalia one-shot, chiave
                 # su "merge-failed" così ripetizioni identiche restano quiete.
