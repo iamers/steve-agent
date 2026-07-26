@@ -212,9 +212,21 @@ l'admin approva in chat: applica la label e si ferma.
    match). La label da sola non basta: il gate verifica tutte le 5
    condizioni. Applicare la label e' necessario ma non sufficiente.
 6. **Istanza senza merge gate.** Il gate e la GitHub App sono OPZIONALI:
-   l'adopter sceglie in fase di installazione se attivarli. Se sull'istanza
-   il merge gate NON e' configurato (nessuna GitHub App, chiavi
-   `STEVE_MERGE_*` non valorizzate), **NON applicare la label
+   l'adopter sceglie in fase di installazione se attivarli. Prima di concludere
+   che il merge gate NON e' configurato, esegui questo probe e incolla il suo
+   risultato nel tuo reasoning:
+   ```bash
+   [ -n "${STEVE_MERGE_APP_ID:-}" ] && [ -n "${STEVE_MERGE_KEY_PATH:-}" ] \
+     && [ -f "${STEVE_MERGE_KEY_PATH}" ] \
+     && echo "merge gate: CONFIGURED" || echo "merge gate: NOT CONFIGURED"
+   ```
+   Il probe non stampa segreti e non legge il contenuto della chiave: verifica
+   solo che App id e key path non siano vuoti e che il file indicato esista.
+   Un "not configured" non verificato non e' una conclusione accettabile. Se
+   non puoi eseguire il probe, dichiaralo, chiedi all'admin e non scegliere per
+   default il ramo senza gate: quel ramo riporta silenziosamente la catena
+   approve-in-chat al merge manuale e il sistema non lo segnala. Solo se il
+   probe restituisce `merge gate: NOT CONFIGURED`, **NON applicare la label
    `steve-approved`**: nessuno la legge, sarebbe una marcatura morta. In
    quel caso un approve in chat significa solo che il merge lo fa l'umano su
    GitHub. Dillo esplicitamente all'admin: \"approve registrato, merge
@@ -427,6 +439,8 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
     - **Lezione strutturale:** quando implementi uno script con path di rete, estrai SEMPRE la logica di interpretazione in funzioni pure (come `ci_verdict`, `label_present`) e coprile nel self-test. I gatherer diventano thin wrapper che leggono i dati e li passano alle funzioni pure. Il canary scopre i bug residui.
 
 22. **Outage GitHub transiente (create-PR path).** GitHub puo' andare in outage sul `POST /repos/.../pulls` con HTTP 500 vuoto per decine di minuti. I GET funzionano, il push del branch funziona, il rate-limit e' sano. Il worker non puo' aprire la PR. **Non e' un errore nostro.** Il branch e' pronto, la PR nasce alla ripresa. Sintomi: `gh pr create` ritorna "Something went wrong while executing your query", `gh api -X POST .../pulls` ritorna "unexpected end of JSON input". **Azione:** non bruciare retry. Aspetta che GitHub recuperi (controlla githubstatus.com). Il worktree conserva il codice (pitfall #7). Se il timeout del worker scade, il coordinatore puo' aprire la PR dal main profile quando GitHub e' tornato.
+
+23. **Escape hatch senza gate inferita come scelta prudente.** Disabilita in silenzio l'approve-in-chat e ripristina il merge manuale. Esegui sempre il probe prescritto nel §6 prima di prendere quel ramo.
 
 ## Verification Checklist
 
