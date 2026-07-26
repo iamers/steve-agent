@@ -162,7 +162,7 @@ def leaves(value):
 
 def contains_env_reference(value):
     return any(
-        isinstance(item, str) and re.search(r"\$\{[^{}]+\}", item)
+        isinstance(item, str) and re.fullmatch(r"\$\{[^}]+\}", item)
         for item in leaves(value)
     )
 
@@ -179,7 +179,7 @@ def is_empty(value):
 
 def contains_unexpanded_reference(value):
     return any(
-        isinstance(item, str) and re.fullmatch(r"\$\{.*\}", item)
+        isinstance(item, str) and re.search(r"\$\{[^}]+\}", item)
         for item in leaves(value)
     )
 
