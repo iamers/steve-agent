@@ -10,7 +10,8 @@ teams.
 You message in the team group. Steve writes a brief, opens a kanban task, and a
 worker agent picks it up in an isolated git worktree. The worker ships a pull
 request. A separate reviewer agent re-runs the brief's verification commands and
-reports. A human merges. Auto-merge is on the phase 2 roadmap.
+reports. A human authorizes every merge: the deterministic GitHub App gate merges
+eligible `safe` pull requests, while a human merges higher-risk tiers on GitHub.
 
 Optionally, the product under development runs as a separate bot in dedicated
 test topics, so the team can dogfood in the same group without polluting the
@@ -59,7 +60,7 @@ Steve Agent is built on [Hermes Agent](https://github.com/nousresearch/hermes-ag
 
 ## Status and roadmap
 
-A working factory today: tasks flow from chat to reviewed PRs, with an instance blueprint, CI, and a main-guard all in place. Future roadmap: auto-merge via a GitHub App, a WhatsApp layout, idea round-tables with multi-role subagents, and multi-project support.
+A working factory today: tasks flow from chat to reviewed PRs, with an instance blueprint, CI, a main-guard, and deterministic `safe`-tier merges through a GitHub App all in place. Future roadmap: a WhatsApp layout, idea round-tables with multi-role subagents, and multi-project support.
 
 ## Community
 

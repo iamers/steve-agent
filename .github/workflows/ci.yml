@@ -1,16 +1,17 @@
 # CI per iamers/steve-agent
 #
-# Job unico e leggero (target < 2 minuti). Quattro controlli in sequenza:
+# Job unico e leggero (target < 2 minuti). Cinque controlli in sequenza:
 #   1. self-test di tools/pr-brief.py (triage di review deterministico)
-#   2. syntax check (bash -n) su tutti gli script shell tracciati
-#   3. shellcheck a severity warning sugli stessi script
-#   4. gitleaks (binario scaricato a mano, NON l'action ufficiale che richiede
+#   2. self-test del verdetto listener di instance/smoke.sh
+#   3. syntax check (bash -n) su tutti gli script shell tracciati
+#   4. shellcheck a severity warning sugli stessi script
+#   5. gitleaks (binario scaricato a mano, NON l'action ufficiale che richiede
 #      licenza per le organizzazioni) sulla copia di lavoro
 #
 # Nota su check_privacy.sh: in CI e' no-op by design -- la denylist locale
 # (stringhe segrete) vive solo sull'istanza e non e' mai committata, quindi in
 # CI non c'e' nulla da confrontare. La copertura secret/privacy in CI e'
-# affidata unicamente a gitleaks (step 4). check_privacy.sh resta utile come
+# affidata unicamente a gitleaks (step 5). check_privacy.sh resta utile come
 # guardia locale opzionale sull'istanza, dove la denylist e' presente.
 
 name: checks
@@ -32,6 +33,9 @@ jobs:
 
       - name: pr-brief self-test
         run: python3 tools/pr-brief.py --self-test
+
+      - name: smoke listener self-test
+        run: ./instance/smoke.sh --self-test
 
       - name: bash syntax check
         run: bash -n instance/*.sh scripts/*.sh

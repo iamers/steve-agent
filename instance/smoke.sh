@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # Smoke test di una istanza Steve (Hermes). Esegue da una macchina admin con
-# alias SSH verso l'utente dell'istanza. Uso: ./smoke.sh [ssh-alias] [--llm]
+# alias SSH verso l'utente dell'istanza.
+# Uso: ./smoke.sh [ssh-alias] [--llm] | ./smoke.sh --self-test
 # --llm aggiunge una query reale al modello (costa una chiamata LLM).
 set -u
 
-HOST="${1:-${STEVE_HOST:?pass host as arg1 or set STEVE_HOST}}"
 HERMES_PIN="7c1a0295"   # commit del tag v2026.7.1 (v0.18.0)
-LLM_CHECK=0
-[ "${2:-}" = "--llm" ] && LLM_CHECK=1
 
 # Instance-specific knobs (defaults reproduce the canonical iamers/steve-agent
 # instance; override via the environment to reuse the script on another repo).
@@ -32,6 +30,86 @@ check() { # check <label> <command>
   fi
 }
 
+# unexpected_listeners legge l'output di `ss -H -tln` e stampa le righe il cui
+# indirizzo locale non e' IPv4 127/8 ne' IPv6 ::1. Come grep, ritorna 0 quando
+# trova almeno una riga inattesa e 1 quando tutte le righe sono loopback.
+unexpected_listeners() {
+  awk '
+    NF && $4 !~ /^127\./ && $4 !~ /^\[::1\]:/ {
+      print
+      found = 1
+    }
+    END { exit(found ? 0 : 1) }
+  '
+}
+
+# listener_verdict <query-rc> <ss-output>
+# Ritorna 0 solo se la query remota e' riuscita e ogni listener e' loopback.
+# Tool assente, errore di ss/SSH e listener non-loopback falliscono chiusi.
+listener_verdict() {
+  local query_rc="$1" listener_output="$2" unexpected
+  if [ "$query_rc" -ne 0 ]; then
+    printf 'listener inspection unavailable (remote query exit %s): %s\n' \
+      "$query_rc" "$listener_output"
+    return 2
+  fi
+  if unexpected=$(printf '%s\n' "$listener_output" | unexpected_listeners); then
+    printf 'unexpected listener(s):\n%s\n' "$unexpected"
+    return 1
+  fi
+  return 0
+}
+
+listener_self_test_case() { # listener_self_test_case <label> <expected-rc> <query-rc> <output>
+  local label="$1" expected="$2" query_rc="$3" output="$4" actual
+  listener_verdict "$query_rc" "$output" >/dev/null
+  actual=$?
+  if [ "$actual" -ne "$expected" ]; then
+    echo "FAIL: ${label}: expected rc=${expected}, got rc=${actual}"
+    return 1
+  fi
+  echo "ok: ${label} -> rc=${actual}"
+}
+
+run_listener_self_test() {
+  local failures=0
+  listener_self_test_case "loopback listeners pass" 0 0 \
+    $'LISTEN 0 128 127.0.0.1:8000 0.0.0.0:*\nLISTEN 0 128 [::1]:8000 [::]:*' || failures=$((failures+1))
+  listener_self_test_case "unexpected non-loopback listener fails" 1 0 \
+    'LISTEN 0 128 0.0.0.0:8080 0.0.0.0:*' || failures=$((failures+1))
+  listener_self_test_case "unavailable ss fails closed" 2 127 \
+    'ss is unavailable' || failures=$((failures+1))
+  if [ "$failures" -ne 0 ]; then
+    echo "listener self-test FAILED: ${failures} assertion(s) failed"
+    return 1
+  fi
+  echo "listener self-test ok"
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+  [ "$#" -eq 1 ] || { echo "usage: $0 --self-test" >&2; exit 2; }
+  run_listener_self_test
+  exit $?
+fi
+
+HOST="${1:-${STEVE_HOST:?pass host as arg1 or set STEVE_HOST}}"
+LLM_CHECK=0
+[ "${2:-}" = "--llm" ] && LLM_CHECK=1
+
+check_listeners() {
+  local out rc verdict
+  out=$(ssh -o ConnectTimeout=10 "$HOST" \
+    'command -v ss >/dev/null 2>&1 || { echo "ss is unavailable" >&2; exit 127; }; ss -H -tln' 2>&1)
+  rc=$?
+  if verdict=$(listener_verdict "$rc" "$out"); then
+    echo "PASS  no unexpected listeners"; pass=$((pass+1))
+  else
+    echo "FAIL  no unexpected listeners"
+    echo "      $verdict" | head -3
+    fail=$((fail+1))
+  fi
+}
+
 check "ssh reachable"        'true'
 check "hermes version pinned" "export PATH=\$HOME/.local/bin:\$PATH; hermes --version | grep -q $HERMES_PIN"
 check "gateway service active" 'systemctl --user is-active hermes-gateway | grep -qx active'
@@ -42,7 +120,7 @@ check "telegram connected (log)" 'grep -q "telegram connected" ~/.hermes/logs/ga
 # vero, non la sola presenza di una stringa nel .env.
 check "credentials present"  'for k in TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_USERS TELEGRAM_GROUP_ALLOWED_CHATS TELEGRAM_HOME_CHANNEL; do grep -qE "^$k=." ~/.hermes/.env || exit 1; done; export PATH=$HOME/.local/bin:$PATH; hermes auth status openai-codex 2>&1 | grep -q "logged in"'
 check "env perms 600"        'stat -c %a ~/.hermes/.env | grep -qx 600'
-check "no unexpected listeners" '! ss -tln 2>/dev/null | grep -vE "127.0.0.1|\[::1\]" | grep -q LISTEN || true'
+check_listeners
 # Guardia post-hoc su main (finche' branch protection non e' disponibile sul
 # repo privato): sulla first-parent history di origin/main non devono comparire
 # commit con COMMITTER scrat-ai-* (push diretti del bot o merge eseguiti dal
