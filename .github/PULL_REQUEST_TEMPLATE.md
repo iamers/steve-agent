@@ -29,6 +29,8 @@
 
 ## Checklist
 
-- [ ] Privacy checked: `scripts/check_privacy.sh` run on the changed files, no denylist hits.
-- [ ] CI green on this PR.
+- [ ] Privacy: `scripts/check_privacy.sh` run on the changed files, no denylist hits.
+- [ ] The Verification block above is real output from this worktree, not what would have run.
+- [ ] CI was queried once after the push; its state at that moment is stated above.
+      (Green CI is enforced by the merge gate, condition (c) — not attested here.)
 - [ ] No secrets or deployment-specific identifiers committed.
