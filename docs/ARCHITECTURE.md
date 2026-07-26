@@ -16,7 +16,8 @@ the conversation where your team already works. It is two things at once:
 - **dev-coordination**: it coordinates people (backlog, assignment, ownership, ideas) in the
   team group;
 - **software factory**: it performs development work through a fleet of Hermes agents under
-  governance, with the cycle brief -> worktree -> verification -> pull request -> human merge.
+  governance, with the cycle brief -> worktree -> verification -> pull request -> a deterministic
+  `safe`-tier merge or a human merge for `propagation` and `blast`.
 
 It is reusable: one instance per project or team, not a deployment tied to a single product.
 The first pilot and the first proof is **Steve develops Steve**: this very repository is
@@ -48,7 +49,7 @@ built by its factory. The same instance can drive any software repository the sa
 | LLM | Model-agnostic: any provider Hermes supports (OpenAI-compatible endpoints, hosted coding plans, subscription-backed plans, or local models). Credentials are either an API key in `.env` or an OAuth entry in the credential pool, depending on the provider. Each role is a separate profile, so worker, reviewer, and orchestrator can run different models. A fallback chain is expected, not optional: see §8.9. Nothing in the design depends on a specific model. |
 | Repo policy | No internal hostname/id/chat in versioned files: a local (gitignored) denylist plus `scripts/check_privacy.sh` plus a pre-commit hook plus gitleaks in CI act as guards. A gitignored `.local/` holds private design drafts, the ops journal, and e2e secrets. |
 | Language | English for user-facing strings (README, errors, brief output) and for all identifiers. Some in-repo prose is still Italian (the current contributor community), migrating to English over time. |
-| Merge | Human only. No agent merges to `main`; auto-merge (phase 2) is design, not code. |
+| Merge | The deterministic gate merges `safe` PRs only after all five gate conditions hold; a human merges `propagation` and `blast` on GitHub. No agent merges in either path: authorization is a human decision, and the `safe` merge is executed by a GitHub App identity through deterministic code. |
 
 ## 3. Context and scope
 
@@ -57,7 +58,7 @@ built by its factory. The same instance can drive any software repository the sa
 | Actor | Role |
 |---|---|
 | Human team | Members of the forum group: they open tasks in the Backlog topic, discuss ideas, and receive reports. |
-| Admin (human) | The single admin for tiered commands, the only user in `allow_from` for DMs, and the **human merge gate** for PRs on GitHub. |
+| Admin (human) | The single admin for tiered commands, the only user in `allow_from` for DMs, and the source of the human authorization recorded on a PR; also performs `propagation` and `blast` merges on GitHub. |
 | Steve instance | A Telegram bot: the main profile (Steve's "face" in the group) plus worker/reviewer profiles, a Kanban board, and factory execution. |
 | Worker agent | A dedicated GitHub identity for the workers: creates the branch, commits, pushes, and opens the PR. Fine-grained PAT scoped to the target repos only; the git identity of the worktrees. It does not merge and does not approve. |
 | Reviewer agent | A separate GitHub identity for the reviewer: **author != approver**, made real by GitHub's rule. Re-runs the brief's verification commands and answers APPROVED or REQUEST_CHANGES. It does not merge. |
@@ -65,17 +66,18 @@ built by its factory. The same instance can drive any software repository the sa
 
 The worker and reviewer are two distinct machine accounts: separating author from reviewer is
 what makes the review adversarial (one account cannot approve its own work), and it stays
-within GitHub's limit of one machine account per person because the phase-2 merge-bot will be
-a **GitHub App** with a deterministic script, not a third account. (In this repository's own
-factory these identities are `scrat-ai-dev` and `scrat-ai-rev`; the names are per-instance.)
+within GitHub's limit of one machine account per person because the merge identity is a
+**GitHub App** executing a deterministic script, not a third account. The concrete identity names
+are per-instance.
 
 ### 3.2 Boundaries: what Steve does NOT do
 
 - **It does not touch its own live runtime**: the instance develops the *repository* (worktree,
-  PR, human merge gate), never its own config or installation. Instance upgrades happen only
+  PR, and tiered merge gate), never its own config or installation. Instance upgrades happen only
   from the outside (admin via SSH) and are traced. The separation is strict (see 8.5).
 - **No agent merges**: the worker and reviewer stop at "PR opened and verified". The merge is a
-  human action on GitHub until phase 2 introduces a dedicated merge-bot on real enforcement.
+  human action on GitHub for `propagation` and `blast`; for `safe`, deterministic code executes
+  the human-authorized merge as a GitHub App identity. No language model performs a merge.
 - **It is not a multi-tenant render engine**: each instance is its own deployment; the
   `instance/` blueprint is the template candidate once a second instance exists, but the render
   is not built before then.
@@ -100,13 +102,12 @@ files it touches, not from an LLM's opinion; review tiers, the brief template, a
 lifecycle versioned under `.steve/`; and an orchestration skill (`steve-factory`) that encodes
 the main profile's runbook.
 
-**3. Detective governance over a Free repo, then preventive on public.** On a private Free
-repository there is no server-side enforcement (branch protection, rulesets, auto-merge are all
-gated). The factory fills that gap with *detective* controls: CI on every PR, a main-guard that
-flags bot pushes to `main` and merges without an approved review, and the human-only merge
-discipline. With the repository public these become *preventive* (a ruleset on `main`, secret
-scanning). Phase 2 (a merge-bot as a GitHub App plus main-guard v2) rests on that real
-enforcement.
+**3. Preventive enforcement plus detective governance.** The public repository has an active
+ruleset on `main`: every change requires a pull request, one approval, and a green required CI
+check; force-pushes and deletion are forbidden, with no bypass actors. These controls and secret
+scanning are preventive. CI and main-guard v2 remain detective evidence: the guard accepts App
+merges only when the PR carries the approval label and an approved review, and flags other bot
+pushes or non-conforming merges. The `safe` merge gate operates within these active controls.
 
 **4. One instance per project.** No runtime shared between teams: reusability comes from
 replicating the `instance/` blueprint (canonical config plus env.template plus smoke plus
@@ -172,16 +173,18 @@ task/feature, specialized via `group_topics` (skill) and `channel_prompts` (prom
    worktree:<repo>/.worktrees/<task>`, `--branch`, `--goal`. The embedded dispatcher claims it
    (lock `host:PID`) and spawns the worker; heartbeat ~1/min.
 3. The worker works **only** in the worktree: dedicated branch, commits there, `main` untouched.
-   It opens the PR as the worker identity. It stops at "PR opened and verified": it does not merge.
+   It opens the PR as the worker identity. It stops at "PR opened and verified": the worker does
+   not merge.
 4. The brief compiler (`tools/pr-brief.py`) computes the PR **tier** = max of the tiers of the
    touched files (`blast > propagation > safe`) and produces the review brief, delivered to the
    Backlog (the `pr-watch.sh` watcher on cron).
 5. The reviewer identity **re-runs the brief's verification commands** (it does not trust the
    worker's claim) and answers APPROVED or REQUEST_CHANGES. On REQUEST_CHANGES the worker
    iterates on the same worktree.
-6. On APPROVED, a **human merges** on GitHub. The merge signal for the human is the approval
-   notification, not the green button. Post-merge: CI runs on `main`, and the main-guard stays
-   green (human committer).
+6. On APPROVED, a human merges `propagation` and `blast` on GitHub. For `safe`, the coordinating
+   flow records the human authorization with the approval label; the deterministic gate merges as
+   the GitHub App only when all five conditions hold. Post-merge, CI runs on `main`, and main-guard
+   v2 verifies that the human or App merge followed its respective path.
 
 Tasks can be dispatched in a **parallel batch**: several concurrent workers on distinct
 worktrees of the same repo, without interference.
@@ -289,12 +292,13 @@ system prompt per topic and is the vehicle for any additional per-topic personal
 
 ### 8.5 Safe self-hosting
 
-The instance develops the repo (worktree, PR, human merge gate) but the separation is strict:
+The instance develops the repo (worktree, PR, and tiered merge gate) but the separation is strict:
 worktree and PR on the repo, **never** any intervention on its own runtime, live config, or venv.
 Instance upgrades happen only from the outside (admin via SSH) and are traced. The guard on
-`main` (no bot push/merge) protects the case where the gate itself, which lives in the repo, is
-modified by a PR: `tools/**`, `scripts/**`, `.github/**`, and `.steve/**` are tier `propagation`
-(they require a human-signed brief).
+`main` (no bot push or merge except an App merge satisfying the tracked-approval checks) protects
+the case where the gate itself, which lives in the repo, is modified by a PR: `tools/**`,
+`scripts/**`, `.github/**`, and `.steve/**` are tier `propagation` (they require a human-signed
+brief and a human merge).
 
 ### 8.6 Journaling and evidence
 
@@ -310,13 +314,13 @@ active; (4) telegram connected (log); (5) credentials present — the channel ke
 LLM provider credential, wherever it lives for the configured provider (`.env` or the credential
 pool); (6) `.env` perms 600; (7) no unexpected listeners (loopback only); (8) **main free of bot
 pushes**: on the first-parent history of `origin/main` there is no commit whose committer is a bot
-identity (direct pushes or merges executed by the bot; commits *authored* by the bot that arrived
-via a human merge are legitimate); (9) **main merges have approved reviews**: every merge on `main`
+identity (direct pushes or merges executed by a worker or reviewer bot; commits *authored* by a bot
+that arrived via a valid human or App merge are legitimate); (9) **main merges have approved reviews**: every merge on `main`
 after a dynamic baseline has at least one APPROVED review from an account different from the author;
 (10) **app merges are gated**: any merge performed by the merge App carries both the approval label
-and an approved review. Checks 8 to 10 are the **main-guard v2**: a detective guard while branch
-protection is not available (Free repo), preventive after the flip to public. Check 10 passes
-vacuously on an instance that does not use the optional merge App, by construction.
+and an approved review. Checks 8 to 10 are the **main-guard v2**, a detective complement to the
+public repository's preventive `main` ruleset. Check 10 passes vacuously on an instance that does
+not use the optional merge App, by construction.
 
 ### 8.8 Things that bite (structural gotchas)
 
@@ -403,31 +407,33 @@ an instance, and re-test it after a provider's generation change.
 | D4 | Factory isolation: Kanban workspace `worktree:<path>` with a dedicated branch and an embedded dispatcher (crash/reclaim proven); NEVER rely on `hermes -w` in one-shot. |
 | D5 | Verification of work: completion contracts (`--goal`) with `verify:` on real commands, **re-run by the reviewer**; synchronous `delegate_task` only for short sub-questions. |
 | D6 | LLM: model-agnostic, assigned **per role**. Each role is already a separate Hermes profile with its own config, so worker, reviewer, and orchestrator take independent models with no extra machinery. A fallback chain is expected, and its links must sit on different providers with at least one that cannot exhaust a quota (§8.9). Running the reviewer on a different model family from the worker (so the same model does not both write and judge) is desirable; it is a per-instance choice, and an instance may knowingly trade it for judgement quality. Where a provider offers both an HTTP path and a CLI-subprocess runtime, prefer HTTP: the subprocess runtime forfeits the fallback chain (§8.9). |
-| D7 | Roles with **separate GitHub identities**: a worker (commit/push/PR, fine-grained PAT) and a reviewer (author != approver, isolated credentials). No agent merges. The concrete account names and the persona are per-instance (this repository's factory uses `scrat-ai-dev`, `scrat-ai-rev`, and a Steve Jobs persona on the main). |
+| D7 | Roles with **separate GitHub identities**: a worker (commit/push/PR, fine-grained PAT) and a reviewer (author != approver, isolated credentials). No agent merges. The concrete account names and the persona are per-instance. |
 | D8 | Governance-as-code in `.steve/`: deterministic path-based tiers (`blast/propagation/safe`, PR = max, fail-safe default), `tools/pr-brief.py` as the gate on every PR, a versioned PR lifecycle. `tools/**` `scripts/**` `.github/**` `.steve/**` in `propagation` (the gate cannot tamper with itself cheaply). |
 | D9 | Anti-drift and health: config-as-code in `instance/` (config plus profiles plus skill plus env.template), `drift-check.sh` that flags and does not restore, `smoke.sh` with 10 checks and main-guard v2, CI (`checks`: brief self-test, `bash -n`, shellcheck, gitleaks), a privacy guard (denylist plus pre-commit plus `check_privacy.sh`), and an append-only ops journal. |
-| D10 | Safe self-hosting: the instance develops the REPO (worktree, PR, human merge gate), never its own runtime/live config; instance upgrades only from the outside, traced. |
+| D10 | Safe self-hosting: the instance develops the REPO (worktree, PR, deterministic `safe` merge or human merge for higher tiers), never its own runtime/live config; instance upgrades only from the outside, traced. |
 | D11 | One instance per project: reusability via replicating the `instance/` blueprint onto a new service user/host, not multi-tenancy. |
 | D12 | License: Business Source License (BUSL) 1.1: source-available, free for noncommercial use (personal, research, education, nonprofit, evaluation), Change License Apache-2.0 four years after each release. The MIT portions of Hermes Agent remain covered by the `NOTICE`. |
 
-### 9.2 Phase 2: safe auto-merge (specification, not implementation)
+### 9.2 Safe auto-merge (as built)
 
-Phase 2 takes approval from "decide" to "execute autonomously" while keeping traceability and the
-guard on `main`. None of these parts is code yet (detail in `.steve/pr-lifecycle.md`):
+The `safe` path takes approval from "decide" to deterministic execution while preserving
+traceability and the guard on `main` (detail in `.steve/pr-lifecycle.md`):
 
-1. **Tracked, verifiable approval**: no longer just a chat phrase, but a marking on the PR (a
-   label or a comment signed by the coordination identity) issued by an admin command. The marking
-   is the only acceptable proof.
-2. **Auto-merge only from a dedicated bot identity**: a **GitHub App** (not a third account:
-   GitHub ToS, max one machine account per person) with a deterministic script, which merges ONLY
-   in the presence of the marking. The App has `Checks: Read-only` (which PATs cannot have).
-3. **An evolving main-guard v2**: the guard accepts bot merges ONLY for PRs with tracked approval
-   and keeps flagging everything else.
-4. **Tiers excluded from auto-merge**: `blast` and `propagation` (the tiers with a human-signed
-   brief) stay out; auto-merge stops at the `safe` tier.
+1. **Tracked, verifiable approval**: the approval label records the human authorization on the PR,
+   alongside an `APPROVED` review from an account other than the author. The gate rejects a PR
+   without either signal.
+2. **Deterministic merge through a dedicated identity**: a **GitHub App** executes the merge script.
+   It merges only when the label is present, the independent review is approved, CI is green on the
+   latest commit, the recomputed tier is `safe`, and the base is `main`, the PR is mergeable, and
+   the head has not moved since approval; otherwise it rejects.
+3. **Main-guard v2**: the guard accepts merges by the App identity only for PRs carrying the
+   approval label and an approved review, and flags everything else that violates the merge paths.
+4. **Tiers excluded from deterministic merge**: `blast` and `propagation` remain outside the gate
+   and are always merged by a human on GitHub; only `safe` is eligible.
 
-Prerequisite: a public repo (or Team) for real server-side enforcement (a ruleset on `main`,
-restricting merge to the App).
+The originally proposed App-only merge restriction is not built. The active public-repository
+ruleset instead requires a PR, one approval, and the CI status check, forbids force-push and
+deletion, and has an empty bypass list.
 
 ## 10. Risks and technical debt
 
@@ -449,7 +455,7 @@ restricting merge to the App).
 | Completion contract | The completion contract of a `--goal` task: outcome plus `verify:` with a real command; "done" judged on evidence (re-run by the reviewer), not on self-assertion. |
 | Review tier | The risk class of a file (`blast > propagation > safe`) in `.steve/review-policy.yaml`; a PR's tier is the max of its files; it determines the sign-off and human signature required. |
 | Brief compiler / gate | `tools/pr-brief.py`: derives the tier from the touched files and produces the review brief; the deterministic gate on every PR. |
-| main-guard | Smoke checks 8-10: no bot push/merge to `main`, every merge has an approved review from a different account, and any merge performed by the merge App carries both the approval label and an approved review. |
+| main-guard | Smoke checks 8-10: no worker or reviewer bot push/merge to `main`, every merge has an approved review from a different account, and any merge performed by the merge App carries both the approval label and an approved review. |
 | Worktree workspace | The Kanban workspace `worktree:<path>`: a git worktree with a dedicated branch, `main` never touched. |
 | `channel_prompts` | Hermes config: a flat dictionary `{chat_id/thread_id: prompt}` that injects a per-topic system prompt. |
 | Injector | An MTProto user-account (`tools/e2e/injector.py`) that simulates a real human in the group for e2e tests. |
