@@ -50,14 +50,14 @@ produce file committati.
 
 ## 2. Creare un task di sviluppo
 
-Prima di creare e dispatchare task, aggiorna `main` nel clone, cosi' i nuovi
+Prima di creare e dispatchare task, aggiorna `main` nel clone, così i nuovi
 worktree partono dalla base corrente:
 
     git -C <clone> fetch --quiet origin main && git -C <clone> merge --ff-only origin/main
 
 I worktree sono creati da `HEAD` con `git worktree add`, senza fetch: un clone
-stale produce branch stale e lavoro di rebase successivo. Se il merge non e'
-fast-forward, fermati e segnalalo: il clone e' divergente, e' una situazione
+stale produce branch stale e lavoro di rebase successivo. Se il merge non è
+fast-forward, fermati e segnalalo: il clone è divergente, è una situazione
 ops e non va forzata.
 Per un batch di task indipendenti esegui l'aggiornamento una sola volta, prima
 di crearli, non una volta per task.
@@ -454,7 +454,7 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 
 23. **Escape hatch senza gate inferita come scelta prudente.** Disabilita in silenzio l'approve-in-chat e ripristina il merge manuale. Esegui sempre il probe prescritto nel §6 prima di prendere quel ramo.
 
-24. **PR che richiedono rebase senza motivo apparente.** Il clone non e' stato
+24. **PR che richiedono rebase senza motivo apparente.** Il clone non è stato
     aggiornato prima del dispatch: i worktree, creati da `HEAD` senza fetch,
     sono partiti da una base stale. Aggiorna `main` una volta prima di creare i
     task, come descritto nel §2.
