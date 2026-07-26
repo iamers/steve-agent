@@ -7,10 +7,16 @@
 #
 # Denylist format: one extended-regex pattern per line, '#' starts a comment.
 # Matching is case-insensitive. Override the path with PRIVACY_DENYLIST.
+# Exit codes: 0 clean, 1 denylisted content found, 2 usage error.
 
 set -euo pipefail
 
 DENYLIST="${PRIVACY_DENYLIST:-.local/privacy-denylist.txt}"
+
+if [ "$#" -eq 0 ]; then
+    echo "Usage: $0 FILE..." >&2
+    exit 2
+fi
 
 [ -f "$DENYLIST" ] || exit 0
 
@@ -25,7 +31,7 @@ for file in "$@"; do
     # grep -I skips binary files; -i case-insensitive; -E extended regex
     if matches=$(grep -nHiE -I -f "$patterns_file" -- "$file"); then
         echo "Privacy check FAILED:"
-        printf "%s\n" "$matches" | head -10
+        printf "%s\n" "$matches" | awk 'NR <= 10'
         status=1
     fi
 done
