@@ -40,9 +40,14 @@ ssh "$HOST" 'cat ~/.hermes/config.yaml' > "$live_cfg"
 if python3 -c 'import yaml' 2>/dev/null; then
   sem=$(mktemp); trap 'rm -f "$live_cfg" "$sem"' EXIT
   cat > "$sem" <<'PY'
-import sys, json, difflib, yaml
+import sys, json, difflib, re, yaml
 
 INSTANCE_ONLY = ("dashboard", "onboarding")
+ENV_MATERIALIZED = (
+    "platforms.telegram.extra.allow_admin_from",
+    "platforms.telegram.extra.group_allow_admin_from",
+)
+MISSING = object()
 
 
 class StrictLoader(yaml.SafeLoader):
@@ -87,7 +92,7 @@ StrictLoader.add_constructor(
 )
 
 
-def norm(path, label):
+def load(path, label):
     # I blocchi instance-only sono già stati rimossi A MONTE, prima di arrivare
     # qui: vedi il filtro awk applicato a entrambi i lati. È deliberato e non
     # ridondante. Se li rimuovessimo dopo il parsing, un errore del parser
@@ -114,14 +119,113 @@ def norm(path, label):
         sys.exit(1)
     for key in INSTANCE_ONLY:
         data.pop(key, None)  # dopo il parsing ogni grafia collassa qui
-    return json.dumps(data, sort_keys=True, indent=2, ensure_ascii=False).splitlines()
+    return data
 
 
-repo, live = norm(sys.argv[1], "repo"), norm(sys.argv[2], "live")
-if repo == live:
-    sys.exit(0)
-sys.stdout.write("\n".join(difflib.unified_diff(repo, live, "repo", "live", lineterm="")) + "\n")
-sys.exit(1)
+def get_path(data, path):
+    current = data
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return MISSING
+        current = current[part]
+    return current
+
+
+def drop_path(data, path):
+    parts = path.split(".")
+    current = data
+    parents = []
+    for part in parts[:-1]:
+        if not isinstance(current, dict) or part not in current:
+            return
+        parents.append((current, part))
+        current = current[part]
+    if isinstance(current, dict):
+        current.pop(parts[-1], None)
+    for parent, part in reversed(parents):
+        if parent.get(part) == {}:
+            parent.pop(part)
+        else:
+            break
+
+
+def leaves(value):
+    if isinstance(value, dict):
+        for item in value.values():
+            yield from leaves(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from leaves(item)
+    else:
+        yield value
+
+
+def contains_env_reference(value):
+    return any(
+        isinstance(item, str) and re.search(r"\$\{[^{}]+\}", item)
+        for item in leaves(value)
+    )
+
+
+def is_empty(value):
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (dict, list)):
+        return not value
+    return False
+
+
+def contains_unexpanded_reference(value):
+    return any(
+        isinstance(item, str) and re.fullmatch(r"\$\{.*\}", item)
+        for item in leaves(value)
+    )
+
+
+repo_data, live_data = load(sys.argv[1], "repo"), load(sys.argv[2], "live")
+shape_drift = False
+for path in ENV_MATERIALIZED:
+    repo_value = get_path(repo_data, path)
+    live_value = get_path(live_data, path)
+
+    # Questi valori hanno proprietari diversi: nel repo resta il riferimento
+    # alla variabile, mentre sull'istanza deve esserci il valore risolto. Le
+    # forme sono verificabili senza mai stampare il contenuto.
+    if repo_value is MISSING and live_value is MISSING:
+        continue
+    if repo_value is MISSING:
+        print(f"DRIFT: env-materialized path {path} is missing from the repository")
+        shape_drift = True
+    elif live_value is MISSING:
+        print(f"DRIFT: env-materialized path {path} is missing from the live config")
+        shape_drift = True
+    else:
+        if not contains_env_reference(repo_value):
+            print(
+                f"DRIFT: repository holds a materialized value for {path}; "
+                "the repository is public"
+            )
+            shape_drift = True
+        if is_empty(live_value) or contains_unexpanded_reference(live_value):
+            print(
+                f"DRIFT: live value for {path} was never expanded; access control "
+                "keys in this state disable the administrator"
+            )
+            shape_drift = True
+
+    # Anche in errore i valori non devono raggiungere il diff semantico: il
+    # diagnostico sopra nomina solo il path e la condizione.
+    drop_path(repo_data, path)
+    drop_path(live_data, path)
+
+repo = json.dumps(repo_data, sort_keys=True, indent=2, ensure_ascii=False).splitlines()
+live = json.dumps(live_data, sort_keys=True, indent=2, ensure_ascii=False).splitlines()
+semantic_drift = repo != live
+if semantic_drift:
+    sys.stdout.write("\n".join(difflib.unified_diff(repo, live, "repo", "live", lineterm="")) + "\n")
+sys.exit(1 if shape_drift or semantic_drift else 0)
 PY
   # Filtra i blocchi instance-only PRIMA del parsing: così il loro contenuto
   # non raggiunge mai il parser e non può finire nel messaggio di un errore.
