@@ -1,42 +1,42 @@
-# instance/ — blueprint dell'istanza Steve
+# instance/ — Steve instance blueprint
 
-Copia canonica, versionata e senza segreti, della configurazione di una istanza
-Steve (Hermes Agent). Nasce dalla prima istanza di sviluppo; quando esisterà una
-seconda istanza questo blueprint è il candidato a diventare template renderizzato.
+Canonical, versioned, secret-free copy of the configuration of a Steve instance
+(Hermes Agent). It originates from the first development instance; when a second
+instance exists, this blueprint is the candidate to become a rendered template.
 
-## Contenuto
+## Contents
 
-| File | Ruolo |
+| File | Role |
 |---|---|
-| `config.yaml` | copia canonica di `~/.hermes/config.yaml` dell'istanza |
-| `env.template` | chiavi richieste in `~/.hermes/.env` (solo nomi, mai valori) |
-| `smoke.sh` | verifica salute istanza (versione pinnata, gateway, telegram, env) |
-| `drift-check.sh` | confronta config live vs repo; segnala derive, non ripristina |
+| `config.yaml` | canonical copy of the instance's `~/.hermes/config.yaml` |
+| `env.template` | keys required in `~/.hermes/.env` (names only, never values) |
+| `smoke.sh` | checks instance health (pinned version, gateway, telegram, env) |
+| `drift-check.sh` | compares live config with repo; reports drift, does not restore |
 
-## Regola anti-deriva
+## Anti-drift rule
 
-1. Le modifiche di configurazione si fanno PRIMA nella copia del repo, poi si
-   applicano all'istanza (mai solo hand-edit live).
-2. Se una modifica è nata live (emergenza, esperimento), riportarla qui subito
-   dopo e annotarla nel journal operativo (privato, `.local/ops/`).
-3. `drift-check.sh` in caso di dubbio: esce 1 se c'è deriva.
+1. Make configuration changes FIRST in the repo copy, then apply them to the
+   instance (never hand-edit live only).
+2. If a change originated live (emergency, experiment), bring it back here
+   immediately afterward and record it in the operational journal (private, `.local/ops/`).
+3. When in doubt, run `drift-check.sh`: it exits 1 if drift exists.
 
-Gli identificativi specifici dell'istanza (chat id, user id, host) vivono solo
-nel `.env` server-side e nel journal privato, mai in questi file.
+Instance-specific identifiers (chat id, user id, host) live only in the
+server-side `.env` and the private journal, never in these files.
 
-## Uso
+## Usage
 
 ```bash
-./smoke.sh              # default: istanza via alias SSH (set STEVE_HOST o passalo come arg1)
-./smoke.sh <alias> --llm   # include una query reale al modello
-./drift-check.sh        # diff config live vs repo
+./smoke.sh              # default: instance via SSH alias (set STEVE_HOST or pass it as arg1)
+./smoke.sh <alias> --llm   # includes a real query to the model
+./drift-check.sh        # diff live config vs repo
 ```
 
-Prerequisito: alias SSH verso l'utente dell'istanza sulla macchina da cui si
-esegue. La versione Hermes attesa è pinnata in `smoke.sh` (`HERMES_PIN`).
+Prerequisite: an SSH alias to the instance user on the machine where this is
+run. The expected Hermes version is pinned in `smoke.sh` (`HERMES_PIN`).
 
-`STEVE_HOST` è una variabile **ops/clone-side**, non runtime dell'istanza: gli
-script `drift-check.sh` e `smoke.sh` la leggono dal primo argomento o dalla env
-ed girano dal clone di gestione verso l'istanza via SSH. Per questo non compare
-in `env.template` (che elenca solo le chiavi del `.env` runtime dell'istanza):
-valorizzatela nell'ambiente del clone di gestione o passatela come arg1.
+`STEVE_HOST` is an **ops/clone-side** variable, not an instance runtime variable:
+the `drift-check.sh` and `smoke.sh` scripts read it from the first argument or the
+environment and run from the management clone against the instance via SSH. This
+is why it does not appear in `env.template` (which lists only the instance runtime
+`.env` keys): set it in the management clone environment or pass it as arg1.
