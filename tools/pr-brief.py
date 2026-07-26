@@ -33,16 +33,16 @@ PR_BRIEF_PATH = "tools/pr-brief.py"
 
 # Language-neutral anchors in .steve/review-brief-template.md.
 BRIEF_TOKENS = {
-    "header": "{{0}}",
-    "link": "{{1}}",
-    "branch": "{{2}}",
-    "origin": "{{3}}",
-    "read_first": "{{4}}",
-    "tier": "{{5}}",
-    "d4": "{{6}}",
-    "critical_files": "{{7}}",
-    "summary": "{{8}}",
-    "approval": "{{9}}",
+    "header": "{{header}}",
+    "link": "{{link}}",
+    "branch": "{{branch}}",
+    "origin": "{{origin}}",
+    "read_first": "{{read_first}}",
+    "tier": "{{tier}}",
+    "d4": "{{d4}}",
+    "critical_files": "{{critical_files}}",
+    "summary": "{{summary}}",
+    "approval": "{{approval}}",
 }
 
 
@@ -303,6 +303,23 @@ def fetch_pr(repo, pr_number):
 
 def run_self_test():
     """Assertions on the matcher using the repo's real policy (no network)."""
+    def assert_golden(label, actual, expected):
+        if actual == expected:
+            print("golden assertion ({}): ok".format(label))
+            return
+        actual_lines = actual.split("\n")
+        expected_lines = expected.split("\n")
+        for line_number in range(
+                1, max(len(actual_lines), len(expected_lines)) + 1):
+            actual_line = (actual_lines[line_number - 1]
+                           if line_number <= len(actual_lines) else "<missing>")
+            expected_line = (expected_lines[line_number - 1]
+                             if line_number <= len(expected_lines) else "<missing>")
+            if actual_line != expected_line:
+                raise AssertionError(
+                    "{} differs at line {}: expected {!r}, got {!r}".format(
+                        label, line_number, expected_line, actual_line))
+
     policy_path = find_policy_path()
     if not policy_path:
         print("error: .steve/review-policy.yaml not found", file=sys.stderr)
@@ -426,19 +443,63 @@ approval label will not be applied. Everything before the merge, the review and 
 handled here.
 To send it back instead, reply `reject: <reason>`.
 """
-    if golden_brief != expected_golden:
-        actual_lines = golden_brief.split("\n")
-        expected_lines = expected_golden.split("\n")
-        for line_number in range(
-                1, max(len(actual_lines), len(expected_lines)) + 1):
-            actual = (actual_lines[line_number - 1]
-                      if line_number <= len(actual_lines) else "<missing>")
-            expected = (expected_lines[line_number - 1]
-                        if line_number <= len(expected_lines) else "<missing>")
-            if actual != expected:
-                raise AssertionError(
-                    "golden brief differs at line {}: expected {!r}, got {!r}".format(
-                        line_number, expected, actual))
+    assert_golden("optional lines present", golden_brief, expected_golden)
+
+    # Golden output with every optional line absent. The link, origin and D4
+    # tokens must disappear without leaving blank lines in their place.
+    absent_golden_brief = render_brief(
+        template_text, number=7, title="sample title",
+        branch="steve-agent/t_abc1234-sample", tier_upper="PROPAGATION",
+        critical_files=[("tools/x.py", "propagation", "tools/**")],
+        summary_text="A one line summary.", task_id=None,
+        d4_active=False, repo=None)
+    expected_absent_golden = """\
+PR #7 — sample title
+Branch: steve-agent/t_abc1234-sample -> main
+
+Read first (in the worktree): README.md, CLAUDE.md, .steve/review-policy.yaml
+
+## Triage
+Tier: PROPAGATION
+Critical files:
+- tools/x.py  (propagation, tools/**)
+
+## What changes
+A one line summary.
+
+## Non-obvious decisions
+- <technical decision + reason>
+
+## Operational rules
+
+Read `task_rules` in `.steve/review-policy.yaml` before starting. They are
+constraints, not suggestions: each one has already killed at least one task.
+The two that bite most often are no `rm` in any form inside a verify, and the
+published review body carrying no instance paths, aliases or identities.
+
+## Verification
+- [ ] CI green
+- [ ] <tier-specific criterion, e.g. "config loads in dry-run without errors">
+
+---
+What you need to do: open the link above and merge it yourself in the GitHub app. Tier
+PROPAGATION is not auto-mergeable by design: an approve in this chat cannot merge it, and the
+approval label will not be applied. Everything before the merge, the review and CI, is
+handled here.
+To send it back instead, reply `reject: <reason>`.
+"""
+    assert_golden("optional lines absent", absent_golden_brief,
+                  expected_absent_golden)
+    optional_lines = {
+        "Link: https://github.com/o/r/pull/7",
+        "Origin: task t_abc1234",
+        "D4: untested constraint - human signature required",
+    }
+    expected_absent_from_present = "\n".join(
+        line for line in expected_golden.split("\n")
+        if line not in optional_lines)
+    assert expected_absent_golden == expected_absent_from_present, \
+        "absent golden must differ only by the link, origin and D4 lines"
 
     # --- Extension 3: D4 gate -------------------------------------------
     # review-policy only (without pr-brief.py) -> D4 active + tier escalates

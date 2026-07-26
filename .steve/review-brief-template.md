@@ -1,18 +1,18 @@
-{{0}}
-{{1}}
-{{2}}
-{{3}}
+{{header}}
+{{link}}
+{{branch}}
+{{origin}}
 
-{{4}}
+{{read_first}}
 
 ## Triage
-{{5}}
-{{6}}
+{{tier}}
+{{d4}}
 Critical files:
-{{7}}
+{{critical_files}}
 
 ## What changes
-{{8}}
+{{summary}}
 
 ## Non-obvious decisions
 - <technical decision + reason>
@@ -29,4 +29,4 @@ published review body carrying no instance paths, aliases or identities.
 - [ ] <tier-specific criterion, e.g. "config loads in dry-run without errors">
 
 ---
-{{9}}
+{{approval}}
