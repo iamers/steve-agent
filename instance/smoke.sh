@@ -99,7 +99,7 @@ LLM_CHECK=0
 check_listeners() {
   local out rc verdict
   out=$(ssh -o ConnectTimeout=10 "$HOST" \
-    'command -v ss >/dev/null 2>&1 || { echo "ss is unavailable" >&2; exit 127; }; ss -H -tln' 2>&1)
+    'command -v ss >/dev/null 2>&1 || { echo "ss is unavailable" >&2; exit 127; }; ss -H -tln')
   rc=$?
   if verdict=$(listener_verdict "$rc" "$out"); then
     echo "PASS  no unexpected listeners"; pass=$((pass+1))
