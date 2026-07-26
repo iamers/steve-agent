@@ -286,15 +286,21 @@ def run_self_test():
 
     cases = [
         ("instance/config.yaml", "blast"),
-        (".steve/qualcosa/file.md", "propagation"),
+        (".steve/something/file.md", "propagation"),
         ("tools/x.py", "propagation"),
         ("scripts/foo.sh", "propagation"),
         (".github/workflows/ci.yml", "propagation"),
         ("README.md", "safe"),
-        ("CLAUDE.md", "safe"),
-        ("AGENTS.md", "safe"),
+        ("CLAUDE.md", "propagation"),
+        ("AGENTS.md", "propagation"),
+        ("SECURITY.md", "propagation"),
         (".gitignore", "safe"),
-        ("percorso-ignoto.xyz", "propagation"),
+        ("docs/ARCHITECTURE.md", "safe"),
+        ("docs/design/components/worker.md", "safe"),
+        ("instance/README.md", "safe"),
+        ("CONTRIBUTING.md", "safe"),
+        ("CODE_OF_CONDUCT.md", "safe"),
+        ("unknown-path.xyz", "propagation"),
     ]
     for path, expected in cases:
         got, _ = file_tier(path, tiers)
