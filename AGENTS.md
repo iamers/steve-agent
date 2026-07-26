@@ -63,6 +63,6 @@ These apply to every change made in a worktree:
 
 The review-tier policy lives in `.steve/review-policy.yaml`. That file is the
 single source of truth for which paths are `blast`, `propagation`, or
-`safe`, and what each tier requires. `AGENTS.md` itself is classified
-`safe` (context-only, no executable impact). See the policy file for the
-mechanism and the full per-repo path list.
+`safe`, and what each tier requires. `AGENTS.md` is `propagation`: it is loaded
+natively into every worker, so changes reach every future task. See the policy
+file for the mechanism and the full per-repo path list.

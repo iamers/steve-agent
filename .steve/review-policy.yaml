@@ -28,12 +28,12 @@ tiers:
       - "AGENTS.md"  # Context file loaded natively by every worker; changes reach every future task.
       - "CLAUDE.md"  # Context file loaded natively by every worker; changes reach every future task.
       - "SECURITY.md"  # Human-facing but security-relevant; intentionally not auto-mergeable.
+      - "README.md"  # Injected into every brief's "Read first" list.
+      - ".gitignore"  # Guards which local-only files can enter a commit.
 
   safe:
     description: "No irreversible damage"
     paths:
-      - "README.md"
-      - ".gitignore"
       - "docs/**"
       - "instance/README.md"
       - "CONTRIBUTING.md"
