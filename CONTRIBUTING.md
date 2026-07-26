@@ -27,9 +27,10 @@ Every change lands through a pull request against `main`. There is no other path
 4. CI must be green on the PR.
 5. The PR needs one review approved by a GitHub account different from the
    author. A self-approval does not count.
-6. A human merges. Merging is a human action, not an automated one, and there is
-   no bypass of the steps above. Auto-merge is on the roadmap, not in place
-   today.
+6. For `safe`-tier pull requests, once all five deterministic gate conditions
+   below hold, the merge is performed by the project's GitHub App identity. For
+   `propagation` and `blast` pull requests, a human merges on GitHub. In both
+   cases, approval is a human decision, with no bypass of review or CI.
 
 ## Review tiers
 
@@ -39,10 +40,20 @@ map to which tier is `.steve/review-policy.yaml`.
 
 The tier of a PR is the highest tier among all the files it touches:
 
-- `safe`: no irreversible damage. Context and docs only.
+- `safe`: human-facing documentation that no agent loads and no script executes.
+  This is the only tier the merge gate can merge.
 - `propagation`: a bug here is replicated across many installations or future
   environments.
 - `blast`: an immediate outage or a block of the whole factory.
+
+The deterministic merge gate requires all five of these conditions:
+
+- The approval label is present on the pull request.
+- An `APPROVED` review exists from a reviewer account other than the author.
+- CI is green on the latest commit.
+- The recomputed pull request tier is `safe`.
+- The base is `main`, the pull request is mergeable, and the head has not moved
+  since the approval.
 
 Anything not matched by the policy defaults to `propagation`, fail safe rather
 than fast.
