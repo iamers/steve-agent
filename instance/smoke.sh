@@ -30,12 +30,19 @@ check() { # check <label> <command>
   fi
 }
 
-# unexpected_listeners legge l'output di `ss -H -tln` e stampa le righe il cui
-# indirizzo locale non e' IPv4 127/8 ne' IPv6 ::1. Come grep, ritorna 0 quando
-# trova almeno una riga inattesa e 1 quando tutte le righe sono loopback.
+# unexpected_listeners <ssh-port> legge l'output di `ss -H -tln` e stampa le
+# righe il cui indirizzo locale non e' IPv4 127/8 ne' IPv6 ::1, eccetto il porto
+# server della connessione SSH usata come control plane. Come grep, ritorna 0
+# quando trova almeno una riga inattesa e 1 quando tutte le righe sono ammesse.
 unexpected_listeners() {
-  awk '
-    NF && $4 !~ /^127\./ && $4 !~ /^\[::1\]:/ {
+  local ssh_port="$1"
+  awk -v ssh_port="$ssh_port" '
+    function listener_port(address, value) {
+      value = address
+      sub(/^.*:/, "", value)
+      return value
+    }
+    NF && $4 !~ /^127\./ && $4 !~ /^\[::1\]:/ && listener_port($4) != ssh_port {
       print
       found = 1
     }
@@ -43,26 +50,38 @@ unexpected_listeners() {
   '
 }
 
-# listener_verdict <query-rc> <ss-output>
+# listener_verdict <query-rc> <ssh-port> <ss-output>
 # Ritorna 0 solo se la query remota e' riuscita e ogni listener e' loopback.
-# Tool assente, errore di ss/SSH e listener non-loopback falliscono chiusi.
+# Il listener SSH sul porto della connessione corrente e' il solo control-plane
+# ammesso. Metadata assente, tool assente, errore di ss/SSH e ogni altro listener
+# non-loopback falliscono chiusi.
 listener_verdict() {
-  local query_rc="$1" listener_output="$2" unexpected
+  local query_rc="$1" ssh_port="$2" listener_output="$3" unexpected
   if [ "$query_rc" -ne 0 ]; then
     printf 'listener inspection unavailable (remote query exit %s): %s\n' \
       "$query_rc" "$listener_output"
     return 2
   fi
-  if unexpected=$(printf '%s\n' "$listener_output" | unexpected_listeners); then
+  case "$ssh_port" in
+    ''|*[!0-9]*)
+      printf 'listener inspection unavailable (invalid SSH server port: %s)\n' "$ssh_port"
+      return 2
+      ;;
+  esac
+  if [ "$ssh_port" -lt 1 ] || [ "$ssh_port" -gt 65535 ]; then
+    printf 'listener inspection unavailable (invalid SSH server port: %s)\n' "$ssh_port"
+    return 2
+  fi
+  if unexpected=$(printf '%s\n' "$listener_output" | unexpected_listeners "$ssh_port"); then
     printf 'unexpected listener(s):\n%s\n' "$unexpected"
     return 1
   fi
   return 0
 }
 
-listener_self_test_case() { # listener_self_test_case <label> <expected-rc> <query-rc> <output>
-  local label="$1" expected="$2" query_rc="$3" output="$4" actual
-  listener_verdict "$query_rc" "$output" >/dev/null
+listener_self_test_case() { # listener_self_test_case <label> <expected-rc> <query-rc> <ssh-port> <output>
+  local label="$1" expected="$2" query_rc="$3" ssh_port="$4" output="$5" actual
+  listener_verdict "$query_rc" "$ssh_port" "$output" >/dev/null
   actual=$?
   if [ "$actual" -ne "$expected" ]; then
     echo "FAIL: ${label}: expected rc=${expected}, got rc=${actual}"
@@ -73,12 +92,13 @@ listener_self_test_case() { # listener_self_test_case <label> <expected-rc> <que
 
 run_listener_self_test() {
   local failures=0
-  listener_self_test_case "loopback listeners pass" 0 0 \
-    $'LISTEN 0 128 127.0.0.1:8000 0.0.0.0:*\nLISTEN 0 128 [::1]:8000 [::]:*' || failures=$((failures+1))
-  listener_self_test_case "unexpected non-loopback listener fails" 1 0 \
+  listener_self_test_case "loopback and SSH listeners pass" 0 0 22 \
+    $'LISTEN 0 128 127.0.0.1:8000 0.0.0.0:*\nLISTEN 0 128 [::1]:8000 [::]:*\nLISTEN 0 128 0.0.0.0:22 0.0.0.0:*\nLISTEN 0 128 [::]:22 [::]:*' || failures=$((failures+1))
+  listener_self_test_case "unexpected non-loopback listener fails" 1 0 22 \
     'LISTEN 0 128 0.0.0.0:8080 0.0.0.0:*' || failures=$((failures+1))
-  listener_self_test_case "unavailable ss fails closed" 2 127 \
+  listener_self_test_case "unavailable ss fails closed" 2 127 '' \
     'ss is unavailable' || failures=$((failures+1))
+  listener_self_test_case "missing SSH port fails closed" 2 0 '' '' || failures=$((failures+1))
   if [ "$failures" -ne 0 ]; then
     echo "listener self-test FAILED: ${failures} assertion(s) failed"
     return 1
@@ -97,11 +117,17 @@ LLM_CHECK=0
 [ "${2:-}" = "--llm" ] && LLM_CHECK=1
 
 check_listeners() {
-  local out rc verdict
+  local out rc verdict ssh_port listener_output
   out=$(ssh -o ConnectTimeout=10 "$HOST" \
-    'command -v ss >/dev/null 2>&1 || { echo "ss is unavailable" >&2; exit 127; }; ss -H -tln')
+    'command -v ss >/dev/null 2>&1 || { echo "ss is unavailable" >&2; exit 127; }; set -- ${SSH_CONNECTION:-}; [ "$#" -eq 4 ] || { echo "SSH_CONNECTION is unavailable" >&2; exit 126; }; printf "%s\n" "$4"; ss -H -tln')
   rc=$?
-  if verdict=$(listener_verdict "$rc" "$out"); then
+  ssh_port=${out%%$'\n'*}
+  if [ "$out" = "$ssh_port" ]; then
+    listener_output=''
+  else
+    listener_output=${out#*$'\n'}
+  fi
+  if verdict=$(listener_verdict "$rc" "$ssh_port" "$listener_output"); then
     echo "PASS  no unexpected listeners"; pass=$((pass+1))
   else
     echo "FAIL  no unexpected listeners"
