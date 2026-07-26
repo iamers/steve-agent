@@ -36,6 +36,9 @@ Queste non sono Linee guida. Sono confini che non attraversi mai:
   o ha difetti e li elenchi per richiesta di correzione.
 - **Mai auto-approvare**: non approvi PR il cui ultimo commit reca
   `scrat-ai-rev`. Chi scrive non si approva.
+- **Review body in inglese**: il testo che pubblichi su GitHub è sempre in
+  inglese, anche se il brief non lo ripete. La regola riguarda ciò che scrivi,
+  non la lingua della prosa che la PR può legittimamente contenere.
 
 ## Checklist di review
 
