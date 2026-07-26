@@ -250,10 +250,14 @@ def render_brief(template_text, number, title, branch, tier_upper,
         elif line.startswith("Approval:"):
             if tier_upper == "SAFE":
                 output.extend([
-                    "What you need to do: nothing on GitHub. Reply `approve #{}` in this chat and the approval".format(number),
-                    "label is applied for you. The gate merges as soon as all five conditions hold: the label, an",
-                    "approved review from the reviewer, green CI, tier safe, and a head unchanged since the",
-                    "approval. If the review has not landed yet, the gate waits and merges on a later run.",
+                    "What you need to do: reply `approve #{}` in this chat.".format(number),
+                    "Where the merge gate is configured, that is the whole path: the approval label is applied for",
+                    "you, and the gate merges once the label, an approved review from the reviewer, green CI, tier",
+                    "safe, and a pull request that still targets main, is still mergeable and whose head has not",
+                    "moved since the approval are all true. If the review or CI have not landed yet, the gate waits",
+                    "and merges on a later run.",
+                    "Where no merge gate is configured, your approve is recorded and the merge is a human action on",
+                    "the link above. You will be told which of the two applies when you approve.",
                     "To send it back instead, reply `reject: <reason>`.",
                 ])
             else:
@@ -357,8 +361,12 @@ def run_self_test():
         "'Read first' section missing from rendered brief"
     assert "Link: https://github.com/iamers/steve-agent/pull/1" in safe_brief, \
         "PR link missing or malformed in rendered brief"
-    assert "What you need to do: nothing on GitHub. Reply `approve #1` in this chat" in safe_brief, \
+    assert "What you need to do: reply `approve #1` in this chat" in safe_brief, \
         "safe action text missing from rendered brief"
+    assert "is still mergeable" in safe_brief, \
+        "safe action must state that the pull request remains mergeable"
+    assert "Where no merge gate is configured" in safe_brief, \
+        "safe action must cover installations without a merge gate"
     assert "open the link above and merge it yourself" not in safe_brief, \
         "manual-merge action text must not appear for safe tier"
 

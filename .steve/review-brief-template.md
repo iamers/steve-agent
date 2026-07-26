@@ -25,4 +25,4 @@ published review body carrying no instance paths, aliases or identities.
 - [ ] <tier-specific criterion, e.g. "config loads in dry-run without errors">
 
 ---
-Approval: <tier-derived action>
+Approval: <tier-derived action: safe -> approve in chat; propagation/blast -> merge on GitHub>
