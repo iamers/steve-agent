@@ -4,3 +4,5 @@ instance.env
 *.bak
 *.log
 .DS_Store
+__pycache__/
+.worktrees/
