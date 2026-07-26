@@ -12,8 +12,8 @@ These are the choices approved by the team and must be respected faithfully:
 
 - **D1, approve means merge.** At the `approve` response the PR is merged
   without a second approval round. A single positive signal is enough.
-  (Today the merge is a human action on GitHub; the phase 2 gate below is
-  what makes it automatic. See the status table.)
+  (For `safe` PRs the phase 2 gate executes the merge; for `propagation` and
+  `blast` PRs the merge remains a human action on GitHub. See the status table.)
 - **D2, reject means a redesign draft, not a flat "no".** At the
   `reject: <reason>` response the system does not close the PR: it produces
   a redesign draft that lists the violated constraints and what to change,
@@ -39,7 +39,8 @@ The brief verification criterion admits two paths.
 3. The brief is delivered to the Backlog topic (today via the watcher
    `instance/pr-watch.sh` on cron).
 4. A reviewer responds `approve` (or `approve with: <note>`).
-5. The PR is merged.
+5. For `safe`, the label lets the scanner invoke the merge gate; for
+   `propagation` and `blast`, a human merges on GitHub.
 
 ### Iterate path (try again)
 
@@ -61,19 +62,19 @@ the decision, not the reviewer's free judgment.
 | PR watcher (`instance/pr-watch.sh`) | exists: runs on cron, detects new PRs | event trigger (webhook) instead of cron |
 | Brief delivery | in the Backlog topic via cron | push delivery on event |
 | CI (`.github/workflows/ci.yml`) | exists: `checks` job, 4 steps (runs on every PR) | brief validation step extension |
-| Approval | `approve` in chat, manual merge on GitHub by a human | tracked approve command plus auto-merge |
-| Auto-merge | not implemented | dedicated GitHub App identity, only with the tracked approval marking (backlog, see phase 2) |
+| Approval | tracked by the approval label plus an `APPROVED` review on the latest commit | tracked approve command |
+| Auto-merge | exists for `safe`: the scanner invokes the deterministic gate, and the dedicated GitHub App merges when every condition passes | activation without an approve in chat (backlog, see phase 2) |
 | "Constraints without test" check (D4) | exists: minimal D4 gate in the compiler (a constraint on review-policy with no test -> tier escalates to propagation plus human signature) | coverage of constraints beyond review-policy |
 
-Today an approve leads to a manual merge on GitHub done by a human: the
-system concentrates the decision but does not yet close the loop on its own.
+For `safe`, an approve can lead to a deterministic merge by the GitHub App;
+for `propagation` and `blast`, the merge remains a human action on GitHub.
 
-## Phase 2, safe auto-merge (specification, not implementation)
+## Phase 2, safe auto-merge (as built)
 
 Phase 2 takes approval from "decide" to "execute autonomously" while keeping
-traceability and the guard on `main`. None of this is code yet. The design
-rests on two independent gates, a deterministic merge script, and a
-dedicated merge identity.
+traceability and the guard on `main`. The implementation rests on two
+independent gates, a deterministic merge script, and a dedicated merge
+identity.
 
 ### Two independent gates: eligibility and authorization
 
@@ -92,8 +93,10 @@ Auto-merge is governed by two gates that do not depend on each other:
 
 ### The gate
 
-The gate is a deterministic script WITHOUT an LLM. It merges only if ALL of
-the following are true:
+The gate is a deterministic script WITHOUT an LLM. Before evaluating any PR
+condition, it fetches `origin/main` and refuses to decide if freshness cannot
+be determined or if its local policy copy is behind. It then merges only if
+ALL of the following are true:
 
 - (a) the approval label is present on the PR;
 - (b) there is a review in APPROVED state from the reviewer identity on the
@@ -137,8 +140,9 @@ in `instance/INSTALL.md`, written against the real App. See that file for the
 per-instance setup. Each instance creates its OWN App and the private key is
 never shared, for the technical reason above.
 
-## Phase 2 is design, not code
+## Phase 2 as built
 
-Phase 2 is design: none of these parts is code yet. When it is implemented,
-each item in this section becomes a separate task, and the status table
-above updates accordingly.
+`instance/merge-gate-scan.sh` finds open PRs carrying the approval label and
+invokes `instance/merge-gate.sh`. The gate evaluates the precondition and the
+five conditions above, then uses the per-instance GitHub App to merge only an
+eligible PR.
