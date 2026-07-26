@@ -69,7 +69,7 @@ unexpected_listeners() {
 # control-plane ammesso. Metadata assente, tool assente, errore di ss/SSH e ogni
 # altro listener non-loopback falliscono chiusi.
 listener_verdict() {
-  local query_rc="$1" ssh_address="$2" ssh_port="$3" listener_output="$4" unexpected
+  local query_rc="$1" ssh_address="$2" ssh_port="$3" listener_output="$4" unexpected parser_rc
   if [ "$query_rc" -ne 0 ]; then
     printf 'listener inspection unavailable (remote query exit %s): %s\n' \
       "$query_rc" "$listener_output"
@@ -89,16 +89,26 @@ listener_verdict() {
     printf 'listener inspection unavailable (invalid SSH server port: %s)\n' "$ssh_port"
     return 2
   fi
-  if unexpected=$(printf '%s\n' "$listener_output" | unexpected_listeners "$ssh_address" "$ssh_port"); then
-    printf 'unexpected listener(s):\n%s\n' "$unexpected"
-    return 1
-  fi
-  return 0
+  unexpected=$(printf '%s\n' "$listener_output" | unexpected_listeners "$ssh_address" "$ssh_port")
+  parser_rc=$?
+  case "$parser_rc" in
+    0)
+      printf 'unexpected listener(s):\n%s\n' "$unexpected"
+      return 1
+      ;;
+    1)
+      return 0
+      ;;
+    *)
+      printf 'listener inspection unavailable (local parser exit %s)\n' "$parser_rc"
+      return 2
+      ;;
+  esac
 }
 
 listener_self_test_case() { # listener_self_test_case <label> <expected-rc> <query-rc> <ssh-address> <ssh-port> <output>
   local label="$1" expected="$2" query_rc="$3" ssh_address="$4" ssh_port="$5" output="$6" actual
-  listener_verdict "$query_rc" "$ssh_address" "$ssh_port" "$output" >/dev/null
+  listener_verdict "$query_rc" "$ssh_address" "$ssh_port" "$output" >/dev/null 2>&1
   actual=$?
   if [ "$actual" -ne "$expected" ]; then
     echo "FAIL: ${label}: expected rc=${expected}, got rc=${actual}"
@@ -118,6 +128,8 @@ run_listener_self_test() {
   listener_self_test_case "unavailable ss fails closed" 2 127 '' '' \
     'ss is unavailable' || failures=$((failures+1))
   listener_self_test_case "missing SSH endpoint fails closed" 2 0 '' '' '' || failures=$((failures+1))
+  PATH=/nonexistent listener_self_test_case "missing local parser fails closed" 2 0 10.0.0.5 22 \
+    'LISTEN 0 128 0.0.0.0:8080 0.0.0.0:*' || failures=$((failures+1))
   if [ "$failures" -ne 0 ]; then
     echo "listener self-test FAILED: ${failures} assertion(s) failed"
     return 1
