@@ -192,13 +192,15 @@ def extract_summary(body, override):
 
 
 def render_brief(template_text, number, title, branch, tier_upper,
-                 critical_files, summary_text, task_id=None, d4_active=False):
+                 critical_files, summary_text, task_id=None, d4_active=False,
+                 repo=None):
     """Compiles the template by filling dynamic fields, leaving static
     sections intact (footer, 'Non-obvious decisions' placeholder, checklist).
 
     critical_files: list of (path, tier_lowercase, matched_pattern_or_None).
     task_id: origin task id (``t_<id>``) or None.
     d4_active: if True, inserts the D4 marker (constraint without test).
+    repo: repository owner/name or None.
     """
     lines = template_text.split("\n")
     output = []
@@ -209,6 +211,9 @@ def render_brief(template_text, number, title, branch, tier_upper,
         # Header line: PR #<N> — <title>
         if "<N>" in line and "<title>" in line:
             output.append("PR #{} — {}".format(number, title))
+            if repo:
+                output.append("Link: https://github.com/{}/pull/{}".format(
+                    repo, number))
         # Branch line: Branch: <branch> -> main (+ optional Origin line)
         elif "<branch>" in line:
             output.append("Branch: {} -> main".format(branch))
@@ -241,6 +246,28 @@ def render_brief(template_text, number, title, branch, tier_upper,
         # 'What changes' section: replaces the placeholder with the summary
         elif "<2-3 lines" in line:
             output.append(summary_text)
+        # Approval placeholder: replace it with the tier-derived action block
+        elif line.startswith("Approval:"):
+            if tier_upper == "SAFE":
+                output.extend([
+                    "What you need to do: reply `approve #{}` in this chat.".format(number),
+                    "Where the merge gate is configured, that is the whole path: the approval label is applied for",
+                    "you, and the gate merges once the label, an approved review from the reviewer, green CI, tier",
+                    "safe, and a pull request that still targets main, is still mergeable and whose head has not",
+                    "moved since the approval are all true. If the review or CI have not landed yet, the gate waits",
+                    "and merges on a later run.",
+                    "Where no merge gate is configured, your approve is recorded and the merge is a human action on",
+                    "the link above. You will be told which of the two applies when you approve.",
+                    "To send it back instead, reply `reject: <reason>`.",
+                ])
+            else:
+                output.extend([
+                    "What you need to do: open the link above and merge it yourself in the GitHub app. Tier",
+                    "{} is not auto-mergeable by design: an approve in this chat cannot merge it, and the".format(tier_upper),
+                    "approval label will not be applied. Everything before the merge, the review and CI, is",
+                    "handled here.",
+                    "To send it back instead, reply `reject: <reason>`.",
+                ])
         else:
             # All other lines stay as they are in the template
             output.append(line)
@@ -326,12 +353,35 @@ def run_self_test():
     # Rendering with dummy input (no network): the string must be present.
     template_path = policy_path.parent / "review-brief-template.md"
     template_text = template_path.read_text()
-    sample_brief = render_brief(
+    safe_brief = render_brief(
         template_text, number=1, title="sample", branch="feat/sample",
         tier_upper="SAFE", critical_files=[], summary_text="x",
-        task_id=None, d4_active=False)
-    assert "Read first (in the worktree): README.md, CLAUDE.md, .steve/review-policy.yaml" in sample_brief, \
+        task_id=None, d4_active=False, repo="iamers/steve-agent")
+    assert "Read first (in the worktree): README.md, CLAUDE.md, .steve/review-policy.yaml" in safe_brief, \
         "'Read first' section missing from rendered brief"
+    assert "Link: https://github.com/iamers/steve-agent/pull/1" in safe_brief, \
+        "PR link missing or malformed in rendered brief"
+    assert "What you need to do: reply `approve #1` in this chat" in safe_brief, \
+        "safe action text missing from rendered brief"
+    assert "is still mergeable" in safe_brief, \
+        "safe action must state that the pull request remains mergeable"
+    assert "Where no merge gate is configured" in safe_brief, \
+        "safe action must cover installations without a merge gate"
+    assert "open the link above and merge it yourself" not in safe_brief, \
+        "manual-merge action text must not appear for safe tier"
+
+    propagation_brief = render_brief(
+        template_text, number=2, title="sample", branch="feat/sample",
+        tier_upper="PROPAGATION", critical_files=[], summary_text="x",
+        task_id=None, d4_active=False)
+    assert "What you need to do: open the link above and merge it yourself in the GitHub app" in propagation_brief, \
+        "manual-merge action text missing from propagation brief"
+    assert "PROPAGATION is not auto-mergeable by design" in propagation_brief, \
+        "propagation tier missing from manual-merge action text"
+    assert "nothing on GitHub" not in propagation_brief, \
+        "safe action text must not appear for propagation tier"
+    assert "Link:" not in propagation_brief, \
+        "PR link must not appear when repository is absent"
 
     # --- Extension 3: D4 gate -------------------------------------------
     # review-policy only (without pr-brief.py) -> D4 active + tier escalates
@@ -417,7 +467,7 @@ def main():
 
     brief = render_brief(template_text, number, title, branch,
                          pr_tier_name.upper(), critical, summary,
-                         task_id=task_id, d4_active=d4_active)
+                         task_id=task_id, d4_active=d4_active, repo=args.repo)
     # Normalize: a single trailing blank line
     brief = brief.rstrip("\n") + "\n"
     sys.stdout.write(brief)
