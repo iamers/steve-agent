@@ -50,6 +50,18 @@ produce file committati.
 
 ## 2. Creare un task di sviluppo
 
+Prima di creare e dispatchare task, aggiorna `main` nel clone, così i nuovi
+worktree partono dalla base corrente:
+
+    git -C <clone> fetch --quiet origin main && git -C <clone> merge --ff-only origin/main
+
+I worktree sono creati da `HEAD` con `git worktree add`, senza fetch: un clone
+stale produce branch stale e lavoro di rebase successivo. Se il merge non è
+fast-forward, fermati e segnalalo: il clone è divergente, è una situazione
+ops e non va forzata.
+Per un batch di task indipendenti esegui l'aggiornamento una sola volta, prima
+di crearli, non una volta per task.
+
 Usa il tool `kanban_create` (o il CLI `hermes kanban create`). Il brief DEVE
 contenere, in modo che il worker possa verificarlo da solo:
 
@@ -441,6 +453,11 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 22. **Outage GitHub transiente (create-PR path).** GitHub puo' andare in outage sul `POST /repos/.../pulls` con HTTP 500 vuoto per decine di minuti. I GET funzionano, il push del branch funziona, il rate-limit e' sano. Il worker non puo' aprire la PR. **Non e' un errore nostro.** Il branch e' pronto, la PR nasce alla ripresa. Sintomi: `gh pr create` ritorna "Something went wrong while executing your query", `gh api -X POST .../pulls` ritorna "unexpected end of JSON input". **Azione:** non bruciare retry. Aspetta che GitHub recuperi (controlla githubstatus.com). Il worktree conserva il codice (pitfall #7). Se il timeout del worker scade, il coordinatore puo' aprire la PR dal main profile quando GitHub e' tornato.
 
 23. **Escape hatch senza gate inferita come scelta prudente.** Disabilita in silenzio l'approve-in-chat e ripristina il merge manuale. Esegui sempre il probe prescritto nel §6 prima di prendere quel ramo.
+
+24. **PR che richiedono rebase senza motivo apparente.** Il clone non è stato
+    aggiornato prima del dispatch: i worktree, creati da `HEAD` senza fetch,
+    sono partiti da una base stale. Aggiorna `main` una volta prima di creare i
+    task, come descritto nel §2.
 
 ## Verification Checklist
 
