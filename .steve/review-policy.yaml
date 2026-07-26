@@ -121,3 +121,73 @@ task_rules:
     instead: >-
       Before trusting a green result, confirm the fixture contains what it is
       meant to contain and that the thing under test actually executed.
+
+  new_task_instead_of_unblock:
+    rule: >-
+      Never unblock a task that will block again. When work has to resume,
+      create a NEW task on the same worktree.
+    why: >-
+      A task that blocked with review-required blocks again the moment it
+      resumes. The second block consumes the recurrence limit and raises
+      block_loop_detected; a specifier then REWRITES the task's title and body,
+      the task is promoted, and the dispatcher answers respawn_guarded with
+      reason active_pr from then on. The result is a zombie: ready but never
+      spawnable, with the original brief destroyed. Recovering it costs more
+      than the work it was carrying.
+    instead: >-
+      Create a new task with --workspace dir:<worktree of the original task> so
+      it works on the same branch and the existing PR updates in place. Record
+      the chain with a comment on the parent task.
+
+  privacy_check_needs_arguments:
+    rule: >-
+      scripts/check_privacy.sh scans only the files passed as arguments. Never
+      invoke it with none, and never read its exit 0 as coverage without a
+      liveness proof.
+    why: >-
+      The script loops over "$@". With no arguments the loop never runs and it
+      exits 0 without having looked at anything, which is indistinguishable from
+      a real pass. A brief prescribed exactly that form the day after
+      verify_the_verifier was written into this file. The script now exits 2 on
+      a no-argument call, but the rule stands: exit 0 over the wrong file list
+      is still a vacuous pass.
+    instead: >-
+      Pass the changed files explicitly. Pair the real check with a liveness
+      proof on a fixture that is known to match, and invoke the script DIRECTLY:
+      an exit-code expectation routed through xargs is wrong by construction,
+      because xargs remaps a child's 1-125 to 123.
+
+  never_extract_the_code_under_test:
+    rule: >-
+      A verify never extracts, slices or re-transcribes the code it is testing.
+      It runs it.
+    why: >-
+      Two distinct failures, one cause. Extraction pushes towards composed
+      commands (inline Python, regex slicing, long chains) that the safety layer
+      holds for approval, and a dispatched task has no approval channel: the
+      command is denied after about a minute and the task dies with its work
+      unpublished. Extraction also fabricates defects: a reviewer once sliced
+      an embedded shell string by hand, lost five statement separators at the
+      quote boundaries, parsed the corrupted result and reported the corruption
+      as a bug in code that was correct.
+    instead: >-
+      Run the real thing (the script, its self-test, the function behind a stub)
+      with single plain commands, as keep_runs_short already requires. When a
+      fixture is needed, prefer a file that already exists over one
+      reconstructed from the source.
+
+  self_test_is_the_proof:
+    rule: >-
+      When the project's own self-test covers a behaviour, the verify is "run
+      the self-test and quote the asserting lines", not "now demonstrate it a
+      second way".
+    why: >-
+      The second demonstration is the same proof in a more fragile form. Asking
+      for it produced a hand-driven invocation of a pure helper that the safety
+      layer denied; the worker correctly stopped without committing, and the
+      task delivered nothing the self-test had not already proven.
+    instead: >-
+      One verify: run the self-test and quote the output of the assertions that
+      cover the behaviour. Ask for a second, differently shaped check only
+      where the self-test genuinely cannot reach, such as network paths,
+      credentials, or anything that only exists after deployment.
