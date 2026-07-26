@@ -53,6 +53,22 @@ readonly REPO_ROOT
 # Inputs are simple strings: "1" = true, "0" = false; d_tier is a tier name.
 # ===========================================================================
 
+# policy_copy_verdict <behind_count>
+# Prints "ok" when origin/main has no commits absent from HEAD, "stale" when it
+# does, and "unknown" for an invalid count. Pure: no git repository or network.
+policy_copy_verdict() {
+    local behind_count="$1"
+    case "$behind_count" in
+        ''|*[!0-9]*) echo "unknown"; return 2 ;;
+    esac
+    if [ "$behind_count" -gt 0 ]; then
+        echo "stale"
+        return 1
+    fi
+    echo "ok"
+    return 0
+}
+
 # decide_merge <a_label> <b_review> <c_ci> <d_tier> <e_base_main> <e_mergeable> <e_sha_match>
 # Prints "MERGE: ..." and returns 0 if all conditions pass.
 # Prints "REJECT: ..." and returns 1 otherwise. Order is deliberate: the first
@@ -202,7 +218,27 @@ _selftest_label() {
     echo "ok: ${desc} -> ${got}"
 }
 
+# _selftest_policy_copy <desc> <behind_count> <expected_verdict> <expected_rc>
+# Exercises the pure policy_copy_verdict() function with injected inputs.
+_selftest_policy_copy() {
+    local desc="$1" behind_count="$2" exp_verdict="$3" exp_rc="$4"
+    local got_verdict got_rc
+    got_verdict=$(policy_copy_verdict "$behind_count")
+    got_rc=$?
+    if [ "$got_verdict" != "$exp_verdict" ] || [ "$got_rc" -ne "$exp_rc" ]; then
+        echo "FAIL: ${desc}: expected ${exp_verdict} (rc=${exp_rc}), got '${got_verdict}' (rc=${got_rc})"
+        SELFTEST_FAILS=$((SELFTEST_FAILS + 1))
+        return
+    fi
+    echo "ok: ${desc} -> ${got_verdict} (rc=${got_rc})"
+}
+
 run_self_test() {
+    # Policy-copy freshness is an evaluator precondition, not a PR condition.
+    _selftest_policy_copy "policy copy: behind=0 is current" 0 ok 0
+    _selftest_policy_copy "policy copy: behind=3 is stale" 3 stale 1
+    _selftest_policy_copy "policy copy: invalid count is unknown" invalid unknown 2
+
     # All conditions true -> MERGE.
     _selftest_check "all conditions true" "MERGE" "" 1 1 1 safe 1 1 1
 
@@ -498,6 +534,41 @@ cond_tier() {
 }
 
 # ===========================================================================
+# Evaluator precondition. This describes the machine making the decision, not
+# the pull request, so it deliberately stays outside decide_merge().
+# ===========================================================================
+
+check_policy_copy_current() {
+    local behind_count verdict
+
+    echo "policy precondition: checking local policy copy against origin/main"
+    if ! git -C "$REPO_ROOT" fetch --quiet origin main; then
+        echo "REFUSE: policy copy freshness is unknown: fetch of origin/main failed" >&2
+        return 2
+    fi
+    if ! behind_count=$(git -C "$REPO_ROOT" rev-list --count HEAD..origin/main); then
+        echo "REFUSE: policy copy freshness is unknown: could not count commits behind origin/main" >&2
+        return 2
+    fi
+
+    verdict=$(policy_copy_verdict "$behind_count")
+    case "$verdict" in
+        ok)
+            echo "policy precondition: local policy copy is current (0 commits behind origin/main)"
+            return 0
+            ;;
+        stale)
+            echo "REFUSE: policy copy is stale by ${behind_count} commit(s) behind origin/main" >&2
+            return 1
+            ;;
+        *)
+            echo "REFUSE: policy copy freshness is unknown: invalid behind count '${behind_count}'" >&2
+            return 2
+            ;;
+    esac
+}
+
+# ===========================================================================
 # Evaluate all conditions and decide. Prints the verdict + per-condition
 # detail. Returns decide_merge's exit code (0 = MERGE).
 # ===========================================================================
@@ -596,6 +667,7 @@ main() {
         --dry-run)
             pr="${2:-}"
             [ -n "$pr" ] || { echo "usage: merge-gate.sh --dry-run <pr>" >&2; return 2; }
+            check_policy_copy_current || return $?
             evaluate "$pr"
             return $?
             ;;
@@ -606,6 +678,7 @@ main() {
         *)
             pr="$1"
             local verdict rc
+            check_policy_copy_current || return $?
             verdict=$(evaluate "$pr"); rc=$?
             echo "$verdict"
             if [ "$rc" -eq 0 ]; then
