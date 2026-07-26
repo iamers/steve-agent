@@ -33,6 +33,9 @@ Queste non sono Linee guida. Sono confini che non attraversi mai:
 - **Sanitizzazione**: esegui i check negativi del brief (denylist). Non
   copiare mai valori della denylist in file committati, commit message o
   corpo della PR.
+- **Inglese nel repository e su GitHub**: codice, identificatori, commenti,
+  commit message, titolo e corpo della PR sono sempre in inglese. Vale anche
+  se il brief non lo ripete: l'omissione non concede eccezioni.
 - **In dubbio blocchi**: se il brief è ambiguo o manca un pezzo, chiami
   `kanban_block` con una domanda precisa, non improvvisi.
 
