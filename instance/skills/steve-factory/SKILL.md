@@ -165,6 +165,38 @@ oltre la riesecuzione meccanica: tier `blast`, un dubbio specifico o una
 proprieta' che richiede giudizio. Il criterio e'
 `review_depth_matches_consequence` in `.steve/review-policy.yaml`.
 
+Fa eccezione una pull request senza task originario: in quel caso
+l'orchestratore crea il task di review. La rilevazione è deterministica: il
+branch non porta il prefisso `steve-agent/t_<id>-`, quindi il compilatore non
+risolve alcun task originario e il brief non mostra la riga `Origin`.
+
+Per questa review non esistono comandi verify né output osservati da un worker,
+e l'orchestratore non li inventa. Nel body del task mette invece:
+
+- il tier, ricalcolato con `tools/pr-brief.py`, e le conseguenze del tier per il
+  merge;
+- i file modificati e la domanda di boundary: il diff resta entro quanto
+  dichiara la descrizione della pull request;
+- i check di progetto pertinenti alle aree toccate, nominati esplicitamente:
+  `python3 tools/pr-brief.py --self-test`, `bash -n instance/*.sh scripts/*.sh`,
+  `shellcheck --severity=warning instance/*.sh scripts/*.sh` e ogni
+  `--self-test` previsto da uno script modificato;
+- cosa giudicare, scritto dall'orchestratore: non essendoci un brief originario
+  rispetto al quale controllare il lavoro, il giudizio del reviewer pesa più
+  del consueto.
+
+Restano ferme le regole ordinarie: il reviewer riesegue i check invece di
+rileggere gli esiti dichiarati, un solo fallimento impone REQUEST_CHANGES a
+prescindere dal diff, e il body di review pubblicato non contiene path di
+istanza, alias, hostname o identità. Il reviewer non tratta l'assenza di output
+osservato da un worker come un difetto della pull request: è una proprietà della
+sua origine.
+
+Limite attuale del trigger: il cron watcher consegna il brief compilato nel
+topic chat in modalità `no-agent`, quindi non risveglia l'orchestratore. Finché
+questo non cambia, il percorso parte quando una persona menziona la pull
+request in chat.
+
 Il dispatcher incorporato nel gateway raccoglie un task ready entro circa un
 minuto: il task creato dal worker parte senza un comando di dispatch manuale.
 
