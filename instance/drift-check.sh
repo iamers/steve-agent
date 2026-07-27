@@ -1,13 +1,36 @@
 #!/usr/bin/env bash
 # Drift check: confronta la config live dell'istanza con la copia canonica nel
-# repo. Segnala, non ripristina. Uso: ./drift-check.sh [ssh-alias]
+# repo. Segnala, non ripristina.
+# Usage: ./drift-check.sh [ssh-alias]
+#        ./drift-check.sh --compare-config <repo-yaml> <live-yaml>
 set -u
+
+usage() {
+  echo "Usage: $0 [ssh-alias]" >&2
+  echo "       $0 --compare-config <repo-yaml> <live-yaml>" >&2
+}
+
+compare_only=false
+if [ "${1:-}" = "--compare-config" ]; then
+  if [ "$#" -ne 3 ]; then
+    usage
+    exit 2
+  fi
+  compare_only=true
+  compare_repo=$2
+  compare_live=$3
+elif [ "$#" -gt 1 ]; then
+  usage
+  exit 2
+fi
+
 cd "$(dirname "$0")" || exit 1
 
-HOST="${1:-${STEVE_HOST:?pass host as arg1 or set STEVE_HOST}}"
 drift=0
-
-echo "== config.yaml (live vs repo) =="
+live_cfg=""
+sem=""
+repo_s=""
+live_s=""
 # Due blocchi top-level vivono solo sull'istanza live e non devono mai
 # entrare nel repo, quindi li escludiamo dal confronto su entrambi i lati:
 #  - "dashboard:": credenziali basic-auth (password_hash e secret)
@@ -34,18 +57,24 @@ echo "== config.yaml (live vs repo) =="
 # I commenti in colonna 0 NON chiudono il blocco (un commento dentro dashboard
 # non deve far riemergere le righe successive del blocco stesso).
 strip_blocks='/^(dashboard|onboarding):/{skip=1; next} /^[^[:space:]#]/{skip=0} !skip'
-live_cfg=$(mktemp); trap 'rm -f "$live_cfg"' EXIT
-ssh "$HOST" 'cat ~/.hermes/config.yaml' > "$live_cfg"
 
-if python3 -c 'import yaml' 2>/dev/null; then
-  sem=$(mktemp); trap 'rm -f "$live_cfg" "$sem"' EXIT
-  cat > "$sem" <<'PY'
+compare_config() {
+  repo_cfg=$1
+  live_cfg_to_compare=$2
+
+  if python3 -c 'import yaml' 2>/dev/null; then
+    sem=$(mktemp)
+    trap 'rm -f "$live_cfg" "$sem" "$repo_s" "$live_s"' EXIT
+    cat > "$sem" <<'PY'
 import sys, json, difflib, re, yaml
 
 INSTANCE_ONLY = ("dashboard", "onboarding")
 ENV_MATERIALIZED = (
     "platforms.telegram.extra.allow_admin_from",
     "platforms.telegram.extra.group_allow_admin_from",
+)
+INSTANCE_LOCAL_PREFERENCES = (
+    "approvals.destructive_slash_confirm",
 )
 MISSING = object()
 
@@ -220,6 +249,20 @@ for path in ENV_MATERIALIZED:
     drop_path(repo_data, path)
     drop_path(live_data, path)
 
+for path in INSTANCE_LOCAL_PREFERENCES:
+    repo_value = get_path(repo_data, path)
+    if repo_value is not MISSING:
+        print(
+            f"DRIFT: instance-local preference {path} is present in the repository; "
+            "the blueprint must keep the product default"
+        )
+        shape_drift = True
+
+    # A live value is a legitimate per-instance choice. Neither value may reach
+    # the semantic diff or its output.
+    drop_path(repo_data, path)
+    drop_path(live_data, path)
+
 repo = json.dumps(repo_data, sort_keys=True, indent=2, ensure_ascii=False).splitlines()
 live = json.dumps(live_data, sort_keys=True, indent=2, ensure_ascii=False).splitlines()
 semantic_drift = repo != live
@@ -227,32 +270,49 @@ if semantic_drift:
     sys.stdout.write("\n".join(difflib.unified_diff(repo, live, "repo", "live", lineterm="")) + "\n")
 sys.exit(1 if shape_drift or semantic_drift else 0)
 PY
-  # Filtra i blocchi instance-only PRIMA del parsing: così il loro contenuto
-  # non raggiunge mai il parser e non può finire nel messaggio di un errore.
-  repo_s=$(mktemp); live_s=$(mktemp)
-  trap 'rm -f "$live_cfg" "$sem" "$repo_s" "$live_s"' EXIT
-  awk "$strip_blocks" config.yaml  > "$repo_s"
-  awk "$strip_blocks" "$live_cfg"  > "$live_s"
-  if python3 "$sem" "$repo_s" "$live_s"; then
-    echo "OK: config.yaml aligned (semantic compare; dashboard/onboarding excluded)"
+    # Filtra i blocchi instance-only PRIMA del parsing: così il loro contenuto
+    # non raggiunge mai il parser e non può finire nel messaggio di un errore.
+    repo_s=$(mktemp); live_s=$(mktemp)
+    trap 'rm -f "$live_cfg" "$sem" "$repo_s" "$live_s"' EXIT
+    awk "$strip_blocks" "$repo_cfg" > "$repo_s"
+    awk "$strip_blocks" "$live_cfg_to_compare" > "$live_s"
+    python3 "$sem" "$repo_s" "$live_s"
+    comparator_status=$?
+    return "$comparator_status"
   else
-    drift=1
+    # NESSUNA degradazione: senza pyyaml il confronto non si fa.
+    # Il ramo testuale che c'era prima riconosceva i blocchi da escludere con un
+    # filtro a righe, e YAML ammette molte grafie equivalenti della stessa chiave
+    # ("dashboard":, 'dashboard':, dashboard :, forme con tag o esplicite). Con
+    # una grafia non riconosciuta il blocco restava nel diff CON I SUOI VALORI,
+    # cioè password_hash e secret finivano nell'output del check. Non è un
+    # confronto più rumoroso: è più debole, e su una guardia che tratta segreti
+    # non è un compromesso accettabile.
+    # Quindi si fallisce CHIUSO e in modo azionabile: non poter verificare non è
+    # "nessun drift", è un controllo non eseguito, e va contato come tale.
+    echo "ERROR: pyyaml is required to compare config.yaml safely."
+    echo "       Install it (e.g. 'pip install --user pyyaml') and re-run."
+    echo "       Refusing to fall back to a textual compare: it cannot exclude"
+    echo "       instance-only blocks reliably and would print their values."
+    return 1
   fi
+}
+
+if "$compare_only"; then
+  compare_config "$compare_repo" "$compare_live"
+  exit $?
+fi
+
+HOST="${1:-${STEVE_HOST:?pass host as arg1 or set STEVE_HOST}}"
+
+echo "== config.yaml (live vs repo) =="
+live_cfg=$(mktemp)
+trap 'rm -f "$live_cfg" "$sem" "$repo_s" "$live_s"' EXIT
+ssh "$HOST" 'cat ~/.hermes/config.yaml' > "$live_cfg"
+
+if compare_config config.yaml "$live_cfg"; then
+  echo "OK: config.yaml aligned (semantic compare; dashboard/onboarding excluded)"
 else
-  # NESSUNA degradazione: senza pyyaml il confronto non si fa.
-  # Il ramo testuale che c'era prima riconosceva i blocchi da escludere con un
-  # filtro a righe, e YAML ammette molte grafie equivalenti della stessa chiave
-  # ("dashboard":, 'dashboard':, dashboard :, forme con tag o esplicite). Con
-  # una grafia non riconosciuta il blocco restava nel diff CON I SUOI VALORI,
-  # cioè password_hash e secret finivano nell'output del check. Non è un
-  # confronto più rumoroso: è più debole, e su una guardia che tratta segreti
-  # non è un compromesso accettabile.
-  # Quindi si fallisce CHIUSO e in modo azionabile: non poter verificare non è
-  # "nessun drift", è un controllo non eseguito, e va contato come tale.
-  echo "ERROR: pyyaml is required to compare config.yaml safely."
-  echo "       Install it (e.g. 'pip install --user pyyaml') and re-run."
-  echo "       Refusing to fall back to a textual compare: it cannot exclude"
-  echo "       instance-only blocks reliably and would print their values."
   drift=1
 fi
 
