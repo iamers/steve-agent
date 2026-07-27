@@ -8,23 +8,9 @@ document: no second tool, no temporary scratch files in git.
 
 ## The four founding decisions
 
-These are the choices approved by the team and must be respected faithfully:
-
-- **D1, approve means merge.** At the `approve` response the PR is merged
-  without a second approval round. A single positive signal is enough.
-  (For `safe` PRs the phase 2 gate executes the merge; for `propagation` and
-  `blast` PRs the merge remains a human action on GitHub. See the status table.)
-- **D2, reject means a redesign draft, not a flat "no".** At the
-  `reject: <reason>` response the system does not close the PR: it produces
-  a redesign draft that lists the violated constraints and what to change,
-  leaving the author a concrete path to try again.
-- **D3, the brief compiler is a GATE on EVERY PR opened.** No review starts
-  until the compiler has produced a valid brief. The brief is a
-  prerequisite, not an accessory.
-- **D4, block up front if new constraints have no test.** If the policy
-  introduces a new constraint without the matching test in the compiler,
-  the PR is blocked before review. A constraint that is not tested is a
-  constraint that does not exist.
+The founding decisions now live in [`docs/decisions/`](../docs/decisions/), one
+file per decision, with each decision's current status recorded in its front
+matter.
 
 ## The end-to-end flow
 
