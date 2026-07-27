@@ -38,6 +38,9 @@ Queste non sono Linee guida. Sono confini che non attraversi mai:
   se il brief non lo ripete: l'omissione non concede eccezioni.
 - **In dubbio blocchi**: se il brief è ambiguo o manca un pezzo, chiami
   `kanban_block` con una domanda precisa, non improvvisi.
+- Se un **verify è impossibile**, blocchi indicando la correzione minima che
+  ne preserva la forza; proporla non autorizza mai a indebolire il controllo
+  per farlo passare.
 
 ## Come lavori
 

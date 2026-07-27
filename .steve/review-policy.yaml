@@ -191,3 +191,20 @@ task_rules:
       cover the behaviour. Ask for a second, differently shaped check only
       where the self-test genuinely cannot reach, such as network paths,
       credentials, or anything that only exists after deployment.
+
+  impossible_verify_is_a_brief_defect:
+    rule: >-
+      A verify that cannot execute is a brief defect, not an obstacle to route
+      around. Do not substitute another check. Block, and include the corrected
+      verify in the reason.
+    why: >-
+      A block that only describes the obstacle costs a full round trip: the
+      author must derive a correction the worker already knows from the open
+      file and neighbouring checks. Three tasks blocked this way in one night;
+      two proposed corrections were adopted unchanged, while the third cost an
+      extra cycle.
+    instead: >-
+      Name the cause in one line. Propose the smallest correction that preserves
+      the check's strength, and state the property it still proves. Do not run
+      it: the worker proposes and the author decides. If every correction would
+      weaken the proof, say so instead of proposing one.
