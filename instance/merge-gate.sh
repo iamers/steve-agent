@@ -51,7 +51,8 @@ readonly REPO_ROOT
 
 # ===========================================================================
 # Pure decision logic (no network, no credentials). --self-test covers this.
-# Inputs are simple strings: "1" = true, "0" = false; d_tier is a tier name.
+# Inputs are simple strings: "1" = true, "0" = false; e_mergeable and
+# f_behind_count also accept an unknown state; d_tier is a tier name.
 # ===========================================================================
 
 # policy_copy_verdict <behind_count>
@@ -110,8 +111,12 @@ decide_merge() {
         echo "REJECT: (e) base branch is not main"
         return 1
     fi
-    if [ "$e_mergeable" != "1" ]; then
+    if [ "$e_mergeable" = "0" ]; then
         echo "REJECT: (e) PR is not mergeable"
+        return 1
+    fi
+    if [ "$e_mergeable" != "1" ]; then
+        echo "REJECT: (e) PR mergeability is not yet known"
         return 1
     fi
     if [ "$e_sha_match" != "1" ]; then
@@ -255,6 +260,41 @@ _selftest_policy_copy() {
     echo "ok: ${desc} -> ${got_verdict} (rc=${got_rc})"
 }
 
+# Exercises fetch_pr_meta() with gh_api substituted in a subshell. GitHub's
+# first response leaves mergeable null; the second has the computed value.
+_selftest_fetch_pr_meta_retry() (
+    local fixture_dir count_file calls
+    fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/merge-gate-selftest.XXXXXX")
+    count_file="${fixture_dir}/calls"
+    GH_API_BODY="${fixture_dir}/body.json"
+    printf '0\n' >"$count_file"
+
+    gh_api() {
+        local call_count
+        [ "$1" = "GET" ] && [ "$3" = "/repos/owner/repo/pulls/17" ] || return 1
+        call_count=$(<"$count_file")
+        call_count=$((call_count + 1))
+        printf '%s\n' "$call_count" >"$count_file"
+        if [ "$call_count" -eq 1 ]; then
+            printf '%s\n' '{"head":{"sha":"abc"},"base":{"ref":"main"},"mergeable":null}' >"$GH_API_BODY"
+        else
+            printf '%s\n' '{"head":{"sha":"abc"},"base":{"ref":"main"},"mergeable":true}' >"$GH_API_BODY"
+        fi
+        printf '200'
+    }
+
+    fetch_pr_meta "fixture-token" "owner/repo" 17 || {
+        echo "FAIL: fetch_pr_meta: request failed"
+        return 1
+    }
+    calls=$(<"$count_file")
+    if [ "$PR_MERGEABLE" != "True" ] || [ "$calls" -ne 2 ]; then
+        echo "FAIL: fetch_pr_meta: expected mergeable True after 2 calls, got '${PR_MERGEABLE}' after ${calls} call(s)"
+        return 1
+    fi
+    echo "ok: fetch_pr_meta retries unknown mergeability once -> True after 2 calls"
+)
+
 run_self_test() {
     # Policy-copy freshness is an evaluator precondition, not a PR condition.
     _selftest_policy_copy "policy copy: behind=0 is current" 0 ok 0
@@ -270,7 +310,12 @@ run_self_test() {
     _selftest_check "(c) CI not green" "REJECT" "(c)" 1 1 0 safe 1 1 1
     _selftest_check "(e) base not main" "REJECT" "main" 1 1 1 safe 0 1 1
     _selftest_check "(e) not mergeable" "REJECT" "mergeable" 1 1 1 safe 1 0 1
+    _selftest_check "(e) mergeability unknown" "REJECT" "mergeability is not yet known" 1 1 1 safe 1 unknown 1
     _selftest_check "(e) head moved" "REJECT" "head moved" 1 1 1 safe 1 1 0
+
+    if ! _selftest_fetch_pr_meta_retry; then
+        SELFTEST_FAILS=$((SELFTEST_FAILS + 1))
+    fi
 
     # Tier above safe -> REJECT even when everything else is green.
     _selftest_check "(d) tier=propagation" "REJECT" "propagation" 1 1 1 propagation 1 1 1
@@ -435,9 +480,15 @@ resolve_installation_token() {
 # fetch_pr_meta <token> <repo> <pr>: sets PR_HEAD_SHA, PR_BASE, PR_MERGEABLE.
 fetch_pr_meta() {
     local token="$1" repo="$2" pr="$3" status
-    PR_HEAD_SHA="" PR_BASE="" PR_MERGEABLE="0"
+    PR_HEAD_SHA="" PR_BASE="" PR_MERGEABLE=""
     status=$(gh_api GET "token ${token}" "/repos/${repo}/pulls/${pr}")
     echo "$status" | grep -q '^2' || return 1
+    PR_MERGEABLE=$(read_field "$GH_API_BODY" "mergeable")
+    if [ -z "$PR_MERGEABLE" ]; then
+        sleep 1
+        status=$(gh_api GET "token ${token}" "/repos/${repo}/pulls/${pr}")
+        echo "$status" | grep -q '^2' || return 1
+    fi
     PR_HEAD_SHA=$(read_field "$GH_API_BODY" "head.sha")
     PR_BASE=$(read_field "$GH_API_BODY" "base.ref")
     PR_MERGEABLE=$(read_field "$GH_API_BODY" "mergeable")
@@ -619,7 +670,7 @@ evaluate() {
     local token
 
     COND_A_LABEL="0"; COND_B_REVIEW="0"; COND_C_CI="0"; COND_D_TIER=""
-    COND_E_BASE_MAIN="0"; COND_E_MERGEABLE="0"; COND_E_SHA_MATCH="0"
+    COND_E_BASE_MAIN="0"; COND_E_MERGEABLE="unknown"; COND_E_SHA_MATCH="0"
     COND_F_BEHIND_COUNT=""
     NOTE_AUTH=""
 
@@ -646,7 +697,11 @@ evaluate() {
             cond_ci "$token" "$repo" "$PR_HEAD_SHA" || true
             cond_branch_current "$token" "$repo" "$PR_HEAD_SHA" || true
             [ "$PR_BASE" = "main" ] && COND_E_BASE_MAIN="1"
-            [ "$PR_MERGEABLE" = "True" ] && COND_E_MERGEABLE="1"
+            case "$PR_MERGEABLE" in
+                True) COND_E_MERGEABLE="1" ;;
+                False) COND_E_MERGEABLE="0" ;;
+                *) COND_E_MERGEABLE="unknown" ;;
+            esac
             if [ -n "$APPROVE_SHA" ] && [ -n "$PR_HEAD_SHA" ] \
                && [ "$APPROVE_SHA" = "$PR_HEAD_SHA" ]; then
                 COND_E_SHA_MATCH="1"
