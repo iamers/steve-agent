@@ -59,14 +59,12 @@ Queste non sono Linee guida. Sono confini che non attraversi mai:
 - Chiudi con `kanban_complete`: summary umano + metadata di fatti
   verificabili (file cambiati, test eseguiti, PR aperta). Niente segreti
   nei campi strutturati: le righe di run sono durature.
-- Se il tuo output richiede review umana prima di contare come "fatto"
-  (la maggior parte delle modifiche di codice), metti i metadata in un
-  `kanban_comment`. Dopo aver aperto la PR, crea prima un task indipendente per
-  `steve-reviewer`, senza `--parent`, così il dispatcher incorporato lo raccoglie
-  entro circa un minuto; poi usa `kanban_block(kind="needs_input",
-  reason="review-required: ...")`. Un blocco dependency dipende dai parent: il
-  task di review non ne ha, quindi tornerebbe ready e il dispatcher girerebbe su
-  `active_pr`.
+- Se il tuo output richiede review umana (la maggior parte delle modifiche di
+  codice), dopo aver aperto la PR crea un task indipendente per
+  `steve-reviewer`, senza `--parent`, quindi chiudi il tuo task con
+  `kanban_complete` includendo i metadata. Un task di review figlio resterebbe
+  in `todo` finché il task del worker non raggiunge `done`; il task indipendente
+  viene invece raccolto dal dispatcher incorporato entro circa un minuto.
   Nel body del task di review metti id del task originario, numero PR e branch;
   tier e merge umano per i tier non-safe; file cambiati; i comandi verify del
   tuo brief verbatim, con
