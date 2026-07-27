@@ -390,10 +390,13 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
     `active_pr`. Il worker non fa progresso (la PR e' gia' aperta) ma non
     raggiunge mai `done`, quindi eventuali task figli (es. review con
     `parents=[worker_task]`) restano in `todo` indefinitamente. La factory si
-    ferma per ore senza che nessuno se ne accorga.
+    ferma per ore senza che nessuno se ne accorga. Una causa e' parcheggiare con
+    un dependency block dopo aver creato un review task senza parent: il blocco
+    non ha un parent su cui restare gated e torna subito in `ready`.
     - **Sintomi:** `hermes kanban diagnostics` mostra `stranded_in_ready` sul
-      task padre; gli eventi sono una coda di `respawn_guarded` ogni 60s; il
-      task figlio e' in `todo` con zero run.
+      task padre; su un task con PR gia' aperta si ripete circa ogni minuto un
+      evento `respawn_guarded` con reason `active_pr`; il task figlio e' in
+      `todo` con zero run.
     - **Fix:** completa manualmente il padre con `hermes kanban complete
       <task_id> --summary "..."` o `kanban_complete(task_id=..., summary=...)`.
       Il padre passa a `done`, il figlio si promuove a `ready`, il prossimo
