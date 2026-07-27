@@ -15,6 +15,7 @@ Usage:
 """
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -44,6 +45,55 @@ BRIEF_TOKENS = {
     "summary": "{{summary}}",
     "approval": "{{approval}}",
 }
+
+BRIEF_STRINGS = {
+    "en": {
+        "read_first": "Read first (in the worktree): README.md, CLAUDE.md, .steve/review-policy.yaml",
+        "d4": "D4: untested constraint - human signature required",
+        "safe_action": [
+            "What you need to do: reply `approve #{number}` in this chat.",
+            "Where the merge gate is configured, that is the whole path: the approval label is applied for",
+            "you, and the gate merges once the label, an approved review from the reviewer, green CI, tier",
+            "safe, and a pull request that still targets main, is still mergeable and whose head has not",
+            "moved since the approval are all true. If the review or CI have not landed yet, the gate waits",
+            "and merges on a later run.",
+            "Where no merge gate is configured, your approve is recorded and the merge is a human action on",
+            "the link above. You will be told which of the two applies when you approve.",
+            "To send it back instead, reply `reject: <reason>`.",
+        ],
+        "manual_action": [
+            "What you need to do: open the link above and merge it yourself in the GitHub app. Tier",
+            "{tier} is not auto-mergeable by design: an approve in this chat cannot merge it, and the",
+            "approval label will not be applied. Everything before the merge, the review and CI, is",
+            "handled here.",
+            "To send it back instead, reply `reject: <reason>`.",
+        ],
+    },
+    "it": {
+        "read_first": "Leggi prima (nel worktree): README.md, CLAUDE.md, .steve/review-policy.yaml",
+        "d4": "D4: vincolo non testato - firma umana richiesta",
+        "safe_action": [
+            "Cosa devi fare: rispondi `approve #{number}` in questa chat.",
+            "Dove il merge gate è configurato, questo è l'intero percorso: l'etichetta di approvazione viene",
+            "applicata per te e il gate esegue il merge quando sono presenti l'etichetta, una review approvata",
+            "dal reviewer, CI verde, tier SAFE e una pull request che punta ancora a main, è ancora mergeable e",
+            "il cui head non si è spostato dall'approvazione. Se review o CI non sono ancora arrivate, il gate",
+            "attende ed esegue il merge in una run successiva.",
+            "Dove non è configurato alcun merge gate, il tuo approve viene registrato e il merge è un'azione",
+            "umana sul link sopra. Quando approvi, ti verrà indicato quale dei due casi si applica.",
+            "Per rimandarla indietro, rispondi `reject: <reason>`.",
+        ],
+        "manual_action": [
+            "Cosa devi fare: apri il link sopra ed esegui personalmente il merge nell'app GitHub. Il tier",
+            "{tier} non consente l'auto-merge per scelta progettuale: un approve in questa chat non può",
+            "eseguire il merge e l'etichetta di approvazione non verrà applicata. Tutto ciò che precede il",
+            "merge, cioè review e CI, viene gestito qui.",
+            "Per rimandarla indietro, rispondi `reject: <reason>`.",
+        ],
+    },
+}
+
+FALLBACK_NOTICE = "Chat language {requested!r} is unavailable; using English."
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +241,19 @@ def load_policy(policy_path):
     return data.get("tiers", {})
 
 
+def resolve_brief_language(template_dir, requested_lang):
+    """Selects a supported brief language, falling back visibly to English."""
+    if requested_lang is None:
+        requested_lang = "en"
+    template_name = ("review-brief-template.md" if requested_lang == "en" else
+                     "review-brief-template.{}.md".format(requested_lang))
+    template_path = template_dir / template_name
+    if requested_lang in BRIEF_STRINGS and template_path.is_file():
+        return requested_lang, template_path, None
+    english_path = template_dir / "review-brief-template.md"
+    return "en", english_path, FALLBACK_NOTICE.format(requested=requested_lang)
+
+
 # ---------------------------------------------------------------------------
 # Brief compilation
 # ---------------------------------------------------------------------------
@@ -208,7 +271,7 @@ def extract_summary(body, override):
 
 def render_brief(template_text, number, title, branch, tier_upper,
                  critical_files, summary_text, task_id=None, d4_active=False,
-                 repo=None):
+                 repo=None, language="en", fallback_notice=None):
     """Compiles the template by filling dynamic fields, leaving static
     sections intact (footer, 'Non-obvious decisions' placeholder, checklist).
 
@@ -217,6 +280,7 @@ def render_brief(template_text, number, title, branch, tier_upper,
     d4_active: if True, inserts the D4 marker (constraint without test).
     repo: repository owner/name or None.
     """
+    strings = BRIEF_STRINGS[language]
     lines = template_text.split("\n")
     output = []
     i = 0
@@ -224,6 +288,8 @@ def render_brief(template_text, number, title, branch, tier_upper,
         line = lines[i]
         if line == BRIEF_TOKENS["header"]:
             output.append("PR #{} — {}".format(number, title))
+            if fallback_notice:
+                output.append(fallback_notice)
         elif line == BRIEF_TOKENS["link"]:
             if repo:
                 output.append("Link: https://github.com/{}/pull/{}".format(
@@ -234,12 +300,12 @@ def render_brief(template_text, number, title, branch, tier_upper,
             if task_id:
                 output.append("Origin: task {}".format(task_id))
         elif line == BRIEF_TOKENS["read_first"]:
-            output.append("Read first (in the worktree): README.md, CLAUDE.md, .steve/review-policy.yaml")
+            output.append(strings["read_first"])
         elif line == BRIEF_TOKENS["tier"]:
             output.append("Tier: {}".format(tier_upper))
         elif line == BRIEF_TOKENS["d4"]:
             if d4_active:
-                output.append("D4: untested constraint - human signature required")
+                output.append(strings["d4"])
         elif line == BRIEF_TOKENS["critical_files"]:
             for path, ftier, pattern in critical_files:
                 perche = pattern if pattern else "default (no match)"
@@ -247,26 +313,11 @@ def render_brief(template_text, number, title, branch, tier_upper,
         elif line == BRIEF_TOKENS["summary"]:
             output.append(summary_text)
         elif line == BRIEF_TOKENS["approval"]:
-            if tier_upper == "SAFE":
-                output.extend([
-                    "What you need to do: reply `approve #{}` in this chat.".format(number),
-                    "Where the merge gate is configured, that is the whole path: the approval label is applied for",
-                    "you, and the gate merges once the label, an approved review from the reviewer, green CI, tier",
-                    "safe, and a pull request that still targets main, is still mergeable and whose head has not",
-                    "moved since the approval are all true. If the review or CI have not landed yet, the gate waits",
-                    "and merges on a later run.",
-                    "Where no merge gate is configured, your approve is recorded and the merge is a human action on",
-                    "the link above. You will be told which of the two applies when you approve.",
-                    "To send it back instead, reply `reject: <reason>`.",
-                ])
-            else:
-                output.extend([
-                    "What you need to do: open the link above and merge it yourself in the GitHub app. Tier",
-                    "{} is not auto-mergeable by design: an approve in this chat cannot merge it, and the".format(tier_upper),
-                    "approval label will not be applied. Everything before the merge, the review and CI, is",
-                    "handled here.",
-                    "To send it back instead, reply `reject: <reason>`.",
-                ])
+            action_key = "safe_action" if tier_upper == "SAFE" else "manual_action"
+            output.extend(
+                action_line.format(number=number, tier=tier_upper)
+                for action_line in strings[action_key]
+            )
         else:
             # All other lines stay as they are in the template
             output.append(line)
@@ -365,10 +416,35 @@ def run_self_test():
         assert got is None, "parse_task_id({!r}): expected None, got {}".format(
             branch, got)
 
-    # --- Extension 2: fixed "Read first" section ------------------------
-    # Rendering with dummy input (no network): the string must be present.
+    # --- Extension 2: language templates and injected strings -------------
     template_path = policy_path.parent / "review-brief-template.md"
     template_text = template_path.read_text()
+    token_pattern = re.compile(r"{{[a-z0-9_]+}}")
+    expected_tokens = set(BRIEF_TOKENS.values())
+    template_paths = sorted(policy_path.parent.glob("review-brief-template*.md"))
+    assert template_paths, "no brief templates discovered"
+    for discovered_template in template_paths:
+        actual_tokens = set(token_pattern.findall(discovered_template.read_text()))
+        assert actual_tokens == expected_tokens, \
+            "{} tokens differ: missing {}, extra {}".format(
+                discovered_template.name,
+                sorted(expected_tokens - actual_tokens),
+                sorted(actual_tokens - expected_tokens))
+        print("template token assertion ({}): ok".format(discovered_template.name))
+    discovered_languages = {
+        "en" if path.name == "review-brief-template.md" else
+        path.name[len("review-brief-template."):-len(".md")]
+        for path in template_paths
+    }
+    assert discovered_languages == set(BRIEF_STRINGS), \
+        "template languages and injected-string languages differ"
+    print("template language-set assertion: ok")
+
+    italian_template_path = policy_path.parent / "review-brief-template.it.md"
+    assert italian_template_path.is_file(), "Italian brief template missing"
+    italian_template_text = italian_template_path.read_text()
+
+    # Rendering with dummy input (no network): each language must be isolated.
     safe_brief = render_brief(
         template_text, number=1, title="sample", branch="feat/sample",
         tier_upper="SAFE", critical_files=[], summary_text="x",
@@ -385,6 +461,49 @@ def run_self_test():
         "safe action must cover installations without a merge gate"
     assert "open the link above and merge it yourself" not in safe_brief, \
         "manual-merge action text must not appear for safe tier"
+    assert "Cosa devi fare:" not in safe_brief, \
+        "Italian action text must not appear in English brief"
+    print("language action assertion (en): ok")
+
+    italian_safe_brief = render_brief(
+        italian_template_text, number=1, title="sample", branch="feat/sample",
+        tier_upper="SAFE", critical_files=[], summary_text="x",
+        task_id=None, d4_active=False, repo="iamers/steve-agent",
+        language="it")
+    assert "Cosa devi fare: rispondi `approve #1` in questa chat" in italian_safe_brief, \
+        "safe Italian action text missing from rendered brief"
+    assert "è ancora mergeable" in italian_safe_brief, \
+        "safe Italian action must state that the pull request remains mergeable"
+    assert "Dove non è configurato alcun merge gate" in italian_safe_brief, \
+        "safe Italian action must cover installations without a merge gate"
+    assert "What you need to do:" not in italian_safe_brief, \
+        "English action text must not appear in Italian brief"
+
+    italian_propagation_brief = render_brief(
+        italian_template_text, number=2, title="sample", branch="feat/sample",
+        tier_upper="PROPAGATION", critical_files=[], summary_text="x",
+        language="it")
+    assert "Cosa devi fare: apri il link sopra" in italian_propagation_brief, \
+        "manual-merge Italian action text missing from propagation brief"
+    assert "PROPAGATION non consente l'auto-merge" in italian_propagation_brief, \
+        "propagation tier missing from Italian manual-merge action text"
+    assert "What you need to do:" not in italian_propagation_brief, \
+        "English action text must not appear in Italian propagation brief"
+    print("language action assertion (it): ok")
+
+    selected_lang, fallback_path, fallback_notice = resolve_brief_language(
+        policy_path.parent, "xx")
+    assert selected_lang == "en" and fallback_path == template_path, \
+        "unknown language must select the English template"
+    fallback_brief = render_brief(
+        fallback_path.read_text(), number=1, title="sample", branch="feat/sample",
+        tier_upper="SAFE", critical_files=[], summary_text="x",
+        language=selected_lang, fallback_notice=fallback_notice)
+    assert "Chat language 'xx' is unavailable; using English." in fallback_brief, \
+        "unknown-language fallback notice missing or does not name the value"
+    assert "What you need to do:" in fallback_brief and "Cosa devi fare:" not in fallback_brief, \
+        "unknown language must render English strings only"
+    print("language fallback assertion (xx -> en, visible notice): ok")
 
     propagation_brief = render_brief(
         template_text, number=2, title="sample", branch="feat/sample",
@@ -550,7 +669,9 @@ def main():
         sys.exit(1)
     tiers = load_policy(policy_path)
 
-    template_path = policy_path.parent / "review-brief-template.md"
+    requested_lang = os.environ.get("STEVE_CHAT_LANG", "en")
+    language, template_path, fallback_notice = resolve_brief_language(
+        policy_path.parent, requested_lang)
     if not template_path.is_file():
         print("error: .steve/review-brief-template.md not found", file=sys.stderr)
         sys.exit(1)
@@ -586,7 +707,8 @@ def main():
 
     brief = render_brief(template_text, number, title, branch,
                          pr_tier_name.upper(), critical, summary,
-                         task_id=task_id, d4_active=d4_active, repo=args.repo)
+                         task_id=task_id, d4_active=d4_active, repo=args.repo,
+                         language=language, fallback_notice=fallback_notice)
     # Normalize: a single trailing blank line
     brief = brief.rstrip("\n") + "\n"
     sys.stdout.write(brief)
