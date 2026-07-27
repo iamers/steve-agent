@@ -43,8 +43,8 @@ tiers:
 
 rules:
   brief_required_for: [blast, propagation]
-  auto_merge: backlog          # safe tier only, behind a deterministic gate; not active today
-  merge_on: "human on GitHub"  # no agent merges until the auto-merge gate is built
+  auto_merge: safe             # deterministic GitHub App gate after human authorization
+  merge_on: "gate for safe; human on GitHub for propagation and blast"
   revert: manual                # no auto-revert
 
 # ---------------------------------------------------------------------------

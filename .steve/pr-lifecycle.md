@@ -47,7 +47,7 @@ the decision, not the reviewer's free judgment.
 | Brief compiler (`tools/pr-brief.py`) | exists: deterministic triage, template, `--self-test`, origin task id, "read first" section, minimal D4 gate | also generate the redesign draft on reject |
 | PR watcher (`instance/pr-watch.sh`) | exists: runs on cron, detects new PRs | event trigger (webhook) instead of cron |
 | Brief delivery | in the Backlog topic via cron | push delivery on event |
-| CI (`.github/workflows/ci.yml`) | exists: `checks` job, 4 steps (runs on every PR) | brief validation step extension |
+| CI (`.github/workflows/ci.yml`) | exists: `checks` job, 5 checks (runs on every PR) | brief validation step extension |
 | Approval | tracked by the approval label plus an `APPROVED` review on the latest commit | tracked approve command |
 | Auto-merge | exists for `safe`: the scanner invokes the deterministic gate, and the dedicated GitHub App merges when every condition passes | activation without an approve in chat (backlog, see phase 2) |
 | "Constraints without test" check ([ADR](../docs/decisions/adr-20260724-untested-constraints-block-review.md)) | exists: minimal D4 gate in the compiler (a constraint on review-policy with no test -> tier escalates to propagation plus human signature) | coverage of constraints beyond review-policy |
@@ -74,8 +74,7 @@ Auto-merge is governed by two gates that do not depend on each other:
 - **Authorization.** The admin gives the approve in chat for EVERY merge,
   and Steve applies a label plus a comment on the PR that references the
   decision. The automation removes the mechanical work, NOT the decision.
-  Auto-merge without an approve in chat is declared backlog, to be
-  activated only after the gate has proven itself on real PRs.
+  A merge without human authorization is not eligible.
 
 ### The gate
 

@@ -33,7 +33,7 @@ Set up SSH access for the service user by copying authorized keys:
 
 ```bash
 sudo mkdir -p /srv/ha-<instance-name>/.ssh
-sudo cp /home/<your-admin-user>/.ssh/authorized_keys /srv/ha-<instance-name>.ssh/authorized_keys
+sudo cp /home/<your-admin-user>/.ssh/authorized_keys /srv/ha-<instance-name>/.ssh/authorized_keys
 sudo chown -R ha-<instance-name>:ha-<instance-name> /srv/ha-<instance-name>/.ssh
 sudo chmod 700 /srv/ha-<instance-name>/.ssh
 sudo chmod 600 /srv/ha-<instance-name>/.ssh/authorized_keys

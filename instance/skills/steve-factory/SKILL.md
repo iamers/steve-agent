@@ -20,7 +20,8 @@ farli revieware, portarli alla decisione di merge. La board kanban e' la verita'
 la chat e' dove si decide, non dove si sviluppa.
 
 Steve NON sviluppa in chat (vedi SOUL.md), NON tocca il runtime dell'istanza,
-NON mergia: finche' la fase 2 non e' attiva il merge resta umano.
+NON mergia: il gate deterministico esegue i merge `safe` autorizzati; i tier
+superiori restano merge umani su GitHub.
 
 ## Quando si usa
 
@@ -259,7 +260,8 @@ ogni task che apre una PR, cosi' il worker onora la regola.
 
 La decisione resta umana:
 
-- `approve` nel topic -> merge (oggi manuale; fase 2 sara' tracciato).
+- `approve` nel topic -> label di autorizzazione e gate deterministico per
+  `safe`; merge umano su GitHub per `propagation` e `blast`.
 - `reject: <motivo>` -> l'autore riceve il motivo del reject nel topic e itera
   da quello. Il redesign draft generato dal compilatore e' il comportamento
   TARGET (vedi la tabella di stato in .steve/pr-lifecycle.md), non cio' che il
@@ -590,10 +592,3 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 - [ ] Quando l'admin approva in chat una PR safe-tier, applichi la label
       steve-approved + commento di decisione. NON mergi: il gate (cron) o
       l'umano (GitHub UI) eseguono il merge.
-
-## References
-
-- `references/deterministic-gate-pattern.md` — architettura per script di
-  decisione sicura (merge gate, review guard): separazione pure-decision /
-  execution, fixture matrix, SSH quoting pattern, blind spot dei parametri
-  non cablati alle chiamate di rete.

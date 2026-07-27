@@ -48,8 +48,10 @@ These apply to every change made in a worktree:
 1. **Open a PR against `main`.** Never push directly to `main`. A worker's
    output lands as a pull request; the branch is the worker's own worktree
    branch.
-2. **Do not merge.** Until phase 2 auto-merge is in place, every merge is a
-   human action on GitHub. Workers stop at "PR opened and verified."
+2. **Do not merge.** Workers stop at "PR opened and verified." A human merges
+   `propagation` and `blast` PRs on GitHub; deterministic code running as the
+   GitHub App merges eligible `safe` PRs after human authorization. No agent
+   executes a merge.
 3. **Show executed verification.** When a task lists verify commands, run them
    and report their real output (exit codes, command output) in the task
    result. Do not describe what would have run — run it. A green self-test in

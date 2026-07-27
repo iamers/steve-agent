@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # Smoke test di una istanza Steve (Hermes). Esegue da una macchina admin con
-# alias SSH verso l'utente dell'istanza. Uso: ./smoke.sh [ssh-alias] [--llm]
+# alias SSH verso l'utente dell'istanza.
+# Uso: ./smoke.sh [ssh-alias] [--llm] | ./smoke.sh --self-test
 # --llm aggiunge una query reale al modello (costa una chiamata LLM).
 set -u
 
-HOST="${1:-${STEVE_HOST:?pass host as arg1 or set STEVE_HOST}}"
 HERMES_PIN="7c1a0295"   # commit del tag v2026.7.1 (v0.18.0)
-LLM_CHECK=0
-[ "${2:-}" = "--llm" ] && LLM_CHECK=1
 
 # Instance-specific knobs (defaults reproduce the canonical iamers/steve-agent
 # instance; override via the environment to reuse the script on another repo).
@@ -32,6 +30,133 @@ check() { # check <label> <command>
   fi
 }
 
+# unexpected_listeners <instance-uid> legge l'output di `ss -H -O -tlne` e stampa
+# i listener dell'utente istanza il cui indirizzo locale non è IPv4 127/8 né
+# IPv6 ::1. I servizi di sistema (incluso SSH) hanno un owner diverso e restano
+# fuori dal confine di questa verifica. Ritorna 0 quando trova almeno una riga
+# inattesa, 1 quando tutte le righe sono ammesse e 2 per output non verificabile.
+unexpected_listeners() {
+  local instance_uid="$1"
+  awk -v instance_uid="$instance_uid" '
+    NF {
+      if ($0 !~ / ino:[0-9]+/ || $0 !~ / sk:[0-9a-fA-F]+/) {
+        invalid = 1
+        next
+      }
+      if ($4 !~ /^127\./ && $4 !~ /^\[::1\]:/ && \
+          $0 ~ (" uid:" instance_uid "([[:space:]]|$)")) {
+        print
+        found = 1
+      }
+    }
+    END {
+      if (invalid) exit 2
+      exit(found ? 0 : 1)
+    }
+  '
+}
+
+# listener_verdict <query-rc> <instance-uid> <ss-output>
+# Ritorna 0 solo se la query remota è riuscita e ogni listener dell'utente
+# istanza è loopback. Metadata esteso assente, tool assente, errore di ss/SSH e
+# ogni listener non-loopback dell'istanza falliscono chiusi.
+listener_verdict() {
+  local query_rc="$1" instance_uid="$2" listener_output="$3" unexpected parser_rc
+  if [ "$query_rc" -ne 0 ]; then
+    printf 'listener inspection unavailable (remote query exit %s): %s\n' \
+      "$query_rc" "$listener_output"
+    return 2
+  fi
+  case "$instance_uid" in
+    ''|*[!0-9]*)
+      printf 'listener inspection unavailable (invalid instance uid: %s)\n' "$instance_uid"
+      return 2
+      ;;
+  esac
+  if [ "$instance_uid" -eq 0 ]; then
+    printf 'listener inspection unavailable (instance uid must be non-root)\n'
+    return 2
+  fi
+  unexpected=$(printf '%s\n' "$listener_output" | unexpected_listeners "$instance_uid")
+  parser_rc=$?
+  case "$parser_rc" in
+    0)
+      printf 'unexpected listener(s):\n%s\n' "$unexpected"
+      return 1
+      ;;
+    1)
+      return 0
+      ;;
+    *)
+      printf 'listener inspection unavailable (local parser exit %s)\n' "$parser_rc"
+      return 2
+      ;;
+  esac
+}
+
+listener_self_test_case() { # listener_self_test_case <label> <expected-rc> <query-rc> <instance-uid> <output>
+  local label="$1" expected="$2" query_rc="$3" instance_uid="$4" output="$5" actual
+  listener_verdict "$query_rc" "$instance_uid" "$output" >/dev/null 2>&1
+  actual=$?
+  if [ "$actual" -ne "$expected" ]; then
+    echo "FAIL: ${label}: expected rc=${expected}, got rc=${actual}"
+    return 1
+  fi
+  echo "ok: ${label} -> rc=${actual}"
+}
+
+run_listener_self_test() {
+  local failures=0
+  listener_self_test_case "loopback instance and system listeners pass" 0 0 1001 \
+    $'LISTEN 0 128 127.0.0.1:8000 0.0.0.0:* uid:1001 ino:10 sk:a\nLISTEN 0 128 [::1]:8000 [::]:* uid:1001 ino:11 sk:b\nLISTEN 0 128 0.0.0.0:22 0.0.0.0:* ino:12 sk:c\nLISTEN 0 128 [::]:22 [::]:* ino:13 sk:d' || failures=$((failures+1))
+  listener_self_test_case "unexpected instance listener fails" 1 0 1001 \
+    'LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* uid:1001 ino:20 sk:e' || failures=$((failures+1))
+  listener_self_test_case "another user listener is outside scope" 0 0 1001 \
+    'LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* uid:1002 ino:21 sk:f' || failures=$((failures+1))
+  listener_self_test_case "missing extended metadata fails closed" 2 0 1001 \
+    'LISTEN 0 128 0.0.0.0:8080 0.0.0.0:*' || failures=$((failures+1))
+  listener_self_test_case "unavailable ss fails closed" 2 127 '' \
+    'ss is unavailable' || failures=$((failures+1))
+  listener_self_test_case "root instance uid fails closed" 2 0 0 '' || failures=$((failures+1))
+  PATH=/nonexistent listener_self_test_case "missing local parser fails closed" 2 0 1001 \
+    'LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* uid:1001 ino:20 sk:e' || failures=$((failures+1))
+  if [ "$failures" -ne 0 ]; then
+    echo "listener self-test FAILED: ${failures} assertion(s) failed"
+    return 1
+  fi
+  echo "listener self-test ok"
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+  [ "$#" -eq 1 ] || { echo "usage: $0 --self-test" >&2; exit 2; }
+  run_listener_self_test
+  exit $?
+fi
+
+HOST="${1:-${STEVE_HOST:?pass host as arg1 or set STEVE_HOST}}"
+LLM_CHECK=0
+[ "${2:-}" = "--llm" ] && LLM_CHECK=1
+
+check_listeners() {
+  local out rc verdict instance_uid listener_output
+  out=$(ssh -T -o ConnectTimeout=10 "$HOST" \
+    'command -v ss >/dev/null 2>&1 || { echo "ss is unavailable" >&2; exit 127; }; instance_uid=$(id -u) || { echo "instance uid is unavailable" >&2; exit 126; }; printf "%s\n" "$instance_uid"; unset COLUMNS; ss -H -O -tlne')
+  rc=$?
+  instance_uid=${out%%$'\n'*}
+  if [ "$out" = "$instance_uid" ]; then
+    listener_output=''
+  else
+    listener_output=${out#*$'\n'}
+  fi
+  if verdict=$(listener_verdict "$rc" "$instance_uid" "$listener_output"); then
+    echo "PASS  no unexpected instance listeners"; pass=$((pass+1))
+  else
+    echo "FAIL  no unexpected instance listeners"
+    echo "      $verdict" | head -3
+    fail=$((fail+1))
+  fi
+}
+
 check "ssh reachable"        'true'
 check "hermes version pinned" "export PATH=\$HOME/.local/bin:\$PATH; hermes --version | grep -q $HERMES_PIN"
 check "gateway service active" 'systemctl --user is-active hermes-gateway | grep -qx active'
@@ -42,7 +167,7 @@ check "telegram connected (log)" 'grep -q "telegram connected" ~/.hermes/logs/ga
 # vero, non la sola presenza di una stringa nel .env.
 check "credentials present"  'for k in TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_USERS TELEGRAM_GROUP_ALLOWED_CHATS TELEGRAM_HOME_CHANNEL; do grep -qE "^$k=." ~/.hermes/.env || exit 1; done; export PATH=$HOME/.local/bin:$PATH; hermes auth status openai-codex 2>&1 | grep -q "logged in"'
 check "env perms 600"        'stat -c %a ~/.hermes/.env | grep -qx 600'
-check "no unexpected listeners" '! ss -tln 2>/dev/null | grep -vE "127.0.0.1|\[::1\]" | grep -q LISTEN || true'
+check_listeners
 # Guardia post-hoc su main (finche' branch protection non e' disponibile sul
 # repo privato): sulla first-parent history di origin/main non devono comparire
 # commit con COMMITTER scrat-ai-* (push diretti del bot o merge eseguiti dal
