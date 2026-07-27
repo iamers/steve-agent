@@ -399,20 +399,8 @@ an instance, and re-test it after a provider's generation change.
 
 ### 9.1 Fixed decisions (ADR-light)
 
-| # | Decision |
-|---|---|
-| D1 | Runtime: Hermes pinned **by commit**, native install, a dedicated unix user on a Linux host, systemd user unit plus linger, long polling (zero ports); dashboard/API loopback only. |
-| D2 | A SINGLE Telegram profile plus group-scope slash-command tiering; DM keys are a separate scope, the admin is NOT cross-scope; no second admin bot. |
-| D3 | ACL: whole-group posture (`TELEGRAM_GROUP_ALLOWED_CHATS`) for the team group plus `allow_from` for DMs; axes in OR with short-circuit on the group. |
-| D4 | Factory isolation: Kanban workspace `worktree:<path>` with a dedicated branch and an embedded dispatcher (crash/reclaim proven); NEVER rely on `hermes -w` in one-shot. |
-| D5 | Verification of work: completion contracts (`--goal`) with `verify:` on real commands, **re-run by the reviewer**; synchronous `delegate_task` only for short sub-questions. |
-| D6 | LLM: model-agnostic, assigned **per role**. Each role is already a separate Hermes profile with its own config, so worker, reviewer, and orchestrator take independent models with no extra machinery. A fallback chain is expected, and its links must sit on different providers with at least one that cannot exhaust a quota (§8.9). Running the reviewer on a different model family from the worker (so the same model does not both write and judge) is desirable; it is a per-instance choice, and an instance may knowingly trade it for judgement quality. Where a provider offers both an HTTP path and a CLI-subprocess runtime, prefer HTTP: the subprocess runtime forfeits the fallback chain (§8.9). |
-| D7 | Roles with **separate GitHub identities**: a worker (commit/push/PR, fine-grained PAT) and a reviewer (author != approver, isolated credentials). No agent merges. The concrete account names and the persona are per-instance. |
-| D8 | Governance-as-code in `.steve/`: deterministic path-based tiers (`blast/propagation/safe`, PR = max, fail-safe default), `tools/pr-brief.py` as the gate on every PR, a versioned PR lifecycle. `tools/**` `scripts/**` `.github/**` `.steve/**` in `propagation` (the gate cannot tamper with itself cheaply). |
-| D9 | Anti-drift and health: config-as-code in `instance/` (config plus profiles plus skill plus env.template), `drift-check.sh` that flags and does not restore, `smoke.sh` with 10 checks and main-guard v2, CI (`checks`: brief self-test, `bash -n`, shellcheck, gitleaks), a privacy guard (denylist plus pre-commit plus `check_privacy.sh`), and an append-only ops journal. |
-| D10 | Safe self-hosting: the instance develops the REPO (worktree, PR, deterministic `safe` merge or human merge for higher tiers), never its own runtime/live config; instance upgrades only from the outside, traced. |
-| D11 | One instance per project: reusability via replicating the `instance/` blueprint onto a new service user/host, not multi-tenancy. |
-| D12 | License: Business Source License (BUSL) 1.1: source-available, free for noncommercial use (personal, research, education, nonprofit, evaluation), Change License Apache-2.0 four years after each release. The MIT portions of Hermes Agent remain covered by the `NOTICE`. |
+The decisions now live in [`docs/decisions/`](decisions/), one file per decision,
+with each decision's current status recorded in its front matter.
 
 ### 9.2 Safe auto-merge (as built)
 
@@ -442,7 +430,7 @@ deletion, and has an empty bypass list.
 | R1 | **LLM provider fragility** | Outages depend on the chosen provider: a primary can hit HTTP 429 and a free-tier fallback can exhaust its own quota at the same time, which kills the turn outright. Observed: an orchestration turn that dies this way is **not** retried or re-queued (the message is consumed, the task is never created), unlike a task already on the board, which the dispatcher reclaims. **Mitigation**: the fallback rule in §8.9 (different providers, at least one link that cannot exhaust a quota) — a fallback sharing the primary's failure mode is decorative; recovery = a read-only probe plus `kanban unblock` when the provider returns. |
 | R2 | **Upstream `rc=0` bug on a fatal API error** | A worker can exit clean (exit 0) without `kanban_complete`/`block` on a fatal API error, violating the protocol and making the dispatcher give up on the task. Recurring. **Mitigation**: an upstream issue candidate; workaround = complete/unblock the task manually. |
 | R3 | **Orphaned review dispatch after a session reset** | The daily reset leaves review tasks in `todo` with no auto-dispatch while the main is idle: a task can stay orphaned for hours. **Mitigation**: a message in the Backlog wakes Steve; a candidate for a cron-nudge or a todo auto-dispatcher. |
-| R4 | **LLM-on-LLM chain** | Worker and reviewer are both LLMs: adversarial review reduces but does not eliminate the risk of correlated errors. **Mitigation**: re-run the verify (do not trust the claim), family diversity on the reviewer (D6), the guard on `main`. |
+| R4 | **LLM-on-LLM chain** | Worker and reviewer are both LLMs: adversarial review reduces but does not eliminate the risk of correlated errors. **Mitigation**: re-run the verify (do not trust the claim), [family diversity on the reviewer](decisions/adr-20260723-models-use-role-specific-cross-provider-fallbacks.md), the guard on `main`. |
 | R5 | **Completion contracts under the adverse case** | Proven mostly on the happy path. **Mitigation**: the reviewer re-running the verify and the deterministic gate cover most of it; a probe with a task designed to fail would close the remaining trust gap. |
 | R6 | **Shared LLM plan rate limit** | If the provider plan is shared or rate-limited, frequent board runs can collide. **Mitigation**: monitor; a dedicated key/plan before increasing worker concurrency. |
 | R7 | **Durability of the private design/journal** | The journal and private design live in `.local/` (gitignored), not versioned elsewhere. **Mitigation**: node backup plus distilling the public installation guide from the journal's seeds (this document is already the first public distillate). |

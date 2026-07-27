@@ -63,6 +63,7 @@ def parse_task_id(branch):
     return m.group(1) if m else None
 
 
+# See docs/decisions/adr-20260724-untested-constraints-block-review.md.
 def check_d4_gate(files):
     """D4 gate: True if the diff touches review-policy BUT NOT pr-brief.py.
 
