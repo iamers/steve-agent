@@ -31,7 +31,7 @@ check() { # check <label> <command>
 }
 
 # unexpected_listeners <instance-uid> legge l'output di `ss -H -O -tlne` e stampa
-# i listener dell'utente istanza il cui indirizzo locale non e' IPv4 127/8 ne'
+# i listener dell'utente istanza il cui indirizzo locale non è IPv4 127/8 né
 # IPv6 ::1. I servizi di sistema (incluso SSH) hanno un owner diverso e restano
 # fuori dal confine di questa verifica. Ritorna 0 quando trova almeno una riga
 # inattesa, 1 quando tutte le righe sono ammesse e 2 per output non verificabile.
@@ -57,8 +57,8 @@ unexpected_listeners() {
 }
 
 # listener_verdict <query-rc> <instance-uid> <ss-output>
-# Ritorna 0 solo se la query remota e' riuscita e ogni listener dell'utente
-# istanza e' loopback. Metadata esteso assente, tool assente, errore di ss/SSH e
+# Ritorna 0 solo se la query remota è riuscita e ogni listener dell'utente
+# istanza è loopback. Metadata esteso assente, tool assente, errore di ss/SSH e
 # ogni listener non-loopback dell'istanza falliscono chiusi.
 listener_verdict() {
   local query_rc="$1" instance_uid="$2" listener_output="$3" unexpected parser_rc
