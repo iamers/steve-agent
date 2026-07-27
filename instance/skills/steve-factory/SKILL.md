@@ -165,6 +165,13 @@ oltre la riesecuzione meccanica: tier `blast`, un dubbio specifico o una
 proprieta' che richiede giudizio. Il criterio e'
 `review_depth_matches_consequence` in `.steve/review-policy.yaml`.
 
+Come stabilito da
+`docs/decisions/adr-20260727-human-review-is-requested-not-required.md`, per una
+pull request `blast`, o `propagation` che modifica una guardia, l'orchestratore
+richiede anche un reviewer umano con
+`gh pr edit <PR> --add-reviewer <reviewer>`. È una convenzione, non un requisito:
+l'assenza di una risposta umana non blocca mai la pull request.
+
 Fa eccezione una pull request senza task originario: in quel caso
 l'orchestratore crea il task di review. La rilevazione è deterministica: il
 branch non porta il prefisso `steve-agent/t_<id>-`, quindi il compilatore non
@@ -203,6 +210,13 @@ minuto: il task creato dal worker parte senza un comando di dispatch manuale.
 Il brief del task di review DEVE imporre la **riesecuzione** dei verify, non la
 sola rilettura del diff: il reviewer non si fida delle claim di esecuzione del
 worker, le **riesegue**. Per **ogni** task di review:
+
+- Come stabilito da
+  `docs/decisions/adr-20260727-reviews-check-that-a-pr-is-current.md`, riporta
+  quanti commit il branch è indietro rispetto a `main` e se uno dei file toccati
+  dalla pull request è cambiato su `main` da quando il branch se ne è separato.
+  Il fatto che GitHub dichiari la pull request mergeable non risponde a questa
+  domanda; un branch stale è un finding da riportare, non un blocco automatico.
 
 - **(a)** Riporta **testuali** nel body del task i comandi verify del brief
   originario del worker: copiali, non parafrasarli (il reviewer deve eseguire
