@@ -1,18 +1,18 @@
-# CI per iamers/steve-agent
+# CI for iamers/steve-agent
 #
-# Job unico e leggero (target < 2 minuti). Cinque controlli in sequenza:
-#   1. self-test di tools/pr-brief.py (triage di review deterministico)
-#   2. self-test del verdetto listener di instance/smoke.sh
-#   3. syntax check (bash -n) su tutti gli script shell tracciati
-#   4. shellcheck a severity warning sugli stessi script
-#   5. gitleaks (binario scaricato a mano, NON l'action ufficiale che richiede
-#      licenza per le organizzazioni) sulla copia di lavoro
+# One lightweight job (target < 2 minutes). Five checks in sequence:
+#   1. tools/pr-brief.py self-test (deterministic review triage)
+#   2. instance/smoke.sh listener verdict self-test
+#   3. syntax check (bash -n) on all tracked shell scripts
+#   4. shellcheck at warning severity on the same scripts
+#   5. gitleaks (manually downloaded binary, NOT the official action, which
+#      requires a license for organizations) on the working copy
 #
-# Nota su check_privacy.sh: in CI e' no-op by design -- la denylist locale
-# (stringhe segrete) vive solo sull'istanza e non e' mai committata, quindi in
-# CI non c'e' nulla da confrontare. La copertura secret/privacy in CI e'
-# affidata unicamente a gitleaks (step 5). check_privacy.sh resta utile come
-# guardia locale opzionale sull'istanza, dove la denylist e' presente.
+# Note about check_privacy.sh: in CI it is a no-op by design -- the local
+# denylist (secret strings) exists only on the instance and is never committed,
+# so there is nothing to compare in CI. Secret/privacy coverage in CI relies
+# solely on gitleaks (step 5). check_privacy.sh remains useful as an optional
+# local guard on the instance, where the denylist is present.
 
 name: checks
 
@@ -41,18 +41,18 @@ jobs:
         run: bash -n instance/*.sh scripts/*.sh
 
       - name: shellcheck (severity warning)
-        # Severity warning. I finding di livello info sono lasciati cadere di
-        # proposito: alcuni sono pattern intenzionali (es. espansione di
-        # variabili client-side negli ssh di drift-check.sh, dove la variabile
-        # deve espandersi lato remoto e non locale).
+        # Warning severity. Info-level findings are deliberately dropped:
+        # some are intentional patterns (for example, expansion of client-side
+        # variables in drift-check.sh SSH commands, where the variable must
+        # expand on the remote side rather than locally).
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck --severity=warning instance/*.sh scripts/*.sh
 
       - name: gitleaks
-        # Binario release pinnato (NON l'action ufficiale, che richiede licenza
-        # per le organizzazioni). Scarica, estrae ed esegue sulla copia di
-        # lavoro. La scansione 'dir .' e' sufficiente per un checkout shallow.
+        # Pinned release binary (NOT the official action, which requires a
+        # license for organizations). Download, extract, and run it on the
+        # working copy. The 'dir .' scan is sufficient for a shallow checkout.
         env:
           GITLEAKS_VERSION: "8.30.1"
         run: |
