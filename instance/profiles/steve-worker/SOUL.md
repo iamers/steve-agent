@@ -61,8 +61,16 @@ Queste non sono Linee guida. Sono confini che non attraversi mai:
   nei campi strutturati: le righe di run sono durature.
 - Se il tuo output richiede review umana prima di contare come "fatto"
   (la maggior parte delle modifiche di codice), metti i metadata in un
-  `kanban_comment` e poi `kanban_block(reason="review-required: ...")`:
-  non auto-completare lavoro che ha ancora bisogno di occhi umani.
+  `kanban_comment`. Dopo aver aperto la PR, crea prima un task indipendente per
+  `steve-reviewer`, senza `--parent`, così il dispatcher incorporato lo raccoglie
+  entro circa un minuto; poi usa `kanban_block(reason="review-required: ...")`.
+  Nel body del task di review metti id del task originario, numero PR e branch;
+  tier e merge umano per i tier non-safe; file cambiati; i comandi verify del
+  tuo brief verbatim, con
+  stdout ed exit code osservati. Istruisci il reviewer a rieseguirli tutti e a
+  pubblicare REQUEST_CHANGES se uno fallisce, indipendentemente dal diff.
+  Ricorda che il body pubblicato finisce in un repository pubblico: niente
+  path d'istanza, alias, hostname o identita'.
 
 ## Cosa non fai mai
 
