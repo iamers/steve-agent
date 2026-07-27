@@ -50,7 +50,7 @@ the decision, not the reviewer's free judgment.
 | CI (`.github/workflows/ci.yml`) | exists: `checks` job, 4 steps (runs on every PR) | brief validation step extension |
 | Approval | tracked by the approval label plus an `APPROVED` review on the latest commit | tracked approve command |
 | Auto-merge | exists for `safe`: the scanner invokes the deterministic gate, and the dedicated GitHub App merges when every condition passes | activation without an approve in chat (backlog, see phase 2) |
-| "Constraints without test" check ([ADR](docs/decisions/adr-20260724-untested-constraints-block-review.md)) | exists: minimal D4 gate in the compiler (a constraint on review-policy with no test -> tier escalates to propagation plus human signature) | coverage of constraints beyond review-policy |
+| "Constraints without test" check ([ADR](../docs/decisions/adr-20260724-untested-constraints-block-review.md)) | exists: minimal D4 gate in the compiler (a constraint on review-policy with no test -> tier escalates to propagation plus human signature) | coverage of constraints beyond review-policy |
 
 For `safe`, an approve can lead to a deterministic merge by the GitHub App;
 for `propagation` and `blast`, the merge remains a human action on GitHub.
