@@ -30,7 +30,7 @@ check() { # check <label> <command>
   fi
 }
 
-# unexpected_listeners <instance-uid> legge l'output di `ss -H -tlne` e stampa
+# unexpected_listeners <instance-uid> legge l'output di `ss -H -O -tlne` e stampa
 # i listener dell'utente istanza il cui indirizzo locale non e' IPv4 127/8 ne'
 # IPv6 ::1. I servizi di sistema (incluso SSH) hanno un owner diverso e restano
 # fuori dal confine di questa verifica. Ritorna 0 quando trova almeno una riga
@@ -139,8 +139,8 @@ LLM_CHECK=0
 
 check_listeners() {
   local out rc verdict instance_uid listener_output
-  out=$(ssh -o ConnectTimeout=10 "$HOST" \
-    'command -v ss >/dev/null 2>&1 || { echo "ss is unavailable" >&2; exit 127; }; instance_uid=$(id -u) || { echo "instance uid is unavailable" >&2; exit 126; }; printf "%s\n" "$instance_uid"; ss -H -tlne')
+  out=$(ssh -T -o ConnectTimeout=10 "$HOST" \
+    'command -v ss >/dev/null 2>&1 || { echo "ss is unavailable" >&2; exit 127; }; instance_uid=$(id -u) || { echo "instance uid is unavailable" >&2; exit 126; }; printf "%s\n" "$instance_uid"; unset COLUMNS; ss -H -O -tlne')
   rc=$?
   instance_uid=${out%%$'\n'*}
   if [ "$out" = "$instance_uid" ]; then
