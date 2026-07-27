@@ -37,15 +37,13 @@ produce file committati.
   conversazione diretta (la regola vive in SOUL.md, qui la si onora).
 - Mai modificare il runtime dell'istanza (config live, profili, credenziali):
   quelle sono operazioni di ops, non di orchestrazione.
-- Mai mergiare direttamente. La fase 2 e' **attiva**: il merge gate
-  (`instance/merge-gate.sh`) e' deployato, testato con canary reale (#46,
-  HTTP 200). Il gate automatizza il lavoro meccanico, NON la decisione: quando
-  il coordinatore (owner) da' l'approve in chat, Steve applica la label
-  `steve-approved` sulla PR e l'owner (o un cron) esegue il gate. Il gate
-  verifica le 5 condizioni (label, review, CI, tier safe, SHA match) e solo
-  se tutte vere esegue il merge commit. Steve NON esegue il gate lui stesso:
-  applica la label, l'esecuzione e' dell'owner o del cron (vedi
-  .steve/pr-lifecycle.md).
+- Mai mergiare direttamente. La catena unattended e' provata end-to-end tre
+  volte:
+  dopo l'approve in chat Steve applica la label `steve-approved` e si ferma;
+  ogni cinque minuti lo scanner cron cerca le PR, il gate verifica le 5
+  condizioni (label, review, CI, tier safe, SHA match) e la App esegue il
+  merge. Il gate non decide se la policy locale e' indietro rispetto a
+  `origin/main`. Steve NON esegue il gate (vedi .steve/pr-lifecycle.md).
 - La board e' la verita': se un lavoro non e' un task sulla board, non esiste.
 
 ## 2. Creare un task di sviluppo
@@ -72,6 +70,22 @@ contenere, in modo che il worker possa verificarlo da solo:
 - **Verify eseguibili**: comandi con exit 0 atteso che il worker deve mostrare
   eseguiti nel proprio result.
 - **Stop-when**: condizione che dice al worker quando fermarsi e riportare.
+
+Prima di scrivere il brief, leggi `task_rules` in
+`.steve/review-policy.yaml` e applica quelle regole ai verify: ogni brief le
+eredita, non dipende dalla memoria di chi lo prepara.
+
+Quando il task apre una pull request, il brief impone al worker di compilare
+nel body `.github/PULL_REQUEST_TEMPLATE.md`. La riga sulla CI va attestata
+come scritta: l'autore dichiara di aver interrogato la CI una volta dopo il
+push e ne riporta lo stato, non dichiara che sia verde.
+
+Quando in chat si prende una decisione che cambia il modo di lavorare del
+progetto, registrala prima come ADR in `docs/decisions/`: un file per decisione,
+chiamato `adr-YYYYMMDD-slug.md`, con stato e formato descritti nel relativo
+`README.md`. Cita il file nel brief del task che la implementa. Una decisione
+registrata dopo e' archeologia, e una directory che nessuno deve scrivere
+diventa decorazione.
 
 Campi del task:
 
@@ -134,11 +148,21 @@ locale e privato.
 
 ## 4. Ciclo di review
 
-Alla notifica di PR aperta, crea un task di review:
+Il worker che apre la PR crea direttamente il task di review come figlio del
+proprio task, seguendo le proprie direttive:
 
 - `assignee: steve-reviewer`
 - `--skill github/github-code-review`
 - Review formale della PR via `gh`: `approve` oppure `request-changes` motivato.
+
+L'orchestratore non crea normalmente un secondo task di review. Ne crea uno
+aggiuntivo, oppure commenta quello esistente, solo quando serve profondita'
+oltre la riesecuzione meccanica: tier `blast`, un dubbio specifico o una
+proprieta' che richiede giudizio. Il criterio e'
+`review_depth_matches_consequence` in `.steve/review-policy.yaml`.
+
+Il dispatcher incorporato nel gateway raccoglie un task ready entro circa un
+minuto: il task creato dal worker parte senza un comando di dispatch manuale.
 
 Il brief del task di review DEVE imporre la **riesecuzione** dei verify, non la
 sola rilettura del diff: il reviewer non si fida delle claim di esecuzione del
