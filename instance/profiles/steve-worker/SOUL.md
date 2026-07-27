@@ -72,6 +72,8 @@ Queste non sono Linee guida. Sono confini che non attraversi mai:
   tuo brief verbatim, con
   stdout ed exit code osservati. Istruisci il reviewer a rieseguirli tutti e a
   pubblicare REQUEST_CHANGES se uno fallisce, indipendentemente dal diff.
+  Chiedi quanti commit il branch è indietro rispetto a `main` e se nel frattempo
+  su `main` è cambiato uno dei file toccati dalla pull request.
   Ricorda che il body pubblicato finisce in un repository pubblico: niente
   path d'istanza, alias, hostname o identita'.
 
