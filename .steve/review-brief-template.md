@@ -1,14 +1,18 @@
-PR #<N> — <title>
-Branch: <branch> -> main
+{{header}}
+{{link}}
+{{branch}}
+{{origin}}
+
+{{read_first}}
 
 ## Triage
-Tier: BLAST | PROPAGATION
+{{tier}}
+{{d4}}
 Critical files:
-- <path>  (blast, <reason>)
-- <path>  (propagation, <reason>)
+{{critical_files}}
 
 ## What changes
-<2-3 lines, summary of the decisions, not the commit list>
+{{summary}}
 
 ## Non-obvious decisions
 - <technical decision + reason>
@@ -25,4 +29,4 @@ published review body carrying no instance paths, aliases or identities.
 - [ ] <tier-specific criterion, e.g. "config loads in dry-run without errors">
 
 ---
-Approval: <tier-derived action: safe -> approve in chat; propagation/blast -> merge on GitHub>
+{{approval}}

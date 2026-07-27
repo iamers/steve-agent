@@ -31,6 +31,20 @@ DEFAULT_TIER = "propagation"
 REVIEW_POLICY_PATH = ".steve/review-policy.yaml"
 PR_BRIEF_PATH = "tools/pr-brief.py"
 
+# Language-neutral anchors in .steve/review-brief-template.md.
+BRIEF_TOKENS = {
+    "header": "{{header}}",
+    "link": "{{link}}",
+    "branch": "{{branch}}",
+    "origin": "{{origin}}",
+    "read_first": "{{read_first}}",
+    "tier": "{{tier}}",
+    "d4": "{{d4}}",
+    "critical_files": "{{critical_files}}",
+    "summary": "{{summary}}",
+    "approval": "{{approval}}",
+}
+
 
 # ---------------------------------------------------------------------------
 # Origin task id + D4 gate (deterministic, based on paths/patterns)
@@ -204,50 +218,34 @@ def render_brief(template_text, number, title, branch, tier_upper,
     """
     lines = template_text.split("\n")
     output = []
-    leggi_prima_emitted = False
     i = 0
     while i < len(lines):
         line = lines[i]
-        # Header line: PR #<N> — <title>
-        if "<N>" in line and "<title>" in line:
+        if line == BRIEF_TOKENS["header"]:
             output.append("PR #{} — {}".format(number, title))
+        elif line == BRIEF_TOKENS["link"]:
             if repo:
                 output.append("Link: https://github.com/{}/pull/{}".format(
                     repo, number))
-        # Branch line: Branch: <branch> -> main (+ optional Origin line)
-        elif "<branch>" in line:
+        elif line == BRIEF_TOKENS["branch"]:
             output.append("Branch: {} -> main".format(branch))
+        elif line == BRIEF_TOKENS["origin"]:
             if task_id:
                 output.append("Origin: task {}".format(task_id))
-        # Fixed "Read first" section: injected once, right before
-        # the ## Triage block (after the PR info, before critical files).
-        elif not leggi_prima_emitted and line.strip() == "## Triage":
+        elif line == BRIEF_TOKENS["read_first"]:
             output.append("Read first (in the worktree): README.md, CLAUDE.md, .steve/review-policy.yaml")
-            output.append("")
-            output.append(line)
-            leggi_prima_emitted = True
-        # Tier line (replaces the whole line) + optional D4 marker
-        elif line.startswith("Tier:"):
+        elif line == BRIEF_TOKENS["tier"]:
             output.append("Tier: {}".format(tier_upper))
+        elif line == BRIEF_TOKENS["d4"]:
             if d4_active:
                 output.append("D4: untested constraint - human signature required")
-        # Critical files section: replaces placeholders with real files
-        elif line.strip() == "Critical files:":
-            output.append(line)
-            # Skip the placeholder lines (- <path> ...)
-            i += 1
-            while i < len(lines) and lines[i].lstrip().startswith("- <path>"):
-                i += 1
-            # Insert the real critical files (blast and propagation)
+        elif line == BRIEF_TOKENS["critical_files"]:
             for path, ftier, pattern in critical_files:
                 perche = pattern if pattern else "default (no match)"
                 output.append("- {}  ({}, {})".format(path, ftier, perche))
-            continue  # i is already positioned on the next line
-        # 'What changes' section: replaces the placeholder with the summary
-        elif "<2-3 lines" in line:
+        elif line == BRIEF_TOKENS["summary"]:
             output.append(summary_text)
-        # Approval placeholder: replace it with the tier-derived action block
-        elif line.startswith("Approval:"):
+        elif line == BRIEF_TOKENS["approval"]:
             if tier_upper == "SAFE":
                 output.extend([
                     "What you need to do: reply `approve #{}` in this chat.".format(number),
@@ -305,6 +303,23 @@ def fetch_pr(repo, pr_number):
 
 def run_self_test():
     """Assertions on the matcher using the repo's real policy (no network)."""
+    def assert_golden(label, actual, expected):
+        if actual == expected:
+            print("golden assertion ({}): ok".format(label))
+            return
+        actual_lines = actual.split("\n")
+        expected_lines = expected.split("\n")
+        for line_number in range(
+                1, max(len(actual_lines), len(expected_lines)) + 1):
+            actual_line = (actual_lines[line_number - 1]
+                           if line_number <= len(actual_lines) else "<missing>")
+            expected_line = (expected_lines[line_number - 1]
+                             if line_number <= len(expected_lines) else "<missing>")
+            if actual_line != expected_line:
+                raise AssertionError(
+                    "{} differs at line {}: expected {!r}, got {!r}".format(
+                        label, line_number, expected_line, actual_line))
+
     policy_path = find_policy_path()
     if not policy_path:
         print("error: .steve/review-policy.yaml not found", file=sys.stderr)
@@ -382,6 +397,109 @@ def run_self_test():
         "safe action text must not appear for propagation tier"
     assert "Link:" not in propagation_brief, \
         "PR link must not appear when repository is absent"
+
+    # Golden output: token-based rendering must remain byte-identical.
+    golden_brief = render_brief(
+        template_text, number=7, title="sample title",
+        branch="steve-agent/t_abc1234-sample", tier_upper="PROPAGATION",
+        critical_files=[("tools/x.py", "propagation", "tools/**")],
+        summary_text="A one line summary.", task_id="t_abc1234",
+        d4_active=True, repo="o/r")
+    expected_golden = """\
+PR #7 — sample title
+Link: https://github.com/o/r/pull/7
+Branch: steve-agent/t_abc1234-sample -> main
+Origin: task t_abc1234
+
+Read first (in the worktree): README.md, CLAUDE.md, .steve/review-policy.yaml
+
+## Triage
+Tier: PROPAGATION
+D4: untested constraint - human signature required
+Critical files:
+- tools/x.py  (propagation, tools/**)
+
+## What changes
+A one line summary.
+
+## Non-obvious decisions
+- <technical decision + reason>
+
+## Operational rules
+
+Read `task_rules` in `.steve/review-policy.yaml` before starting. They are
+constraints, not suggestions: each one has already killed at least one task.
+The two that bite most often are no `rm` in any form inside a verify, and the
+published review body carrying no instance paths, aliases or identities.
+
+## Verification
+- [ ] CI green
+- [ ] <tier-specific criterion, e.g. "config loads in dry-run without errors">
+
+---
+What you need to do: open the link above and merge it yourself in the GitHub app. Tier
+PROPAGATION is not auto-mergeable by design: an approve in this chat cannot merge it, and the
+approval label will not be applied. Everything before the merge, the review and CI, is
+handled here.
+To send it back instead, reply `reject: <reason>`.
+"""
+    assert_golden("optional lines present", golden_brief, expected_golden)
+
+    # Golden output with every optional line absent. The link, origin and D4
+    # tokens must disappear without leaving blank lines in their place.
+    absent_golden_brief = render_brief(
+        template_text, number=7, title="sample title",
+        branch="steve-agent/t_abc1234-sample", tier_upper="PROPAGATION",
+        critical_files=[("tools/x.py", "propagation", "tools/**")],
+        summary_text="A one line summary.", task_id=None,
+        d4_active=False, repo=None)
+    expected_absent_golden = """\
+PR #7 — sample title
+Branch: steve-agent/t_abc1234-sample -> main
+
+Read first (in the worktree): README.md, CLAUDE.md, .steve/review-policy.yaml
+
+## Triage
+Tier: PROPAGATION
+Critical files:
+- tools/x.py  (propagation, tools/**)
+
+## What changes
+A one line summary.
+
+## Non-obvious decisions
+- <technical decision + reason>
+
+## Operational rules
+
+Read `task_rules` in `.steve/review-policy.yaml` before starting. They are
+constraints, not suggestions: each one has already killed at least one task.
+The two that bite most often are no `rm` in any form inside a verify, and the
+published review body carrying no instance paths, aliases or identities.
+
+## Verification
+- [ ] CI green
+- [ ] <tier-specific criterion, e.g. "config loads in dry-run without errors">
+
+---
+What you need to do: open the link above and merge it yourself in the GitHub app. Tier
+PROPAGATION is not auto-mergeable by design: an approve in this chat cannot merge it, and the
+approval label will not be applied. Everything before the merge, the review and CI, is
+handled here.
+To send it back instead, reply `reject: <reason>`.
+"""
+    assert_golden("optional lines absent", absent_golden_brief,
+                  expected_absent_golden)
+    optional_lines = {
+        "Link: https://github.com/o/r/pull/7",
+        "Origin: task t_abc1234",
+        "D4: untested constraint - human signature required",
+    }
+    expected_absent_from_present = "\n".join(
+        line for line in expected_golden.split("\n")
+        if line not in optional_lines)
+    assert expected_absent_golden == expected_absent_from_present, \
+        "absent golden must differ only by the link, origin and D4 lines"
 
     # --- Extension 3: D4 gate -------------------------------------------
     # review-policy only (without pr-brief.py) -> D4 active + tier escalates
