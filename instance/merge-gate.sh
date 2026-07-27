@@ -15,6 +15,7 @@
 #       (path matching), NEVER trusted from the PR body
 #   (e) base is main, the PR is mergeable, and no push happened after the
 #       approve (recorded approve SHA == current head SHA)
+#   (f) the PR head contains the current main
 #
 # Merge method: MERGE COMMIT, not squash. This is binding and intentional: the
 # review guard in instance/smoke.sh finds merged PRs by searching for
@@ -69,13 +70,25 @@ policy_copy_verdict() {
     return 0
 }
 
-# decide_merge <a_label> <b_review> <c_ci> <d_tier> <e_base_main> <e_mergeable> <e_sha_match>
+# branch_current_verdict <behind_count>
+# Prints "current", "behind", or "unknown". Pure: no network or credentials.
+branch_current_verdict() {
+    local behind_count="$1"
+    case "$behind_count" in
+        ''|*[!0-9]*) echo "unknown" ;;
+        0) echo "current" ;;
+        *) echo "behind" ;;
+    esac
+}
+
+# decide_merge <a_label> <b_review> <c_ci> <d_tier> <e_base_main> <e_mergeable> <e_sha_match> [f_behind_count]
 # Prints "MERGE: ..." and returns 0 if all conditions pass.
 # Prints "REJECT: ..." and returns 1 otherwise. Order is deliberate: the first
 # failing condition names itself in the reason.
 decide_merge() {
     local a_label="$1" b_review="$2" c_ci="$3" d_tier="$4"
     local e_base_main="$5" e_mergeable="$6" e_sha_match="$7"
+    local f_behind_count="${8:-0}" f_verdict
 
     if [ "$a_label" != "1" ]; then
         echo "REJECT: (a) approval label is not present"
@@ -103,6 +116,15 @@ decide_merge() {
     fi
     if [ "$e_sha_match" != "1" ]; then
         echo "REJECT: (e) head moved after the approve (recorded SHA differs from current head)"
+        return 1
+    fi
+    f_verdict=$(branch_current_verdict "$f_behind_count")
+    if [ "$f_verdict" = "behind" ]; then
+        echo "REJECT: (f) branch is ${f_behind_count} commit(s) behind current main"
+        return 1
+    fi
+    if [ "$f_verdict" != "current" ]; then
+        echo "REJECT: (f) branch distance from current main could not be determined"
         return 1
     fi
     echo "MERGE: all conditions met"
@@ -256,6 +278,11 @@ run_self_test() {
 
     # (d) safe-tier reason must not be confused with the others.
     _selftest_check "(d) tier=safe passes" "MERGE" "" 1 1 1 safe 1 1 1
+
+    # Branch currency is a PR condition. Unknown comparison state fails closed.
+    _selftest_check "(f) behind=0 is current" "MERGE" "" 1 1 1 safe 1 1 1 0
+    _selftest_check "(f) behind=3 rejects" "REJECT" "3 commit(s) behind" 1 1 1 safe 1 1 1 3
+    _selftest_check "(f) undeterminable count rejects" "REJECT" "could not be determined" 1 1 1 safe 1 1 1 unknown
 
     # ci_verdict: the pure CI interpretation extracted from cond_ci. These guard
     # the bug where state="pending" with total_count=0 declasses a green
@@ -522,6 +549,18 @@ PY
     return 0
 }
 
+# cond_branch_current <token> <repo> <head_sha>: sets COND_F_BEHIND_COUNT.
+# GitHub's compare response supplies the raw count; decide_merge() interprets it.
+cond_branch_current() {
+    local token="$1" repo="$2" head_sha="$3" status
+    COND_F_BEHIND_COUNT=""
+    [ -n "$head_sha" ] || return 1
+    status=$(gh_api GET "token ${token}" "/repos/${repo}/compare/main...${head_sha}")
+    echo "$status" | grep -q '^2' || return 1
+    COND_F_BEHIND_COUNT=$(read_field "$GH_API_BODY" "behind_by")
+    return 0
+}
+
 # cond_tier <repo> <pr>: recomputes the tier locally via tools/pr-brief.py
 # (path matching), never trusting the PR body. Sets COND_D_TIER.
 cond_tier() {
@@ -581,6 +620,7 @@ evaluate() {
 
     COND_A_LABEL="0"; COND_B_REVIEW="0"; COND_C_CI="0"; COND_D_TIER=""
     COND_E_BASE_MAIN="0"; COND_E_MERGEABLE="0"; COND_E_SHA_MATCH="0"
+    COND_F_BEHIND_COUNT=""
     NOTE_AUTH=""
 
     if [ -z "$repo" ]; then
@@ -604,6 +644,7 @@ evaluate() {
             cond_label "$token" "$repo" "$pr" "$label" || true
             cond_review "$token" "$repo" "$pr" "$PR_HEAD_SHA" "$reviewer" || true
             cond_ci "$token" "$repo" "$PR_HEAD_SHA" || true
+            cond_branch_current "$token" "$repo" "$PR_HEAD_SHA" || true
             [ "$PR_BASE" = "main" ] && COND_E_BASE_MAIN="1"
             [ "$PR_MERGEABLE" = "True" ] && COND_E_MERGEABLE="1"
             if [ -n "$APPROVE_SHA" ] && [ -n "$PR_HEAD_SHA" ] \
@@ -626,10 +667,12 @@ evaluate() {
     echo "  (c) CI green on latest commit: ${COND_C_CI}"
     echo "  (d) tier (local recompute): ${d_tier}"
     echo "  (e) base=main: ${COND_E_BASE_MAIN}, mergeable: ${COND_E_MERGEABLE}, sha match: ${COND_E_SHA_MATCH}"
+    echo "  (f) commits behind current main: ${COND_F_BEHIND_COUNT:-unknown}"
     [ -n "$NOTE_AUTH" ] && echo "  note: ${NOTE_AUTH}"
 
     decide_merge "$COND_A_LABEL" "$COND_B_REVIEW" "$COND_C_CI" "$d_tier" \
-        "$COND_E_BASE_MAIN" "$COND_E_MERGEABLE" "$COND_E_SHA_MATCH"
+        "$COND_E_BASE_MAIN" "$COND_E_MERGEABLE" "$COND_E_SHA_MATCH" \
+        "$COND_F_BEHIND_COUNT"
 }
 
 # ===========================================================================
