@@ -12,6 +12,9 @@ HERMES_PIN="7c1a0295"   # commit del tag v2026.7.1 (v0.18.0)
 STEVE_BOT_PATTERN="${STEVE_BOT_PATTERN:-scrat-ai}"
 STEVE_REPO="${STEVE_REPO:-iamers/steve-agent}"
 STEVE_REVIEW_BASELINE="${STEVE_REVIEW_BASELINE:-Merge pull request #26 }"
+# File locale all'istanza con gli endpoint non-loopback attesi. Un percorso
+# relativo viene risolto dalla home dell'utente remoto.
+STEVE_ALLOWED_LISTENERS_FILE="${STEVE_ALLOWED_LISTENERS_FILE:-~/.hermes/private/allowed-listeners.txt}"
 # App author identity whose merges are audited by the main-guard v2 check
 # below: a merge executed by the GitHub App has AUTHOR = this identity while
 # COMMITTER = GitHub/web-flow, so App merges are matched by author, not committer.
@@ -36,15 +39,24 @@ check() { # check <label> <command>
 # fuori dal confine di questa verifica. Ritorna 0 quando trova almeno una riga
 # inattesa, 1 quando tutte le righe sono ammesse e 2 per output non verificabile.
 unexpected_listeners() {
-  local instance_uid="$1"
-  awk -v instance_uid="$instance_uid" '
+  local instance_uid="$1" allowed_listeners="$2"
+  awk -v instance_uid="$instance_uid" -v allowed_listeners="$allowed_listeners" '
+    BEGIN {
+      allowed_count = split(allowed_listeners, allowed_line, "\n")
+      for (i = 1; i <= allowed_count; i++) {
+        if (allowed_line[i] !~ /^[[:space:]]*$/ && \
+            allowed_line[i] !~ /^[[:space:]]*#/) {
+          allowed[allowed_line[i]] = 1
+        }
+      }
+    }
     NF {
       if ($0 !~ / ino:[0-9]+/ || $0 !~ / sk:[0-9a-fA-F]+/) {
         invalid = 1
         next
       }
       if ($4 !~ /^127\./ && $4 !~ /^\[::1\]:/ && \
-          $0 ~ (" uid:" instance_uid "([[:space:]]|$)")) {
+          $0 ~ (" uid:" instance_uid "([[:space:]]|$)") && !($4 in allowed)) {
         print
         found = 1
       }
@@ -56,12 +68,15 @@ unexpected_listeners() {
   '
 }
 
-# listener_verdict <query-rc> <instance-uid> <ss-output>
+# listener_verdict <query-rc> <instance-uid> <ss-output> <allowlist-rc> <allowlist-output>
 # Ritorna 0 solo se la query remota è riuscita e ogni listener dell'utente
-# istanza è loopback. Metadata esteso assente, tool assente, errore di ss/SSH e
-# ogni listener non-loopback dell'istanza falliscono chiusi.
+# istanza è loopback o compare esattamente nella allowlist. Metadata esteso
+# assente, tool assente, errore di ss/SSH, allowlist illeggibile e ogni listener
+# non-loopback non ammesso falliscono chiusi. Una allowlist assente equivale a
+# una lista vuota.
 listener_verdict() {
-  local query_rc="$1" instance_uid="$2" listener_output="$3" unexpected parser_rc
+  local query_rc="$1" instance_uid="$2" listener_output="$3"
+  local allowlist_rc="$4" allowlist_output="$5" unexpected parser_rc
   if [ "$query_rc" -ne 0 ]; then
     printf 'listener inspection unavailable (remote query exit %s): %s\n' \
       "$query_rc" "$listener_output"
@@ -77,7 +92,17 @@ listener_verdict() {
     printf 'listener inspection unavailable (instance uid must be non-root)\n'
     return 2
   fi
-  unexpected=$(printf '%s\n' "$listener_output" | unexpected_listeners "$instance_uid")
+  case "$allowlist_rc" in
+    0) ;;
+    1) allowlist_output='' ;;
+    *)
+      printf 'listener inspection unavailable (allowed listeners query exit %s): %s\n' \
+        "$allowlist_rc" "$allowlist_output"
+      return 2
+      ;;
+  esac
+  unexpected=$(printf '%s\n' "$listener_output" | \
+    unexpected_listeners "$instance_uid" "$allowlist_output")
   parser_rc=$?
   case "$parser_rc" in
     0)
@@ -94,9 +119,11 @@ listener_verdict() {
   esac
 }
 
-listener_self_test_case() { # listener_self_test_case <label> <expected-rc> <query-rc> <instance-uid> <output>
-  local label="$1" expected="$2" query_rc="$3" instance_uid="$4" output="$5" actual
-  listener_verdict "$query_rc" "$instance_uid" "$output" >/dev/null 2>&1
+listener_self_test_case() { # listener_self_test_case <label> <expected-rc> <query-rc> <instance-uid> <output> [<allowlist-rc> <allowlist-output>]
+  local label="$1" expected="$2" query_rc="$3" instance_uid="$4" output="$5"
+  local allowlist_rc="${6:-1}" allowlist_output="${7:-}" actual
+  listener_verdict "$query_rc" "$instance_uid" "$output" \
+    "$allowlist_rc" "$allowlist_output" >/dev/null 2>&1
   actual=$?
   if [ "$actual" -ne "$expected" ]; then
     echo "FAIL: ${label}: expected rc=${expected}, got rc=${actual}"
@@ -111,6 +138,17 @@ run_listener_self_test() {
     $'LISTEN 0 128 127.0.0.1:8000 0.0.0.0:* uid:1001 ino:10 sk:a\nLISTEN 0 128 [::1]:8000 [::]:* uid:1001 ino:11 sk:b\nLISTEN 0 128 0.0.0.0:22 0.0.0.0:* ino:12 sk:c\nLISTEN 0 128 [::]:22 [::]:* ino:13 sk:d' || failures=$((failures+1))
   listener_self_test_case "unexpected instance listener fails" 1 0 1001 \
     'LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* uid:1001 ino:20 sk:e' || failures=$((failures+1))
+  listener_self_test_case "allowlisted instance listener passes" 0 0 1001 \
+    'LISTEN 0 128 192.0.2.10:8080 0.0.0.0:* uid:1001 ino:22 sk:10' 0 \
+    $'# expected dashboard\n\n192.0.2.10:8080' || failures=$((failures+1))
+  listener_self_test_case "non-allowlisted instance listener still fails" 1 0 1001 \
+    'LISTEN 0 128 192.0.2.11:8080 0.0.0.0:* uid:1001 ino:23 sk:11' 0 \
+    '192.0.2.10:8080' || failures=$((failures+1))
+  listener_self_test_case "unreadable allowlist fails closed" 2 0 1001 \
+    'LISTEN 0 128 192.0.2.10:8080 0.0.0.0:* uid:1001 ino:24 sk:12' 2 \
+    'allowed listeners file is unreadable' || failures=$((failures+1))
+  listener_self_test_case "absent allowlist keeps strict behaviour" 1 0 1001 \
+    'LISTEN 0 128 192.0.2.10:8080 0.0.0.0:* uid:1001 ino:25 sk:13' 1 '' || failures=$((failures+1))
   listener_self_test_case "another user listener is outside scope" 0 0 1001 \
     'LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* uid:1002 ino:21 sk:f' || failures=$((failures+1))
   listener_self_test_case "missing extended metadata fails closed" 2 0 1001 \
@@ -139,6 +177,11 @@ LLM_CHECK=0
 
 check_listeners() {
   local out rc verdict instance_uid listener_output
+  local allowed_output allowed_rc allowed_file_q
+  printf -v allowed_file_q '%q' "$STEVE_ALLOWED_LISTENERS_FILE"
+  allowed_output=$(ssh -T -o ConnectTimeout=10 "$HOST" \
+    "allowed_file=$allowed_file_q; "'case "$allowed_file" in "~/"*) allowed_file="$HOME/${allowed_file#??}" ;; /*) ;; *) allowed_file="$HOME/$allowed_file" ;; esac; if [ ! -e "$allowed_file" ]; then exit 1; fi; if [ ! -r "$allowed_file" ]; then echo "allowed listeners file is unreadable" >&2; exit 2; fi; cat -- "$allowed_file"' 2>&1)
+  allowed_rc=$?
   out=$(ssh -T -o ConnectTimeout=10 "$HOST" \
     'command -v ss >/dev/null 2>&1 || { echo "ss is unavailable" >&2; exit 127; }; instance_uid=$(id -u) || { echo "instance uid is unavailable" >&2; exit 126; }; printf "%s\n" "$instance_uid"; unset COLUMNS; ss -H -O -tlne')
   rc=$?
@@ -148,7 +191,8 @@ check_listeners() {
   else
     listener_output=${out#*$'\n'}
   fi
-  if verdict=$(listener_verdict "$rc" "$instance_uid" "$listener_output"); then
+  if verdict=$(listener_verdict "$rc" "$instance_uid" "$listener_output" \
+    "$allowed_rc" "$allowed_output"); then
     echo "PASS  no unexpected instance listeners"; pass=$((pass+1))
   else
     echo "FAIL  no unexpected instance listeners"
