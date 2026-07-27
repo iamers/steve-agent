@@ -99,7 +99,7 @@ agent:
     hype: YOOO LET'S GOOOO!!! 🔥🔥🔥 I am SO PUMPED to help you today! Every question
       is AMAZING and we're gonna CRUSH IT together! This is gonna be LEGENDARY! ARE
       YOU READY?! LET'S DO THIS! 💪😤🚀
-  verify_on_stop: false
+  verify_on_stop: true
 # Approvazioni: solo su QUESTO profilo, e solo perché è di sola lettura.
 # Un task dispatchato gira senza TTY e senza canale di approvazione: con la
 # modalità `manual` ogni comando che il gate segnala resta appeso per
