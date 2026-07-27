@@ -113,8 +113,9 @@ N task indipendenti (es. batch pre-publish: scrub, license, narrative), creali
 tutti con `kanban_create` (senza `parents` reciproci: vanno dritti a `ready`),
 poi esegui un solo `hermes kanban dispatch`. Il dispatcher spawna i worker in
 parallelo, ciascuno nel proprio worktree su branch indipendente. Nessun
-conflitto tra PR: ogni worker lavora su file diversi. Crea le review man mano
-che i worker chiudono.
+conflitto tra PR: ogni worker lavora su file diversi. Each worker creates its
+own review task when it opens its pull request, so the orchestrator creates no
+routine review tasks.
 
 ## 3. Sanitizzazione
 
@@ -148,8 +149,11 @@ locale e privato.
 
 ## 4. Ciclo di review
 
-Il worker che apre la PR crea direttamente il task di review come figlio del
-proprio task, seguendo le proprie direttive:
+The worker that opens the PR creates an independent review task with no parent
+link, following its own directives. A child would stay in `todo` until the
+originating task is `done`, while that task blocks on `review-required` and
+never reaches `done` on its own. The review task body records the originating
+task id; that is where the link belongs.
 
 - `assignee: steve-reviewer`
 - `--skill github/github-code-review`
