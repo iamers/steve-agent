@@ -127,17 +127,16 @@ task_rules:
       Never unblock a task that will block again. When work has to resume,
       create a NEW task on the same worktree.
     why: >-
-      A task that blocked with review-required blocks again the moment it
-      resumes. The second block consumes the recurrence limit and raises
-      block_loop_detected; a specifier then REWRITES the task's title and body,
-      the task is promoted, and the dispatcher answers respawn_guarded with
-      reason active_pr from then on. The result is a zombie: ready but never
-      spawnable, with the original brief destroyed. Recovering it costs more
-      than the work it was carrying.
+      Before 2026-07-27, a worker blocked with review-required after opening its
+      pull request. Resuming it caused the same block, consumed the recurrence
+      limit and eventually produced a zombie task guarded by active_pr. Workers
+      now complete after opening the pull request and creating the independent
+      review task, so this hazard remains only for legacy blocked tasks.
     instead: >-
       Create a new task with --workspace dir:<worktree of the original task> so
-      it works on the same branch and the existing PR updates in place. Record
-      the chain with a comment on the parent task.
+      it works on the same branch and the existing PR updates in place. The
+      completed original task can be its parent. Record the chain with a comment
+      on the parent task.
 
   privacy_check_needs_arguments:
     rule: >-

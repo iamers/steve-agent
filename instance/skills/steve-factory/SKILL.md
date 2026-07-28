@@ -150,11 +150,11 @@ locale e privato.
 
 ## 4. Ciclo di review
 
-The worker that opens the PR creates an independent review task with no parent
-link, following its own directives. A child would stay in `todo` until the
-originating task is `done`, while that task blocks on `review-required` and
-never reaches `done` on its own. The review task body records the originating
-task id; that is where the link belongs.
+Il worker che apre la PR crea un task di review indipendente, senza parent,
+seguendo le proprie direttive, quindi completa il proprio task con
+`kanban_complete`. Un task figlio resterebbe in `todo` finché il task originario
+non fosse `done`; per questo la review è indipendente. Il body del task di review
+registra l'id del task originario: il collegamento appartiene lì.
 
 - `assignee: steve-reviewer`
 - `--skill github/github-code-review`
@@ -231,9 +231,10 @@ worker, le **riesegue**. Per **ogni** task di review:
 L'autore non revisiona mai se stesso: se il worker che ha aperto la PR coincide
 con il reviewer, assegna la review a un altro profilo.
 
-Se la review e' REQUEST_CHANGES, il task del worker originale risulta gia' `done`
-(un task done non si ri-dispatcha nel nostro flusso). Crea invece un NUOVO task
-di fix:
+Se la review è REQUEST_CHANGES, il task del worker originale è già `done`: il
+worker lo ha completato dopo avere aperto la PR e creato il task di review. Un
+task `done` non si ri-dispatcha nel nostro flusso. Crea invece un NUOVO task di
+fix:
 
 1. `kanban_create` con `assignee: steve-worker`, `--parent` il task originario,
    e `workspace dir:<path del worktree del task originario>` (cosi' lavora sullo
@@ -432,27 +433,27 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
     - **Non tentare `gh pr review --approve` dal profilo main** su PR aperte da
       steve-worker: restituisce `Review can not approve your own pull request`.
 
-12. **Deadlock `respawn_guarded` con `active_pr` e figli bloccati.** Quando un
-    worker ha aperto la PR e si e' bloccato con `review-required`, il dispatcher
-    puo' iniziare a respawnerlo in loop con `respawn_guarded` reason
-    `active_pr`. Il worker non fa progresso (la PR e' gia' aperta) ma non
-    raggiunge mai `done`, quindi eventuali task figli (es. review con
-    `parents=[worker_task]`) restano in `todo` indefinitamente. La factory si
-    ferma per ore senza che nessuno se ne accorga. Una causa è parcheggiare con
-    un dependency block dopo aver creato un review task senza parent: il blocco
-    non ha un parent su cui restare gated e torna subito in `ready`.
+12. **Storico fino al 2026-07-27: deadlock `respawn_guarded` con `active_pr` e
+    figli bloccati.** Quando un worker apriva la PR e si bloccava con
+    `review-required`, il dispatcher poteva respawnerlo in loop con
+    `respawn_guarded` reason `active_pr`. Il worker non faceva progresso, non
+    raggiungeva mai `done` e gli eventuali task figli restavano in `todo`
+    indefinitamente. Una causa era parcheggiare con un dependency block dopo
+    avere creato un task di review senza parent: il blocco tornava subito in
+    `ready`. Dal 2026-07-27 il worker completa il proprio task dopo avere aperto
+    la PR e creato il task di review indipendente, quindi questo non è più il
+    flusso attivo.
     - **Sintomi:** `hermes kanban diagnostics` mostra `stranded_in_ready` sul
       task padre; su un task con PR gia' aperta si ripete circa ogni minuto un
       evento `respawn_guarded` con reason `active_pr`.
       task figlio e' in `todo` con zero run.
-    - **Fix:** completa manualmente il padre con `hermes kanban complete
+    - **Fix per task storici:** completa manualmente il padre con `hermes kanban complete
       <task_id> --summary "..."` o `kanban_complete(task_id=..., summary=...)`.
       Il padre passa a `done`, il figlio si promuove a `ready`, il prossimo
       `hermes kanban dispatch` lo pick up.
-    - **Prevenzione:** quando un worker blocca con `review-required` e ha figli
-      in `todo`/`ready`, completa il padre subito invece di aspettare che il
-      dispatcher lo risolva da solo. Il dispatcher non completa task
-      `blocked`/`respawn_guarded` automaticamente.
+    - **Prevenzione attuale:** il worker non parcheggia dopo avere creato la
+      review; completa il proprio task con `kanban_complete`. Il task di review
+      resta indipendente e senza parent.
 
 13. **Provider rate-limit (429) causa crash review transienti.** Non solo i
     model swap (pitfall #10): anche un rate-limit 429 del provider LLM
@@ -520,7 +521,14 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 
 **Sottocaso: code-trace della stringa SSH interna va ESEGUITO, non estratto a mano (falso positivo #49).** Quando il path da tracciare e' dentro una stringa single-quoted passata a `ssh "$HOST" "$@"` (come i check di smoke.sh), la tecnica e' giusta (parsare la stringa interna con `bash -n`) ma **l'estrazione manuale/regex della stringa "tra il primo e l'ultimo apice" e' il difetto**: perde caratteri sui boundary `'"$VAR"'` e fabbrica il bug fantasma che poi "trova". PR #49: il reviewer ha estratto la stringa a mano, perso 5 `;` ai boundary `); if`/`); [`/`); then`, verificato la stringa CORROTTA con `bash -n`, visto fallire e attribuito il difetto al codice. I `;` c'erano tutti nel codice reale. **Metodo corretto (affidabile, niente SSH):** stub della funzione `check()` che rimpiazza `ssh` con `bash -nc` per PARSE-only, definisce le STEVE_* ai default, poi source la SOLA riga del check preso dal file: bash espande variabili e quote-transition ESATTAMENTE come a runtime, `bash -nc` parsa il comando REALE. Mai estrarre a occhio o con regex: il code-trace si fa ESEGUENDO il parse sul comando espanso.
 
-20. **Fix task con `--parent` resta in `todo` se il parent non e' `done`.** Quando crei un task di fix con `--parent` che punta a un task ancora in `ready` (bloccato con review-required), il task figlio resta in `todo` e non si promuove finche' il parent non raggiunge `done`. Il dispatcher ritorna `Spawned: 0` silenziosamente, e il coordinatore potrebbe pensare che il dispatcher sia rotto. **Sintomo:** `hermes kanban dispatch` ritorna zero spawned, il task e' in `todo` con zero run. **Fix:** completa manualmente il parent con `kanban_complete` PRIMA di dispatchare il figlio. E' lo stesso pattern del pitfall #12 (il parent bloccato non si risolve da solo), ma il sintomo e' diverso: invece di respawn_guarded loop, e' silenzio totale.
+20. **Storico fino al 2026-07-27: fix task con `--parent` fermo in `todo`.**
+    Quando il worker parcheggiava con `review-required`, un task di fix con
+    `--parent` puntava a un parent non `done`, restava in `todo` e il dispatcher
+    ritornava `Spawned: 0` silenziosamente. Il fix operativo era completare
+    manualmente il parent con `kanban_complete` prima del dispatch. Dal
+    2026-07-27 il worker completa il task dopo avere aperto la PR e creato la
+    review indipendente: il parent è già `done` quando una REQUEST_CHANGES genera
+    il task di fix. Il rischio resta soltanto per task storici ancora parcheggiati.
 
 21. **Bug nei path di rete non testabili: pattern ricorrente e tecnica di scoperta (canary).** L'implementazione del merge-gate ha rivelato una classe di bug sistematica: codice che parsa risposte API GitHub e che e' invisibile a self-test, shellcheck e CI perche' il path di rete non si esercita nel worktree. Tre bug trovati in una sessione, tutti della stessa classe:
     - **Bug tipo 1 (read_field su array):** `cond_label()` usava `read_field(body, "name")` su un endpoint che ritorna un ARRAY di oggetti. `read_field` cammina dot-path e per array pretende indice numerico: `int("name")` → eccezione → stringa vuota → label mai trovata. Fix: parse diretto con Python inline.
@@ -551,9 +559,9 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
       cintura di sicurezza (pitfall #8).
 - [ ] Se steve-reviewer e' down (2+ crash consecutivi), non bruciare retry:
       documenta i verify dal main e segnala al coordinatore (pitfall #10, #11).
-- [ ] Se un worker e' bloccato `review-required` con task figli in coda,
-      completa il padre manualmente per evitare deadlock respawn_guarded
-      (pitfall #12).
+- [ ] Il worker che ha aperto la PR e creato la review indipendente ha completato
+      il proprio task con `kanban_complete`; soltanto i task storici parcheggiati
+      richiedono il completamento manuale (pitfall #12).
 - [ ] Se un profilo crasha per 429 provider (transiente), sblocca con
       `kanban_unblock` invece di bruciare retry (pitfall #13).
 - [ ] Se il worker produce testo canonico verbatim (licenze, standard), il
@@ -579,9 +587,9 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
 - [ ] Se un reviewer o un worker flagga `Authorization: ***` in un file,
       verifica i byte reali con `xxd` o `od` prima di dispatchare un fix:
       il display layer maschera i pattern Authorization (pitfall #17).
- - [ ] Se crei un fix task con `--parent`, assicurati che il parent sia `done`
- PRIMA di dispatchare: un parent in `ready`/`blocked` lascia il figlio in
- `todo` e il dispatcher ritorna `Spawned: 0` in silenzio (pitfall #20).
+- [ ] Se crei un fix task con `--parent`, verifica che il worker originario sia
+      `done`. Nel flusso attuale lo completa dopo PR e review; un parent storico
+      ancora parcheggiato lascia il figlio in `todo` (pitfall #20).
 - [ ] Se implementi uno script con path di rete (API, auth), estrai la logica
       di interpretazione in funzioni pure e coprile nel self-test. Usa una
       PR canary safe-tier per testare end-to-end prima della produzione
