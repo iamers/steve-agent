@@ -13,6 +13,24 @@ instance exists, this blueprint is the candidate to become a rendered template.
 | `smoke.sh` | checks instance health (pinned version, gateway, telegram, env) |
 | `drift-check.sh` | compares live config with repo; reports drift, does not restore |
 
+## Cron script ownership
+
+A cron script belongs in this blueprint when it implements behavior required to
+reproduce a Steve factory. The canonical implementation lives under `instance/`;
+`pr-watch.sh` and `merge-gate-scan.sh` are activated through a thin wrapper under
+`~/.hermes/scripts/` and a scheduler entry in the Hermes cron database.
+`backup-kanban.sh` is instead scheduled directly from `instance/` through the
+system crontab, as documented in `INSTALL.md`.
+
+`issue-watch.sh` is deliberately **instance-local**. It watches a hand-selected
+set of issues in an upstream project for the operator of one instance; that set
+reflects local operational interests and is not required Steve factory behavior.
+Maintain the script at `~/.hermes/scripts/issue-watch.sh` and its `issue-digest`
+job in the instance's Hermes cron database. Its generated state remains at
+`~/.hermes/state/issue-seen.txt`. Do not copy the script into `instance/`, and
+do not treat it as blueprint drift. Each operator may create, change, or omit
+this local watcher independently.
+
 ## Anti-drift rule
 
 1. Make configuration changes FIRST in the repo copy, then apply them to the
