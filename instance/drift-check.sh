@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Drift check: confronta la config live dell'istanza con la copia canonica nel
-# repo. Segnala, non ripristina.
+# Drift check: compare the instance's live config with the canonical copy in
+# the repository. Report differences; do not restore them.
 # Usage: ./drift-check.sh [ssh-alias]
 #        ./drift-check.sh --compare-config <repo-yaml> <live-yaml>
 set -u
@@ -31,31 +31,31 @@ live_cfg=""
 sem=""
 repo_s=""
 live_s=""
-# Due blocchi top-level vivono solo sull'istanza live e non devono mai
-# entrare nel repo, quindi li escludiamo dal confronto su entrambi i lati:
-#  - "dashboard:": credenziali basic-auth (password_hash e secret)
-#  - "onboarding:": flag first-run (onboarding.seen.*) scritti a runtime dal
-#    gateway, non configurazione
-# Escluderli PRIMA di stampare qualsiasi diff è anche una garanzia di
-# sicurezza: nessun hash o secret può finire nell'output del check.
+# Two top-level blocks exist only on the live instance and must never enter the
+# repository, so exclude them from both sides of the comparison:
+#  - "dashboard:": basic-auth credentials (password_hash and secret)
+#  - "onboarding:": first-run flags (onboarding.seen.*) written at runtime by
+#    the gateway, not configuration
+# Excluding them BEFORE printing any diff is also a security guarantee: no hash
+# or secret can appear in the check output.
 #
-# Il confronto è SEMANTICO (YAML parsato, chiavi ordinate), non testuale.
-# Motivo: il file live è scritto da Hermes, che quando riscrive il config
-# rimuove TUTTI i commenti e normalizza le virgolette (misurato il 2026-07-25:
-# live 0 righe di commento, canonico 24, contenuto funzionale identico).
-# Confrontare a testo pretenderebbe che due artefatti con proprietari diversi
-# coincidano byte per byte, e costringerebbe a spogliare il canonico della
-# documentazione che serve a chi lo legge. Il confronto semantico cattura ogni
-# differenza che conta (chiavi, valori, struttura) e ignora solo la
-# formattazione che non controlliamo.
-# Il confine di fine-blocco è QUALSIASI costrutto in colonna 0, non solo una
-# chiave che inizia per lettera: una chiave YAML top-level può essere quotata
-# ("chiave": valore) e del contenuto malformato può iniziare con un altro
-# carattere. Con il vecchio confine /^[A-Za-z_]/ quelle righe restavano dentro
-# il blocco e venivano INGHIOTTITE, e la guardia dichiarava "no drift" su un
-# file che aveva contenuto top-level in più: un falso negativo.
-# I commenti in colonna 0 NON chiudono il blocco (un commento dentro dashboard
-# non deve far riemergere le righe successive del blocco stesso).
+# The comparison is SEMANTIC (parsed YAML, sorted keys), not textual.
+# Reason: Hermes writes the live file and removes ALL comments and normalizes
+# quotation marks whenever it rewrites the config (measured on 2026-07-25: live
+# file with 0 comment lines, canonical file with 24, identical functional
+# content). A textual comparison would require two artifacts with different
+# owners to match byte for byte and would force us to strip useful reader
+# documentation from the canonical file. The semantic comparison catches every
+# meaningful difference (keys, values, structure) and ignores only formatting
+# we do not control.
+# The end-of-block boundary is ANY construct in column 0, not only a key that
+# starts with a letter: a top-level YAML key may be quoted ("key": value), and
+# malformed content may start with another character. With the old
+# /^[A-Za-z_]/ boundary, those lines remained inside the block and were
+# SWALLOWED, so the guard reported "no drift" for a file with extra top-level
+# content: a false negative.
+# Comments in column 0 DO NOT close the block (a comment inside dashboard must
+# not make the block's subsequent lines reappear).
 strip_blocks='/^(dashboard|onboarding):/{skip=1; next} /^[^[:space:]#]/{skip=0} !skip'
 
 compare_config() {
@@ -80,25 +80,25 @@ MISSING = object()
 
 
 class StrictLoader(yaml.SafeLoader):
-    """SafeLoader che RIFIUTA le chiavi duplicate.
+    """SafeLoader that REJECTS duplicate keys.
 
-    yaml.safe_load, di suo, tiene silenziosamente l'ultima occorrenza di una
-    chiave ripetuta. Su un confronto semantico questo aprirebbe un buco: un file
-    live con una chiave duplicata il cui ULTIMO valore coincide col canonico
-    verrebbe dichiarato allineato, mentre il file è realmente diverso e
-    malformato. Il confronto testuale lo intercettava; questo lo intercetta
-    fallendo CHIUSO, cioè segnalando drift invece di tacere.
+    By itself, yaml.safe_load silently keeps the last occurrence of a repeated
+    key. In a semantic comparison this would create a gap: a live file with a
+    duplicate key whose LAST value matches the canonical one would be reported
+    as aligned even though the file is actually different and malformed. The
+    textual comparison detected this; this loader detects it by failing CLOSED,
+    reporting drift instead of remaining silent.
     """
 
 
 class DuplicateKey(Exception):
-    """Chiave duplicata. Porta con sé SOLO la posizione, mai il nome.
+    """Duplicate key. Carries ONLY its position, never its name.
 
-    Il nome NON viene conservato di proposito. Sembrava "struttura e non
-    contenuto", ma una chiave dentro un blocco instance-only può essere essa
-    stessa sensibile, e gli errori vengono emessi PRIMA che pop() rimuova quel
-    blocco. Un'eccezione alla regola "mai testo preso dal documento" è bastata a
-    riaprire il buco che la regola chiudeva: qui non ci sono eccezioni.
+    The name is deliberately NOT retained. It seemed like "structure rather
+    than content", but a key inside an instance-only block may itself be
+    sensitive, and errors are emitted BEFORE pop() removes that block. One
+    exception to the "never include text taken from the document" rule was
+    enough to reopen the gap that the rule closed: there are no exceptions here.
     """
 
     def __init__(self, mark):
@@ -122,19 +122,19 @@ StrictLoader.add_constructor(
 
 
 def load(path, label):
-    # I blocchi instance-only sono già stati rimossi A MONTE, prima di arrivare
-    # qui: vedi il filtro awk applicato a entrambi i lati. È deliberato e non
-    # ridondante. Se li rimuovessimo dopo il parsing, un errore del parser
-    # DENTRO un blocco escluso verrebbe formattato e stampato prima
-    # dell'esclusione, portandosi dietro il token incriminato: un hash o un
-    # secret della dashboard finirebbe nell'output del check. Rimuovendoli
-    # prima, quel contenuto non raggiunge mai il parser.
-    # Un errore del parser NON deve mai riportare testo preso dal documento: il
-    # messaggio di PyYAML cita il token incriminato, e quel token può trovarsi
-    # dentro un blocco instance-only (una password_hash, un secret). Stampiamo
-    # quindi solo TIPO e POSIZIONE. Così la riservatezza non dipende più dal
-    # riuscire a riconoscere lessicalmente i blocchi da escludere prima del
-    # parsing, che con le molte grafie equivalenti di YAML è una partita persa.
+    # The instance-only blocks have already been removed UPSTREAM, before this
+    # point: see the awk filter applied to both sides. This is deliberate, not
+    # redundant. If we removed them after parsing, a parser error INSIDE an
+    # excluded block would be formatted and printed before the exclusion,
+    # carrying the offending token with it: a dashboard hash or secret would
+    # appear in the check output. Removing the blocks first ensures that their
+    # content never reaches the parser.
+    # A parser error must NEVER report text taken from the document: the PyYAML
+    # message quotes the offending token, which may be inside an instance-only
+    # block (a password_hash or secret). Therefore print only TYPE and POSITION.
+    # This ensures confidentiality no longer depends on lexically recognizing
+    # the blocks to exclude before parsing, a losing battle given YAML's many
+    # equivalent spellings.
     try:
         data = yaml.load(open(path), Loader=StrictLoader) or {}
     except DuplicateKey as exc:
@@ -147,7 +147,7 @@ def load(path, label):
         print(f"{label}: invalid YAML{where}")
         sys.exit(1)
     for key in INSTANCE_ONLY:
-        data.pop(key, None)  # dopo il parsing ogni grafia collassa qui
+        data.pop(key, None)  # after parsing, every spelling collapses here
     return data
 
 
@@ -219,9 +219,9 @@ for path in ENV_MATERIALIZED:
     repo_value = get_path(repo_data, path)
     live_value = get_path(live_data, path)
 
-    # Questi valori hanno proprietari diversi: nel repo resta il riferimento
-    # alla variabile, mentre sull'istanza deve esserci il valore risolto. Le
-    # forme sono verificabili senza mai stampare il contenuto.
+    # These values have different owners: the variable reference remains in the
+    # repository, while the resolved value must be present on the instance. The
+    # forms can be verified without ever printing the content.
     if repo_value is MISSING and live_value is MISSING:
         continue
     if repo_value is MISSING:
@@ -244,8 +244,8 @@ for path in ENV_MATERIALIZED:
             )
             shape_drift = True
 
-    # Anche in errore i valori non devono raggiungere il diff semantico: il
-    # diagnostico sopra nomina solo il path e la condizione.
+    # Even on error, values must not reach the semantic diff: the diagnostic
+    # above names only the path and the condition.
     drop_path(repo_data, path)
     drop_path(live_data, path)
 
@@ -270,8 +270,8 @@ if semantic_drift:
     sys.stdout.write("\n".join(difflib.unified_diff(repo, live, "repo", "live", lineterm="")) + "\n")
 sys.exit(1 if shape_drift or semantic_drift else 0)
 PY
-    # Filtra i blocchi instance-only PRIMA del parsing: così il loro contenuto
-    # non raggiunge mai il parser e non può finire nel messaggio di un errore.
+    # Filter instance-only blocks BEFORE parsing so their content never reaches
+    # the parser and cannot appear in an error message.
     repo_s=$(mktemp); live_s=$(mktemp)
     trap 'rm -f "$live_cfg" "$sem" "$repo_s" "$live_s"' EXIT
     awk "$strip_blocks" "$repo_cfg" > "$repo_s"
@@ -280,16 +280,17 @@ PY
     comparator_status=$?
     return "$comparator_status"
   else
-    # NESSUNA degradazione: senza pyyaml il confronto non si fa.
-    # Il ramo testuale che c'era prima riconosceva i blocchi da escludere con un
-    # filtro a righe, e YAML ammette molte grafie equivalenti della stessa chiave
-    # ("dashboard":, 'dashboard':, dashboard :, forme con tag o esplicite). Con
-    # una grafia non riconosciuta il blocco restava nel diff CON I SUOI VALORI,
-    # cioè password_hash e secret finivano nell'output del check. Non è un
-    # confronto più rumoroso: è più debole, e su una guardia che tratta segreti
-    # non è un compromesso accettabile.
-    # Quindi si fallisce CHIUSO e in modo azionabile: non poter verificare non è
-    # "nessun drift", è un controllo non eseguito, e va contato come tale.
+    # NO degradation: without pyyaml, do not perform the comparison.
+    # The previous textual branch recognized blocks to exclude with a line
+    # filter, but YAML allows many equivalent spellings of the same key
+    # ("dashboard":, 'dashboard':, dashboard :, tagged or explicit forms). With
+    # an unrecognized spelling, the block remained in the diff WITH ITS VALUES,
+    # so password_hash and secret appeared in the check output. This is not a
+    # noisier comparison: it is a weaker one, and that is not an acceptable
+    # compromise for a guard that handles secrets.
+    # Therefore fail CLOSED and provide an actionable error: being unable to
+    # verify is not "no drift"; it is a check that did not run and must count as
+    # such.
     echo "ERROR: pyyaml is required to compare config.yaml safely."
     echo "       Install it (e.g. 'pip install --user pyyaml') and re-run."
     echo "       Refusing to fall back to a textual compare: it cannot exclude"
@@ -326,7 +327,7 @@ fi
 
 echo
 echo "== SOUL profiles (live vs repo) =="
-# Confronta il SOUL.md canonico di ogni profilo worker con la copia live.
+# Compare each worker profile's canonical SOUL.md with its live copy.
 for profile in steve-worker steve-reviewer; do
   canonical="profiles/$profile/SOUL.md"
   if [ ! -f "$canonical" ]; then
@@ -343,15 +344,15 @@ done
 
 echo
 echo "== .env: keys set (names, not values) =="
-# Chiavi opzionali (marcate "@optional" nel commento di riga di env.template):
-# sono facoltative (es. tutto il blocco del merge gate). La loro assenza o
-# presenza sull'istanza è legittima, quindi NON generano drift: vengono escluse
-# dal confronto missing/extra e riportate solo come riga informativa.
+# Optional keys (marked "@optional" in the env.template line comment) are not
+# required (for example, the entire merge-gate block). Their absence or presence
+# on the instance is legitimate, so they do NOT create drift: they are excluded
+# from the missing/extra comparison and reported only as an informational line.
 optional_keys=$(grep -E '^[A-Z_]+=.*@optional' env.template | grep -oE '^[A-Z_]+' | sort -u)
-# filter_optional: rimuove le chiavi opzionali da un set (già ordinato). Se la
-# lista è vuota restituisce l'input invariato: grep -f su un file vuoto non ha
-# pattern, ma `echo "$vuota"` produrrebbe una riga vuota che con -v escluderebbe
-# tutto — da qui la guardia esplicita.
+# filter_optional: remove optional keys from an already sorted set. If the list
+# is empty, return the input unchanged: grep -f with an empty file has no
+# patterns, but `echo "$empty"` would produce an empty line that, with -v, would
+# exclude everything—hence the explicit guard.
 filter_optional() {
   if [ -n "$optional_keys" ]; then
     grep -vxF -f <(printf '%s\n' "$optional_keys")
@@ -368,7 +369,7 @@ extra=$(comm -13 <(echo "$tmpl_keys") <(echo "$live_filtered"))
 [ -n "$extra" ]   && { echo "PRESENT live but not in template (consider whether to add them):"; echo "$extra"; drift=1; }
 [ -z "$missing$extra" ] && echo "OK: keys aligned"
 
-# Chiavi opzionali: solo informativo, MAI drift.
+# Optional keys: informational only, NEVER drift.
 if [ -n "$optional_keys" ]; then
   opt_set=$(comm -12 <(echo "$optional_keys") <(echo "$live_keys"))
   opt_unset=$(comm -23 <(echo "$optional_keys") <(echo "$live_keys"))
@@ -378,7 +379,7 @@ fi
 
 echo
 echo "== worker profiles =="
-# Ottieni la lista dei profili dall'istanza
+# Get the profile list from the instance.
 profiles=$(ssh "$HOST" 'ls -d ~/.hermes/profiles/*/ 2>/dev/null | xargs -n1 basename | sort -u')
 
 if [ -z "$profiles" ]; then
@@ -386,7 +387,7 @@ if [ -z "$profiles" ]; then
 else
   profiles_ok=true
   for profile in $profiles; do
-    # Leggi il mode dalla copia canonica nel repo (default: shared)
+    # Read the mode from the canonical repository copy (default: shared).
     mode_file="profiles/$profile/credentials.mode"
     if [ -f "$mode_file" ]; then
       mode=$(cat "$mode_file")
@@ -395,7 +396,7 @@ else
     fi
 
     if [ "$mode" = "shared" ]; then
-      # mode shared: verifica i symlink come prima
+      # shared mode: verify symlinks as before.
       gitconfig_check=$(ssh "$HOST" "[ -L ~/.hermes/profiles/$profile/home/.gitconfig ] && [ \"\$(readlink ~/.hermes/profiles/$profile/home/.gitconfig)\" = ~/.gitconfig ] && echo OK || echo FAIL")
       ghconfig_check=$(ssh "$HOST" "[ -L ~/.hermes/profiles/$profile/home/.config/gh ] && [ \"\$(readlink ~/.hermes/profiles/$profile/home/.config/gh)\" = ~/.config/gh ] && echo OK || echo FAIL")
 
@@ -410,10 +411,10 @@ else
         profiles_ok=false
       fi
     elif [ "$mode" = "isolated" ]; then
-      # mode isolated: verifica che le credenziali siano isolate
-      # 1) home/.config/gh deve essere una directory reale (non symlink) e contenere hosts.yml
+      # isolated mode: verify that credentials are isolated.
+      # 1) home/.config/gh must be a real directory (not a symlink) containing hosts.yml.
       ghconfig_check=$(ssh "$HOST" "[ -d ~/.hermes/profiles/$profile/home/.config/gh ] && [ ! -L ~/.hermes/profiles/$profile/home/.config/gh ] && [ -f ~/.hermes/profiles/$profile/home/.config/gh/hosts.yml ] && echo OK || echo FAIL")
-      # 2) home/.gitconfig NON deve essere un symlink (assente o file regolare = ok)
+      # 2) home/.gitconfig must NOT be a symlink (absent or a regular file = OK).
       gitconfig_check=$(ssh "$HOST" "[ ! -L ~/.hermes/profiles/$profile/home/.gitconfig ] && echo OK || echo FAIL")
 
       if [ "$gitconfig_check" = "OK" ] && [ "$ghconfig_check" = "OK" ]; then
@@ -442,16 +443,16 @@ fi
 echo
 echo "== profiles: config.yaml (live vs repo) =="
 
-# Profili live sull'istanza
+# Live profiles on the instance.
 live_profiles=$(ssh "$HOST" 'ls -d ~/.hermes/profiles/*/ 2>/dev/null | xargs -n1 basename | sort -u')
-# Copie canoniche nel repo (profiles/<nome>/config.yaml)
+# Canonical repository copies (profiles/<name>/config.yaml).
 canonical_profiles=$(find profiles -maxdepth 1 -mindepth 1 -type d -exec basename {} \; 2>/dev/null | sort -u)
 
-# Nessun profilo live e nessuna copia canonica = OK
+# No live profiles and no canonical copies = OK.
 if [ -z "$live_profiles" ] && [ -z "$canonical_profiles" ]; then
   echo "OK: no live profiles and no canonical copy"
 else
-  # 1) Per ogni profilo live: verifica copia canonica e confronta config.yaml
+  # 1) For each live profile, verify its canonical copy and compare config.yaml.
   for profile in $live_profiles; do
     canonical="profiles/$profile/config.yaml"
     if [ -f "$canonical" ]; then
@@ -466,7 +467,7 @@ else
     fi
   done
 
-  # 2) Per ogni copia canonica senza profilo live corrispondente
+  # 2) Check each canonical copy without a corresponding live profile.
   for profile in $canonical_profiles; do
     if ! echo "$live_profiles" | grep -qx "$profile"; then
       echo "DRIFT: canonical $profile without live profile"
@@ -478,25 +479,25 @@ fi
 echo
 echo "== skill: SKILL.md (live vs repo) =="
 
-# Skill bundled stock di Hermes, installate di default e NON gestite da
-# steve-agent: escluse dal drift-check (sono legittime sull'istanza senza
-# avere un canonico nel repo). La lista corrisponde alle directory top-level
-# di skill presenti sotto ~/.hermes/skills/. Da mantenere aggiornata quando
-# Hermes aggiunge skill bundled: per ricalcolarla, elenca le directory
-# top-level live con `ls -d ~/.hermes/skills/*/` e tieni tutto tranne le
-# skill gestite da steve-agent (es. steve-factory).
+# Stock skills bundled with Hermes, installed by default and NOT managed by
+# steve-agent: excluded from the drift check (they are legitimate on the
+# instance without a canonical repository copy). The list corresponds to the
+# top-level skill directories under ~/.hermes/skills/. Keep it updated when
+# Hermes adds bundled skills: to recalculate it, list the live top-level
+# directories with `ls -d ~/.hermes/skills/*/` and keep everything except the
+# skills managed by steve-agent (for example, steve-factory).
 stock_skills='apple|autonomous-ai-agents|computer-use|creative|data-science|dogfood|email|github|media|mlops|note-taking|productivity|research|smart-home|social-media|software-development|yuanbao'
 
-# Skill live sull'istanza (escluse le stock)
+# Live skills on the instance (excluding stock skills).
 live_skills=$(ssh "$HOST" 'ls -d ~/.hermes/skills/*/ 2>/dev/null | xargs -n1 basename | sort -u' | grep -Ev "^($stock_skills)$")
-# Copie canoniche nel repo (skills/<nome>/SKILL.md)
+# Canonical repository copies (skills/<name>/SKILL.md).
 canonical_skills=$(find skills -maxdepth 1 -mindepth 1 -type d -exec basename {} \; 2>/dev/null | sort -u)
 
-# Nessuna skill live e nessuna canonica = OK
+# No live skills and no canonical copies = OK.
 if [ -z "$live_skills" ] && [ -z "$canonical_skills" ]; then
   echo "OK: no skills present"
 else
-  # 1) Per ogni skill live: verifica copia canonica e confronta SKILL.md
+  # 1) For each live skill, verify its canonical copy and compare SKILL.md.
   for skill in $live_skills; do
     canonical="skills/$skill/SKILL.md"
     if [ -f "$canonical" ]; then
@@ -511,7 +512,7 @@ else
     fi
   done
 
-  # 2) Per ogni copia canonica senza skill live corrispondente
+  # 2) Check each canonical copy without a corresponding live skill.
   for skill in $canonical_skills; do
     if ! echo "$live_skills" | grep -qx "$skill"; then
       echo "DRIFT: canonical $skill without live skill"
