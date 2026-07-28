@@ -277,6 +277,28 @@ hermes dashboard --host <private-vpn-ip> --port <reserved-port> --no-open
 
 The dashboard runs as a foreground process with no built-in service manager. Keep it alive with `tmux`, a `systemd --user` unit, or any process supervisor of your choice.
 
+The listener smoke check rejects non-loopback listeners owned by the instance
+user unless their exact local endpoints are declared on that instance. After
+choosing the dashboard bind address and port, create the private allowlist and
+record the endpoint exactly as the local-address field of `ss -H -O -tlne`
+prints it:
+
+```bash
+mkdir -p ~/.hermes/private
+install -m 600 /dev/null ~/.hermes/private/allowed-listeners.txt
+printf '%s\n' '<private-vpn-ip>:<reserved-port>' >> ~/.hermes/private/allowed-listeners.txt
+```
+
+The file accepts one exact endpoint per line. Blank lines and lines beginning
+with `#` are ignored. Keep it instance-local and never commit its contents. If
+the file is absent, the check keeps its strict default and allows no
+non-loopback instance listener. If the file exists but is unreadable, the check
+fails closed because it cannot verify the declared policy.
+
+To use a different remote path, set `STEVE_ALLOWED_LISTENERS_FILE` in the admin
+environment when running `instance/smoke.sh`. Relative paths are resolved from
+the instance user's home directory; absolute paths are used as given.
+
 ## 7. Blueprint Checks
 
 The `instance/` directory in the steve-agent repo contains a blueprint for instance configuration and verification.
