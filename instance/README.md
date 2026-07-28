@@ -17,9 +17,10 @@ instance exists, this blueprint is the candidate to become a rendered template.
 
 A cron script belongs in this blueprint when it implements behavior required to
 reproduce a Steve factory. The canonical implementation lives under `instance/`;
-a thin wrapper under `~/.hermes/scripts/` and the scheduler entry in the Hermes
-cron database are instance activation details. `pr-watch.sh`,
-`backup-kanban.sh`, and `merge-gate-scan.sh` follow this model.
+`pr-watch.sh` and `merge-gate-scan.sh` are activated through a thin wrapper under
+`~/.hermes/scripts/` and a scheduler entry in the Hermes cron database.
+`backup-kanban.sh` is instead scheduled directly from `instance/` through the
+system crontab, as documented in `INSTALL.md`.
 
 `issue-watch.sh` is deliberately **instance-local**. It watches a hand-selected
 set of issues in an upstream project for the operator of one instance; that set
