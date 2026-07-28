@@ -75,6 +75,9 @@ Auto-merge is governed by two gates that do not depend on each other:
   and Steve applies a label plus a comment on the PR that references the
   decision. The automation removes the mechanical work, NOT the decision.
   A merge without human authorization is not eligible.
+  [Authorization covers the batch, not the pull request](../docs/decisions/adr-20260728-authorization-covers-the-batch.md)
+  changes the unit of authorization from the pull request to the batch, but
+  takes effect only when condition (d) is extended.
 
 ### The gate
 
