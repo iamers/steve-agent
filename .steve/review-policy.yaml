@@ -207,3 +207,37 @@ task_rules:
       the check's strength, and state the property it still proves. Do not run
       it: the worker proposes and the author decides. If every correction would
       weaken the proof, say so instead of proposing one.
+
+  verify_in_the_agent_environment:
+    rule: >-
+      A verify is valid only if its exact command form runs in the actual agent
+      execution environment: the executing profile's HOME, the task worktree
+      and the safety layer must all be in effect. A run in a coordinator shell,
+      a different HOME or a command form held for approval is not evidence.
+    why: >-
+      Profiles can resolve different config, credentials and installed tools,
+      while the safety layer can deny inline commands that work in an
+      interactive shell. A logically correct check is still impossible if the
+      dispatched worker or reviewer cannot execute it.
+    instead: >-
+      Prefer a checked-in script, test target or self-test invoked with one
+      plain command from the worktree. Prove that entry point under each
+      executing profile's real HOME; avoid python -c, heredocs and other inline
+      interpreter forms. If no safety-layer-permitted form preserves the proof,
+      apply impossible_verify_is_a_brief_defect.
+
+  absence_proofs_are_exhaustive:
+    rule: >-
+      Every claim that something is absent must name every file, directory or
+      other location searched. Output from an absence-oriented search must be
+      complete and untruncated; a first page or first N matches cannot prove
+      absence.
+    why: >-
+      An unnamed location is an unchecked location, and broad search output can
+      be truncated before the relevant match. Either gap turns "not shown" into
+      a false "not present" conclusion.
+    instead: >-
+      Search each named location with bounded commands and report every command,
+      its full output and exit code. If a tool reports truncation, narrow or
+      paginate the search until every shard is complete; do not make the
+      absence claim before then.
