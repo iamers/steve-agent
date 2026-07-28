@@ -8,7 +8,7 @@ KANBAN_DB="$HOME/.hermes/kanban.db"
 BACKUP_DIR="$HOME/.hermes/backups"
 RETENTION=7
 
-# Se il DB non esiste, exit 0 silenzioso (istanza senza board non è errore)
+# If the DB does not exist, exit 0 silently (an instance without a board is not an error)
 if [ ! -f "$KANBAN_DB" ]; then
   exit 0
 fi
@@ -50,7 +50,7 @@ except Exception as e:
 # Imposta permessi restrictivi sul backup
 chmod 600 "$BACKUP_FILE"
 
-# Cleanup: mantieni gli ultimi 7 backup, elimina i più vecchi
+# Cleanup: keep the latest 7 backups, delete the oldest ones
 cd "$BACKUP_DIR" || exit 1
 ls -t kanban-*.db 2>/dev/null | tail -n +$((RETENTION + 1)) | xargs -r rm -f
 
