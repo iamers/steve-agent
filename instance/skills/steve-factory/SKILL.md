@@ -82,11 +82,10 @@ come scritta: l'autore dichiara di aver interrogato la CI una volta dopo il
 push e ne riporta lo stato, non dichiara che sia verde.
 
 Quando in chat si prende una decisione che cambia il modo di lavorare del
-progetto, registrala prima come ADR in `docs/decisions/`: un file per decisione,
-chiamato `adr-YYYYMMDD-slug.md`, con stato e formato descritti nel relativo
-`README.md`. Cita il file nel brief del task che la implementa. Una decisione
-registrata dopo e' archeologia, e una directory che nessuno deve scrivere
-diventa decorazione.
+progetto, l'ADR viaggia nella stessa pull request della decisione e il suo testo
+e' scritto da chi ha preso quella decisione. Usa un file per decisione in
+`docs/decisions/`, chiamato `adr-YYYYMMDD-slug.md`, con stato e formato descritti
+nel relativo `README.md`.
 
 Campi del task:
 
@@ -169,9 +168,13 @@ proprieta' che richiede giudizio. Il criterio e'
 Come stabilito da
 `docs/decisions/adr-20260727-human-review-is-requested-not-required.md`, per una
 pull request `blast`, o `propagation` che modifica una guardia, l'orchestratore
-richiede anche un reviewer umano con
-`gh pr edit <PR> --add-reviewer <reviewer>`. È una convenzione, non un requisito:
-l'assenza di una risposta umana non blocca mai la pull request.
+richiede anche il reviewer umano configurato in `STEVE_HUMAN_REVIEWER` con:
+
+    gh api repos/<owner>/<repo>/pulls/<n>/requested_reviewers -X POST -f 'reviewers[]=<login>'
+
+Se la chiave non e' impostata o e' vuota, non richiede alcuna review umana e
+nulla resta bloccato. È una convenzione, non un requisito: l'assenza di una
+risposta umana non blocca mai la pull request.
 
 Fa eccezione una pull request senza task originario: in quel caso
 l'orchestratore crea il task di review. La rilevazione è deterministica: il
