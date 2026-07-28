@@ -33,22 +33,21 @@ check() { # check <label> <command>
   fi
 }
 
-# unexpected_listeners <instance-uid> legge l'output di `ss -H -O -tlne` e stampa
-# i listener dell'utente istanza il cui indirizzo locale non è IPv4 127/8 né
-# IPv6 ::1. I servizi di sistema (incluso SSH) hanno un owner diverso e restano
-# fuori dal confine di questa verifica. Ritorna 0 quando trova almeno una riga
-# inattesa, 1 quando tutte le righe sono ammesse e 2 per output non verificabile.
+# unexpected_listeners <instance-uid> <allowlist-file> legge l'allowlist come
+# record letterali e l'output di `ss -H -O -tlne` dallo standard input, quindi
+# stampa i listener dell'utente istanza il cui indirizzo locale non è IPv4 127/8
+# né IPv6 ::1. I servizi di sistema (incluso SSH) hanno un owner diverso e
+# restano fuori dal confine di questa verifica. Ritorna 0 quando trova almeno
+# una riga inattesa, 1 quando tutte le righe sono ammesse e 2 per output non
+# verificabile.
 unexpected_listeners() {
-  local instance_uid="$1" allowed_listeners="$2"
-  awk -v instance_uid="$instance_uid" -v allowed_listeners="$allowed_listeners" '
-    BEGIN {
-      allowed_count = split(allowed_listeners, allowed_line, "\n")
-      for (i = 1; i <= allowed_count; i++) {
-        if (allowed_line[i] !~ /^[[:space:]]*$/ && \
-            allowed_line[i] !~ /^[[:space:]]*#/) {
-          allowed[allowed_line[i]] = 1
-        }
+  local instance_uid="$1" allowed_listeners_file="$2"
+  awk -v instance_uid="$instance_uid" '
+    FILENAME != "-" {
+      if ($0 !~ /^[[:space:]]*$/ && $0 !~ /^[[:space:]]*#/) {
+        allowed[$0] = 1
       }
+      next
     }
     NF {
       if ($0 !~ / ino:[0-9]+/ || $0 !~ / sk:[0-9a-fA-F]+/) {
@@ -65,7 +64,29 @@ unexpected_listeners() {
       if (invalid) exit 2
       exit(found ? 0 : 1)
     }
-  '
+  ' "$allowed_listeners_file" -
+}
+
+# Legge i record della allowlist. Ritorna 3 solo quando il percorso non esiste
+# e 2 quando un percorso presente non può essere letto per intero.
+read_allowed_listeners() { # read_allowed_listeners <path>
+  local allowed_file="$1"
+  case "$allowed_file" in
+    \~/*) allowed_file="$HOME/${allowed_file#??}" ;;
+    /*) ;;
+    *) allowed_file="$HOME/$allowed_file" ;;
+  esac
+  if [ ! -e "$allowed_file" ]; then
+    return 3
+  fi
+  if [ ! -r "$allowed_file" ]; then
+    printf 'allowed listeners file is unreadable\n' >&2
+    return 2
+  fi
+  if ! cat -- "$allowed_file"; then
+    printf 'allowed listeners file could not be read\n' >&2
+    return 2
+  fi
 }
 
 # listener_verdict <query-rc> <instance-uid> <ss-output> <allowlist-rc> <allowlist-output>
@@ -94,7 +115,7 @@ listener_verdict() {
   fi
   case "$allowlist_rc" in
     0) ;;
-    1) allowlist_output='' ;;
+    3) allowlist_output='' ;;
     *)
       printf 'listener inspection unavailable (allowed listeners query exit %s): %s\n' \
         "$allowlist_rc" "$allowlist_output"
@@ -102,7 +123,7 @@ listener_verdict() {
       ;;
   esac
   unexpected=$(printf '%s\n' "$listener_output" | \
-    unexpected_listeners "$instance_uid" "$allowlist_output")
+    unexpected_listeners "$instance_uid" <(printf '%s\n' "$allowlist_output"))
   parser_rc=$?
   case "$parser_rc" in
     0)
@@ -121,7 +142,7 @@ listener_verdict() {
 
 listener_self_test_case() { # listener_self_test_case <label> <expected-rc> <query-rc> <instance-uid> <output> [<allowlist-rc> <allowlist-output>]
   local label="$1" expected="$2" query_rc="$3" instance_uid="$4" output="$5"
-  local allowlist_rc="${6:-1}" allowlist_output="${7:-}" actual
+  local allowlist_rc="${6:-3}" allowlist_output="${7:-}" actual
   listener_verdict "$query_rc" "$instance_uid" "$output" \
     "$allowlist_rc" "$allowlist_output" >/dev/null 2>&1
   actual=$?
@@ -132,8 +153,31 @@ listener_self_test_case() { # listener_self_test_case <label> <expected-rc> <que
   echo "ok: ${label} -> rc=${actual}"
 }
 
+listener_self_test_path_case() { # listener_self_test_path_case <label> <expected-rc> <instance-uid> <output> <allowlist-path>
+  local label="$1" expected="$2" instance_uid="$3" output="$4" allowlist_path="$5"
+  local allowlist_output allowlist_rc actual
+  allowlist_output=$(read_allowed_listeners "$allowlist_path" 2>&1)
+  allowlist_rc=$?
+  listener_verdict 0 "$instance_uid" "$output" \
+    "$allowlist_rc" "$allowlist_output" >/dev/null 2>&1
+  actual=$?
+  if [ "$actual" -ne "$expected" ]; then
+    echo "FAIL: ${label}: expected rc=${expected}, got rc=${actual}"
+    return 1
+  fi
+  echo "ok: ${label} -> rc=${actual}"
+}
+
 run_listener_self_test() {
-  local failures=0
+  local failures=0 fixture_dir read_failure_path literal_allowlist
+  fixture_dir=$(mktemp -d) || {
+    echo "listener self-test FAILED: cannot create fixture directory"
+    return 1
+  }
+  read_failure_path="$fixture_dir/read-failure"
+  literal_allowlist="$fixture_dir/literal-backslash"
+  mkdir "$read_failure_path" || return 1
+  printf '%s\n' 'junk\n192.0.2.10:8080' >"$literal_allowlist" || return 1
   listener_self_test_case "loopback instance and system listeners pass" 0 0 1001 \
     $'LISTEN 0 128 127.0.0.1:8000 0.0.0.0:* uid:1001 ino:10 sk:a\nLISTEN 0 128 [::1]:8000 [::]:* uid:1001 ino:11 sk:b\nLISTEN 0 128 0.0.0.0:22 0.0.0.0:* ino:12 sk:c\nLISTEN 0 128 [::]:22 [::]:* ino:13 sk:d' || failures=$((failures+1))
   listener_self_test_case "unexpected instance listener fails" 1 0 1001 \
@@ -148,7 +192,12 @@ run_listener_self_test() {
     'LISTEN 0 128 192.0.2.10:8080 0.0.0.0:* uid:1001 ino:24 sk:12' 2 \
     'allowed listeners file is unreadable' || failures=$((failures+1))
   listener_self_test_case "absent allowlist keeps strict behaviour" 1 0 1001 \
-    'LISTEN 0 128 192.0.2.10:8080 0.0.0.0:* uid:1001 ino:25 sk:13' 1 '' || failures=$((failures+1))
+    'LISTEN 0 128 192.0.2.10:8080 0.0.0.0:* uid:1001 ino:25 sk:13' 3 '' || failures=$((failures+1))
+  listener_self_test_path_case "present directory read failure fails closed" 2 1001 '' \
+    "$read_failure_path" || failures=$((failures+1))
+  listener_self_test_path_case "literal backslash cannot inject an allowed listener" 1 1001 \
+    'LISTEN 0 128 192.0.2.10:8080 0.0.0.0:* uid:1001 ino:26 sk:14' \
+    "$literal_allowlist" || failures=$((failures+1))
   listener_self_test_case "another user listener is outside scope" 0 0 1001 \
     'LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* uid:1002 ino:21 sk:f' || failures=$((failures+1))
   listener_self_test_case "missing extended metadata fails closed" 2 0 1001 \
@@ -177,10 +226,11 @@ LLM_CHECK=0
 
 check_listeners() {
   local out rc verdict instance_uid listener_output
-  local allowed_output allowed_rc allowed_file_q
+  local allowed_output allowed_rc allowed_file_q allowed_reader
   printf -v allowed_file_q '%q' "$STEVE_ALLOWED_LISTENERS_FILE"
+  allowed_reader=$(declare -f read_allowed_listeners)
   allowed_output=$(ssh -T -o ConnectTimeout=10 "$HOST" \
-    "allowed_file=$allowed_file_q; "'case "$allowed_file" in "~/"*) allowed_file="$HOME/${allowed_file#??}" ;; /*) ;; *) allowed_file="$HOME/$allowed_file" ;; esac; if [ ! -e "$allowed_file" ]; then exit 1; fi; if [ ! -r "$allowed_file" ]; then echo "allowed listeners file is unreadable" >&2; exit 2; fi; cat -- "$allowed_file"' 2>&1)
+    "$allowed_reader; read_allowed_listeners $allowed_file_q" 2>&1)
   allowed_rc=$?
   out=$(ssh -T -o ConnectTimeout=10 "$HOST" \
     'command -v ss >/dev/null 2>&1 || { echo "ss is unavailable" >&2; exit 127; }; instance_uid=$(id -u) || { echo "instance uid is unavailable" >&2; exit 126; }; printf "%s\n" "$instance_uid"; unset COLUMNS; ss -H -O -tlne')
