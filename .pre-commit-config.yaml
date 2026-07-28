@@ -1,7 +1,7 @@
-# Privacy/secret gate (vedi scripts/check_privacy.sh).
-# gitleaks: secret scanning generico (attivo anche per contributor esterni).
-# privacy-denylist: guard locale, no-op se .local/privacy-denylist.txt manca.
-# Aggiornare rev di gitleaks con: pre-commit autoupdate --repo https://github.com/gitleaks/gitleaks
+# Privacy/secret gate (see scripts/check_privacy.sh).
+# gitleaks: generic secret scanning (also enabled for external contributors).
+# privacy-denylist: local guard, no-op if .local/privacy-denylist.txt is missing.
+# Update the gitleaks rev with: pre-commit autoupdate --repo https://github.com/gitleaks/gitleaks
 
 repos:
   - repo: https://github.com/gitleaks/gitleaks
