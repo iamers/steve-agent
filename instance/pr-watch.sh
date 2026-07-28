@@ -3,7 +3,7 @@
 # It prints a full brief for each unseen open PR and otherwise emits the
 # scheduler's silent wake gate.
 #
-# Mantiene lo stato delle PR gia' viste in ~/.hermes/state/pr-seen.txt.
+# Keeps the state of already-seen PRs in ~/.hermes/state/pr-seen.txt.
 # Il brief viene generato invocando tools/pr-brief.py dal clone in cui questo
 # script risiede (usa il path dello script per trovare la root del repo).
 #
@@ -29,8 +29,8 @@ touch "$STATE_FILE"
 
 # Legge la lista delle PR aperte: una per riga, solo il numero.
 OPEN_PRS_JSON=$(gh pr list --repo "$REPO" --state open --json number 2>/dev/null) || {
-    # gh non disponibile o errore di rete: silenzioso (non e' un'errore fatale
-    # per un watchdog, ci riprovera' al prossimo tick).
+    # gh unavailable or network error: stay silent (not a fatal error for a
+    # watchdog; it will retry on the next tick).
     emit_silent_gate
     exit 0
 }
@@ -54,7 +54,7 @@ ACTIONABLE_PR_EMITTED=0
 while IFS= read -r num; do
     [ -z "$num" ] && continue
     key="$REPO#$num"
-    # Salta le PR gia' viste.
+    # Skip already-seen PRs.
     if grep -qxF "$key" "$STATE_FILE" 2>/dev/null; then
         continue
     fi
