@@ -156,7 +156,8 @@ updates:
   backup_keep: 5
   non_interactive_local_changes: stash
 plugins:
-  enabled: []
+  enabled:
+    - security-guidance
 _config_version: 32
 onboarding:
   seen:
