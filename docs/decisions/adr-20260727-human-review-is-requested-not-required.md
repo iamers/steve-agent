@@ -14,8 +14,18 @@ That is concrete evidence that human review adds something the pipeline does not
 
 ## Decision
 
-The orchestrator requests a human reviewer on `blast` pull requests, and on
-`propagation` pull requests that change a guard. This is a convention, not
+The orchestrator requests the human reviewer configured in
+`STEVE_HUMAN_REVIEWER` on `blast` pull requests, and on `propagation` pull
+requests that change a guard, using:
+
+```sh
+gh api repos/<owner>/<repo>/pulls/<n>/requested_reviewers -X POST -f 'reviewers[]=<login>'
+```
+
+Here, `<login>` is the value of `STEVE_HUMAN_REVIEWER`. This REST API call
+requests a pull request reviewer directly, without relying on the deprecated
+classic Projects GraphQL fields queried by `gh pr edit`. When the key is unset,
+no human review is requested and nothing blocks. This is a convention, not
 enforcement: the absence of a human response never blocks a pull request.
 
 ## Consequences
