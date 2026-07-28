@@ -308,8 +308,8 @@ def render_brief(template_text, number, title, branch, tier_upper,
                 output.append(strings["d4"])
         elif line == BRIEF_TOKENS["critical_files"]:
             for path, ftier, pattern in critical_files:
-                perche = pattern if pattern else "default (no match)"
-                output.append("- {}  ({}, {})".format(path, ftier, perche))
+                match_reason = pattern if pattern else "default (no match)"
+                output.append("- {}  ({}, {})".format(path, ftier, match_reason))
         elif line == BRIEF_TOKENS["summary"]:
             output.append(summary_text)
         elif line == BRIEF_TOKENS["approval"]:
