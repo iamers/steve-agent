@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# pr-watch: watchdog per PR aperte nuove. Progettato per girare sotto cron
-# --no-agent: per ogni PR aperta NON ancora vista stampa il brief completo;
-# nessuna PR nuova = stdout vuoto (silenzio).
+# pr-watch: watchdog for newly opened PRs, designed for --no-agent cron jobs.
+# It prints a full brief for each unseen open PR and otherwise emits the
+# scheduler's silent wake gate.
 #
 # Mantiene lo stato delle PR gia' viste in ~/.hermes/state/pr-seen.txt.
 # Il brief viene generato invocando tools/pr-brief.py dal clone in cui questo
@@ -11,6 +11,10 @@
 set -u
 
 REPO="${1:-iamers/steve-agent}"
+
+emit_silent_gate() {
+    printf '%s\n' '{"wakeAgent": false}'
+}
 
 # Trova la root del repo dal path dello script: instance/pr-watch.sh -> root.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -27,6 +31,7 @@ touch "$STATE_FILE"
 OPEN_PRS_JSON=$(gh pr list --repo "$REPO" --state open --json number 2>/dev/null) || {
     # gh non disponibile o errore di rete: silenzioso (non e' un'errore fatale
     # per un watchdog, ci riprovera' al prossimo tick).
+    emit_silent_gate
     exit 0
 }
 
@@ -41,8 +46,10 @@ for item in data:
     print(item.get('number', ''))
 ")
 
-# Nessuna PR aperta = silenzio.
-[ -z "$OPEN_PRS" ] && exit 0
+# No open PRs: emit only the silent wake gate.
+[ -z "$OPEN_PRS" ] && { emit_silent_gate; exit 0; }
+
+ACTIONABLE_PR_EMITTED=0
 
 while IFS= read -r num; do
     [ -z "$num" ] && continue
@@ -53,10 +60,12 @@ while IFS= read -r num; do
     fi
     # PR nuova: genera e stampa il brief.
     python3 "$PR_BRIEF" --repo "$REPO" --pr "$num" || continue
+    ACTIONABLE_PR_EMITTED=1
     echo
     # Registra la PR come vista.
     echo "$key" >> "$STATE_FILE"
 done <<< "$OPEN_PRS"
 
-# Silenzioso: nessun output se non ci sono PR nuove.
+# No actionable brief was emitted: finish with the silent wake gate.
+[ "$ACTIONABLE_PR_EMITTED" -eq 0 ] && emit_silent_gate
 exit 0
