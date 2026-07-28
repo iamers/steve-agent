@@ -525,12 +525,12 @@ files committed to the repo. A fresh deploy needs both steps re-run by hand.
 
 ## 8. GitHub merge App (optional)
 
-> Questa sezione è FACOLTATIVA. Se la salti, non creare la GitHub App, non
-> valorizzare le chiavi `STEVE_MERGE_*`, NON registrare il cron del merge gate
-> — e tutto il resto (board, worker, review, merge umano su GitHub) funziona
-> identico. Il main-guard v2 in smoke.sh passa a vuoto (nessun merge App da
-> verificare) e lo smoke resta verde. Lo scanner `merge-gate-scan.sh` esce in
-> silenzio quando le credenziali non sono configurate (non è un guasto).
+> This section is OPTIONAL. If you skip it, do not create the GitHub App, do not
+> set the `STEVE_MERGE_*` keys, and DO NOT register the merge gate cron job—and
+> everything else (board, worker, review, and human merging on GitHub) works
+> identically. The main-guard v2 in smoke.sh passes vacuously (there is no merge
+> App to verify), and smoke remains green. The `merge-gate-scan.sh` scanner exits
+> silently when credentials are not configured (this is by design, not a fault).
 
 The deterministic merge gate (`instance/merge-gate.sh`) merges safe-tier PRs
 under a dedicated GitHub App identity. Each instance owns its OWN App and
