@@ -67,7 +67,7 @@ Switch to the service user and install a pinned version of Hermes Agent. Pinning
 
 ```bash
 curl -fsSL https://hermes-agent.nousresearch.com/install.sh \
-  | bash -s -- --skip-browser --skip-setup --commit 7c1a029553d87c43ecff8a3821336bc95872213b
+  | bash -s -- --skip-browser --skip-setup --commit c1b0f6f3c1d05f95fd3c9c96c37fc5c940898011
 ```
 
 Even with `--skip-setup`, interactive prompts may appear if running in a TTY (e.g., tmux). Answer the following:
@@ -79,7 +79,10 @@ Verify installation:
 
 ```bash
 hermes --version
-# Expected output: Hermes Agent v0.18.0 (2026.7.1) · local 7c1a0295
+# Expected output starts with: Hermes Agent v0.19.0 (2026.7.20)
+
+git -C ~/.hermes/hermes-agent rev-parse HEAD
+# Expected output: c1b0f6f3c1d05f95fd3c9c96c37fc5c940898011
 
 hermes doctor
 # Should show only warnings for optional tools (web search keys, etc.)

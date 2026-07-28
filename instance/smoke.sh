@@ -5,7 +5,7 @@
 # --llm aggiunge una query reale al modello (costa una chiamata LLM).
 set -u
 
-HERMES_PIN="7c1a0295"   # commit del tag v2026.7.1 (v0.18.0)
+HERMES_PIN="c1b0f6f3c1d05f95fd3c9c96c37fc5c940898011"   # approved untagged commit based on v2026.7.20 (v0.19.0)
 
 # Instance-specific knobs (defaults reproduce the canonical iamers/steve-agent
 # instance; override via the environment to reuse the script on another repo).
@@ -158,7 +158,7 @@ check_listeners() {
 }
 
 check "ssh reachable"        'true'
-check "hermes version pinned" "export PATH=\$HOME/.local/bin:\$PATH; hermes --version | grep -q $HERMES_PIN"
+check "hermes version pinned" "export PATH=\$HOME/.local/bin:\$PATH; hermes --version >/dev/null && git -C \$HOME/.hermes/hermes-agent rev-parse HEAD | grep -qx $HERMES_PIN"
 check "gateway service active" 'systemctl --user is-active hermes-gateway | grep -qx active'
 check "telegram connected (log)" 'grep -q "telegram connected" ~/.hermes/logs/gateway.log'
 # Credenziali: le chiavi Telegram vivono nel .env, quella del provider LLM nel
