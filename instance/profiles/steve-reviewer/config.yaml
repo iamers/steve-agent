@@ -120,9 +120,10 @@ approvals:
   mode: smart
   timeout: 60
 auxiliary:
+  # Keep card closure available when an external provider is walled.
   goal_judge:
-    provider: gemini
-    model: gemini-3.5-flash
+    provider: lab-gpu
+    model: qwen36-35b-a3b-fp8
 platform_toolsets:
   cli:
     - hermes-cli
