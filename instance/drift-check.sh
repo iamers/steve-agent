@@ -486,7 +486,7 @@ echo "== skill: SKILL.md (live vs repo) =="
 # Hermes adds bundled skills: to recalculate it, list the live top-level
 # directories with `ls -d ~/.hermes/skills/*/` and keep everything except the
 # skills managed by steve-agent (for example, steve-factory).
-stock_skills='apple|autonomous-ai-agents|computer-use|creative|data-science|dogfood|email|github|media|mlops|note-taking|productivity|research|smart-home|social-media|software-development|yuanbao'
+stock_skills='apple|autonomous-ai-agents|computer-use|creative|data-science|dogfood|email|github|hermes-desktop-plugins|media|mlops|note-taking|productivity|research|smart-home|social-media|software-development|yuanbao'
 
 # Live skills on the instance (excluding stock skills).
 live_skills=$(ssh "$HOST" 'ls -d ~/.hermes/skills/*/ 2>/dev/null | xargs -n1 basename | sort -u' | grep -Ev "^($stock_skills)$")

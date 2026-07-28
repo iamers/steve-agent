@@ -5,7 +5,7 @@
 # --llm aggiunge una query reale al modello (costa una chiamata LLM).
 set -u
 
-HERMES_PIN="7c1a0295"   # commit del tag v2026.7.1 (v0.18.0)
+HERMES_PIN="3ef6bbd2"   # commit del tag v2026.7.20 (v0.19.0)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Instance-specific knobs (defaults reproduce the canonical iamers/steve-agent
