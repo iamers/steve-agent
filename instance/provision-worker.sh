@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Provisiona un profilo worker Hermes con i symlink necessari per git e gh CLI.
 # I worker Kanban girano con HOME isolato (~/.hermes/profiles/<worker>/home) e
-# senza i symlink giusti non vedono ~/.gitconfig né ~/.config/gh dell'utente unix.
+# without the correct symlinks, they cannot see the Unix user's ~/.gitconfig or ~/.config/gh.
 # Uso: ./provision-worker.sh <profile-name>
 set -u
 
@@ -38,7 +38,7 @@ create_symlink() {
   local link="$2"
   local desc="$3"
 
-  # Se il link esiste già ed è un symlink
+  # If the link already exists and is a symlink
   if [ -L "$link" ]; then
     local current_target
     current_target=$(readlink "$link")
@@ -53,7 +53,7 @@ create_symlink() {
     fi
   fi
 
-  # Se è una directory reale (non symlink perché sopra -L era false)
+  # If it is a real directory (not a symlink because -L above was false)
   if [ -d "$link" ]; then
     if [ -z "$(ls -A "$link")" ]; then
       # Directory vuota, rimuovila e crea il symlink
@@ -69,7 +69,7 @@ create_symlink() {
     fi
   fi
 
-  # Se è un file regolare, errore
+  # If it is a regular file, report an error
   if [ -f "$link" ]; then
     echo "Error: $link exists and is a regular file" >&2
     echo "Cannot overwrite automatically. Remove it manually." >&2
