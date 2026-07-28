@@ -186,20 +186,21 @@ platforms:
           PRIMA di rispondere usa session_search per recuperare la discussione, poi
           apri con un recap di 2 righe di dove eravamo e delle decisioni gia prese,
           e chiedi conferma prima di riaprirle.'
-# Catena di fallback, provata in ordine quando il primario fallisce
-# (rate-limit, 5xx, errori di connessione). Regola: gli anelli devono stare su
-# fornitori DIVERSI e almeno uno deve essere senza quota, altrimenti la catena
-# cade insieme al primario. Il 2026-07-24 primario e fallback erano due quote
-# esterne entrambe sature e il turno e' morto: lab-gpu (endpoint locale) non
-# puo' esaurire quota, gemini resta terzo anello se lab-gpu non risponde.
-# fallback_model accetta un dict singolo o una lista (config.py:4895).
+# Fallback chain, tried in order when the primary fails
+# (rate limits, 5xx responses, connection errors). Rule: links must use
+# DIFFERENT providers and at least one must be quota-free, or the chain
+# fails together with the primary. On 2026-07-24 the primary and fallback
+# had both exhausted their external quotas and the turn failed: lab-gpu
+# (local endpoint) cannot exhaust a quota; gemini remains the third link
+# if lab-gpu does not respond.
+# fallback_model accepts a single mapping or a list (config.py:4895).
 fallback_model:
   - provider: lab-gpu
     model: qwen36-35b-a3b-fp8
   - provider: gemini
     model: gemini-3.5-flash
-# Task ausiliari: volume alto, qualita' non critica. Instradati sull'endpoint
-# locale per non consumare la quota del provider principale.
+# Auxiliary tasks: high volume, non-critical quality. Routed to the local
+# endpoint to avoid consuming the primary provider's quota.
 auxiliary:
   title_generation:
     provider: lab-gpu
