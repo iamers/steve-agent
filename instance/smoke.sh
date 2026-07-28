@@ -6,6 +6,7 @@
 set -u
 
 HERMES_PIN="7c1a0295"   # commit del tag v2026.7.1 (v0.18.0)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Instance-specific knobs (defaults reproduce the canonical iamers/steve-agent
 # instance; override via the environment to reuse the script on another repo).
@@ -127,9 +128,42 @@ run_listener_self_test() {
   echo "listener self-test ok"
 }
 
+run_pr_watch_self_test() {
+  local fixture_dir output last_non_empty non_empty_count
+  fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/pr-watch-selftest.XXXXXX")
+  mkdir -p "$fixture_dir/bin" "$fixture_dir/home"
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'printf '\''called\\n'\'' >"$HOME/gh-called"' \
+    'printf '\''[]\\n'\''' >"$fixture_dir/bin/gh"
+  chmod +x "$fixture_dir/bin/gh"
+
+  output=$(HOME="$fixture_dir/home" PATH="$fixture_dir/bin:$PATH" \
+    "$SCRIPT_DIR/pr-watch.sh" "owner/repo")
+  if [ ! -s "$fixture_dir/home/gh-called" ]; then
+    echo "FAIL: pr-watch no-PR output: gh fixture was not exercised"
+    return 1
+  fi
+  last_non_empty=$(printf '%s\n' "$output" | awk 'NF { last=$0 } END { print last }')
+  non_empty_count=$(printf '%s\n' "$output" | awk 'NF { count++ } END { print count+0 }')
+
+  if [ "$last_non_empty" != '{"wakeAgent": false}' ]; then
+    echo "FAIL: pr-watch no-PR output: expected final non-empty line {\"wakeAgent\": false}, got '${last_non_empty}'"
+    return 1
+  fi
+  if [ "$non_empty_count" -ne 1 ]; then
+    echo "FAIL: pr-watch no-PR output: expected only the wake gate, got ${non_empty_count} non-empty lines"
+    return 1
+  fi
+  echo "ok: pr-watch no-PR output ends with the silent wake gate and nothing else"
+}
+
 if [ "${1:-}" = "--self-test" ]; then
   [ "$#" -eq 1 ] || { echo "usage: $0 --self-test" >&2; exit 2; }
-  run_listener_self_test
+  self_test_failures=0
+  run_listener_self_test || self_test_failures=$((self_test_failures+1))
+  run_pr_watch_self_test || self_test_failures=$((self_test_failures+1))
+  [ "$self_test_failures" -eq 0 ]
   exit $?
 fi
 
