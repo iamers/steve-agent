@@ -34,13 +34,13 @@ check() { # check <label> <command>
   fi
 }
 
-# unexpected_listeners <instance-uid> <allowlist-file> legge l'allowlist come
-# record letterali e l'output di `ss -H -O -tlne` dallo standard input, quindi
-# stampa i listener dell'utente istanza il cui indirizzo locale non è IPv4 127/8
-# né IPv6 ::1. I servizi di sistema (incluso SSH) hanno un owner diverso e
-# restano fuori dal confine di questa verifica. Ritorna 0 quando trova almeno
-# una riga inattesa, 1 quando tutte le righe sono ammesse e 2 per output non
-# verificabile.
+# unexpected_listeners <instance-uid> <allowlist-file> reads the allowlist as
+# literal records and the output of `ss -H -O -tlne` from standard input, then
+# prints listeners owned by the instance user whose local address is neither
+# IPv4 127/8 nor IPv6 ::1. System services (including SSH) have a different
+# owner and remain outside this check's boundary. Returns 0 when it finds at
+# least one unexpected line, 1 when all lines are allowed, and 2 when the
+# output cannot be verified.
 unexpected_listeners() {
   local instance_uid="$1" allowed_listeners_file="$2"
   awk -v instance_uid="$instance_uid" '
@@ -68,8 +68,8 @@ unexpected_listeners() {
   ' "$allowed_listeners_file" -
 }
 
-# Legge i record della allowlist. Ritorna 3 solo quando il percorso non esiste
-# e 2 quando un percorso presente non può essere letto per intero.
+# Reads the allowlist records. Returns 3 only when the path does not exist and
+# 2 when an existing path cannot be read in full.
 read_allowed_listeners() { # read_allowed_listeners <path>
   local allowed_file="$1"
   case "$allowed_file" in
@@ -91,11 +91,11 @@ read_allowed_listeners() { # read_allowed_listeners <path>
 }
 
 # listener_verdict <query-rc> <instance-uid> <ss-output> <allowlist-rc> <allowlist-output>
-# Ritorna 0 solo se la query remota è riuscita e ogni listener dell'utente
-# istanza è loopback o compare esattamente nella allowlist. Metadata esteso
-# assente, tool assente, errore di ss/SSH, allowlist illeggibile e ogni listener
-# non-loopback non ammesso falliscono chiusi. Una allowlist assente equivale a
-# una lista vuota.
+# Returns 0 only if the remote query succeeded and every listener owned by the
+# instance user is loopback or appears exactly in the allowlist. Missing
+# extended metadata, a missing tool, an ss/SSH error, an unreadable allowlist,
+# and every non-loopback listener not in the allowlist fail closed. A missing
+# allowlist is equivalent to an empty list.
 listener_verdict() {
   local query_rc="$1" instance_uid="$2" listener_output="$3"
   local allowlist_rc="$4" allowlist_output="$5" unexpected parser_rc
@@ -296,30 +296,31 @@ check "telegram connected (log)" 'grep -q "telegram connected" ~/.hermes/logs/ga
 check "credentials present"  'for k in TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_USERS TELEGRAM_GROUP_ALLOWED_CHATS TELEGRAM_HOME_CHANNEL; do grep -qE "^$k=." ~/.hermes/.env || exit 1; done; export PATH=$HOME/.local/bin:$PATH; hermes auth status openai-codex 2>&1 | grep -q "logged in"'
 check "env perms 600"        'stat -c %a ~/.hermes/.env | grep -qx 600'
 check_listeners
-# Guardia post-hoc su main (finche' branch protection non e' disponibile sul
-# repo privato): sulla first-parent history di origin/main non devono comparire
-# commit con COMMITTER scrat-ai-* (push diretti del bot o merge eseguiti dal
-# bot). I commit AUTHORED dal bot arrivati via merge/squash di una PR mergiata
-# da un umano sono legittimi e non matchano (committer = umano o GitHub).
+# Post-hoc guard on main (until branch protection is available on the private
+# repo): the first-parent history of origin/main must contain no commit with a
+# scrat-ai-* COMMITTER (direct bot pushes or merges performed by the bot).
+# Commits AUTHORED by the bot that arrived through a PR merged/squashed by a
+# human are legitimate and do not match (committer = human or GitHub).
 check "main free of bot pushes" 'if [ -d ~/repos/steve-agent/.git ]; then cd ~/repos/steve-agent && git fetch -q origin main && ! git log --first-parent origin/main -30 --format="%cn|%ce" | grep -qi "'"$STEVE_BOT_PATTERN"'"; else true; fi'
-# Guardia review a posteriori (main-guard v2, mattone 1): su Free GitHub non si
-# puo' imporre "require review before merge". Per ogni merge commit su main
-# successivo al merge che ha introdotto questo check (PR #26, baseline dinamica),
-# verifica che la PR abbia almeno una review APPROVED da un account diverso
-# dall'autore. I merge precedenti alla baseline (inclusa la PR #23, hotfix ops
-# senza review durante outage reviewer) sono eccezioni storiche documentate nel
-# journal ops. I push diretti senza PR restano coperti dal check sopra.
+# Post-hoc review guard (main-guard v2, building block 1): Free GitHub cannot
+# enforce "require review before merge". For each merge commit on main after
+# the merge that introduced this check (PR #26, dynamic baseline), verify that
+# the PR has at least one APPROVED review from an account other than the author.
+# Merges before the baseline (including PR #23, an operations hotfix without a
+# review during a reviewer outage) are historical exceptions documented in the
+# operations journal. Direct pushes without a PR remain covered by the check
+# above.
 check "main merges have approved reviews" 'export PATH=$HOME/.local/bin:$PATH; if [ -d ~/repos/steve-agent/.git ]; then cd ~/repos/steve-agent && git fetch -q origin main && baseline=$(git log --first-parent origin/main --format="%H %s" | grep "'"$STEVE_REVIEW_BASELINE"'" | head -1 | cut -d" " -f1); if [ -z "$baseline" ]; then echo "review baseline not in first-parent history (main-guard v2 not yet active; nothing to audit)"; else prs=$(git log --first-parent ${baseline}..origin/main --format="%s" | grep -oE "Merge pull request #[0-9]+" | grep -oE "[0-9]+" || true); for pr in $prs; do data=$(gh pr view "$pr" --repo "'"$STEVE_REPO"'" --json reviews,author 2>/dev/null); [ -n "$data" ] || { echo "REVIEW MISSING: PR #$pr (author: unknown) gh lookup failed or not authenticated" >&2; exit 1; }; author=$(printf "%s" "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[\"author\"][\"login\"])" 2>/dev/null); [ -n "$author" ] || { echo "REVIEW MISSING: PR #$pr (author: unknown) malformed review data" >&2; exit 1; }; approved=$(printf "%s" "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); a=d[\"author\"][\"login\"]; print(any(r.get(\"state\")==\"APPROVED\" and (r.get(\"author\") or {}).get(\"login\") not in (None, \"\", a) for r in d.get(\"reviews\",[])))" 2>/dev/null); [ "$approved" = "True" ] || { echo "REVIEW MISSING: PR #$pr (author: $author) merged without approved review from a different account" >&2; exit 1; }; done; fi; fi'
 
-# Guardia main-guard v2 (mattone 2): per ogni merge commit su origin/main
-# il cui AUTHOR e' l'identita' del merge App (STEVE_MERGE_BOT, es.
-# steve-merge[bot]), richiede che la PR corrispondente abbia ENTRAMBE:
-# 1. L'etichetta di approvazione (STEVE_APPROVAL_LABEL, match esatto)
-# 2. Una review APPROVED da un account diverso dall'autore della PR.
-# Un App-authored merge senza label o senza review e' un INCIDENT (chiave
-# compromessa o gate bypassato): il check FALLISCE e stampa il numero di PR.
-# Se non esiste ancora nessun App-authored merge, passa vacuamente. I merge
-# umani e i push del bot restano coperti dai due check sopra.
+# Main-guard v2 guard (building block 2): for every merge commit on origin/main
+# whose AUTHOR is the merge App identity (STEVE_MERGE_BOT, for example
+# steve-merge[bot]), require the corresponding PR to have BOTH:
+# 1. The approval label (STEVE_APPROVAL_LABEL, exact match)
+# 2. An APPROVED review from an account other than the PR author.
+# An App-authored merge without a label or a review is an INCIDENT (compromised
+# key or bypassed gate): the check FAILS and prints the PR number. If there are
+# no App-authored merges yet, it passes vacuously. Human merges and bot pushes
+# remain covered by the two checks above.
 check "app merges are gated (label + review)" 'export PATH=$HOME/.local/bin:$PATH; if [ -d ~/repos/steve-agent/.git ]; then cd ~/repos/steve-agent && git fetch -q origin main; bot_prs=$(git log --first-parent origin/main --format="%an|%s" | { while IFS="|" read -r an subject; do [ "$an" = "'"$STEVE_MERGE_BOT"'" ] && printf "%s\n" "$subject"; done; } | grep -oE "Merge pull request #[0-9]+" | grep -oE "[0-9]+" || true); if [ -z "$bot_prs" ]; then echo "no App-authored merges in first-parent history (nothing to audit)"; else for pr in $bot_prs; do data=$(gh pr view "$pr" --repo "'"$STEVE_REPO"'" --json labels,reviews,author 2>/dev/null); [ -n "$data" ] || { echo "APP MERGE UNGATED: PR #$pr merged by App identity '"$STEVE_MERGE_BOT"'; gh lookup failed or not authenticated" >&2; exit 1; }; label_ok=$(printf "%s" "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); print(any(i.get(\"name\")==sys.argv[1] for i in d.get(\"labels\",[])))" "'"$STEVE_APPROVAL_LABEL"'" 2>/dev/null); approved=$(printf "%s" "$data" | python3 -c "import sys,json; d=json.load(sys.stdin); a=d[\"author\"][\"login\"]; print(any(r.get(\"state\")==\"APPROVED\" and (r.get(\"author\") or {}).get(\"login\") not in (None, \"\", a) for r in d.get(\"reviews\",[])))" 2>/dev/null); [ "$label_ok" = "True" ] && [ "$approved" = "True" ] || { echo "APP MERGE UNGATED: PR #$pr (merged by App identity '"$STEVE_MERGE_BOT"') missing approval label '"$STEVE_APPROVAL_LABEL"' or approved review from a different account" >&2; exit 1; }; done; fi; fi'
 
 if [ "$LLM_CHECK" = 1 ]; then
