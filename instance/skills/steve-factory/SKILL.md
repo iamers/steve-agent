@@ -549,6 +549,40 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
     sono partiti da una base stale. Aggiorna `main` una volta prima di creare i
     task, come descritto nel §2.
 
+25. **`triage` è una coda di ingresso, non un parcheggio.** Una card creata con
+    `hermes kanban create --triage` viene promossa a `todo`, scomposta in task
+    figli e dispatchata. Il 2026-07-28 dieci card scritte come backlog hanno
+    prodotto autonomamente tredici pull request, compresa una modifica del pin
+    del runtime che era stata esplicitamente rinviata. Per parcheggiare
+    deliberatamente una card di backlog, usa invece
+    `hermes kanban create --initial-status blocked`: è la forma che la trattiene;
+    scrivi il motivo del blocco nel body della card.
+    - **Sintomo:** parte lavoro che nessuno ha chiesto di eseguire subito.
+    - **Fix:** su una card già `ready`, esegui
+      `hermes kanban block <id> "<reason>" --kind needs_input`; attendi un tick
+      del dispatcher e rileggi lo stato con `hermes kanban show <id>`, senza
+      fidarti dell'output del comando di blocco. Rispetta l'ordine degli
+      argomenti: se `--ids` precede il motivo, il motivo viene consumato come id.
+
+26. **Una card senza assignee resta in `ready` e non genera mai un worker.** Il
+    dispatcher non può avviare ciò che non può instradare e non segnala alcun
+    errore: la card resta semplicemente ferma.
+    - **Sintomo:** la card è `ready` e intatta mentre le altre avanzano. Controlla
+      la colonna assignee con `hermes kanban list` prima di sospettare un guasto
+      del dispatcher.
+    - **Fix:** esegui `hermes kanban assign <id> <profile>`.
+
+27. **Una card con una pull request già aperta non può essere riavviata.** Lo
+    sblocco induce il dispatcher a rispondere una volta al minuto
+    `respawn_guarded {reason: active_pr}` senza fine; il 2026-07-28 questo ciclo
+    è rimasto vuoto per due ore e mezza.
+    - **Sintomo:** `hermes kanban diagnostics` riporta `stranded_in_ready` e
+      `grep 'dispatcher stuck:' ~/.hermes/logs/gateway.log` mostra ripetutamente
+      `dispatcher stuck: ready queue non-empty for N consecutive ticks but 0 workers spawned`.
+    - **Fix:** applica `new_task_instead_of_unblock` anche qui, non soltanto a
+      una card `done`: chiudi la card e creane una nuova sullo stesso workspace
+      con `--workspace dir:<path>`.
+
 ## Verification Checklist
 
 - [ ] Il brief del task ha goal, vincoli, boundaries, verify eseguibili, stop-when.
