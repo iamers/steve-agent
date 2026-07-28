@@ -188,7 +188,8 @@ platforms:
         - status
         - whoami
 plugins:
-  enabled: []
+  enabled:
+    - security-guidance
 _config_version: 32
 onboarding:
   seen:
