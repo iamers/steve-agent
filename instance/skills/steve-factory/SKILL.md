@@ -553,9 +553,10 @@ mantiene la vista d'insieme ma non e' il posto dove discutere il singolo task.
     `hermes kanban create --triage` viene promossa a `todo`, scomposta in task
     figli e dispatchata. Il 2026-07-28 dieci card scritte come backlog hanno
     prodotto autonomamente tredici pull request, compresa una modifica del pin
-    del runtime che era stata esplicitamente rinviata. Neppure
-    `--initial-status blocked` trattiene una card: tre card create così si sono
-    promosse a `ready` entro pochi minuti.
+    del runtime che era stata esplicitamente rinviata. Per parcheggiare
+    deliberatamente una card di backlog, usa invece
+    `hermes kanban create --initial-status blocked`: è la forma che la trattiene;
+    scrivi il motivo del blocco nel body della card.
     - **Sintomo:** parte lavoro che nessuno ha chiesto di eseguire subito.
     - **Fix:** su una card già `ready`, esegui
       `hermes kanban block <id> "<reason>" --kind needs_input`; attendi un tick
