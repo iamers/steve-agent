@@ -5,7 +5,7 @@ fallback_model:
   - provider: lab-gpu
     model: qwen36-35b-a3b-fp8
   - provider: gemini
-    model: gemini-3.5-flash
+    model: gemini-3.6-flash
 terminal:
   backend: local
   cwd: .
@@ -138,6 +138,8 @@ auxiliary:
 # inside the LLM call, and that gate returns before any call is made.
 # Verified 2026-07-29: the same one-shot answered on the root profile and
 # failed here.
+# A profile declares only the providers it uses: `lab-gpu-fast`, which the root
+# config adds for the MoA advisor slot, has no consumer here.
 custom_providers:
   - name: lab-gpu
     base_url: ${VLLM_BASE_URL}
