@@ -125,6 +125,18 @@ auxiliary:
   goal_judge:
     provider: lab-gpu
     model: qwen36-35b-a3b-fp8
+# Named custom providers are NOT inherited from the root config: each profile
+# resolves providers from its own config only. Without this block the two
+# references to `lab-gpu` above (goal_judge) and in fallback_model resolve to
+# "Unknown provider 'lab-gpu'", so the first fallback link is silently skipped
+# and the goal judge falls through to the external provider it exists to spare.
+# Verified 2026-07-29: same one-shot answered on the root profile and failed
+# here. Keep this block byte-identical to the root config's.
+custom_providers:
+  - name: lab-gpu
+    base_url: ${VLLM_BASE_URL}
+    key_env: VLLM_API_KEY
+    api_mode: chat_completions
 platform_toolsets:
   cli:
     - hermes-cli
