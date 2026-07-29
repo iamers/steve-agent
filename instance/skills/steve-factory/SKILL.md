@@ -1,6 +1,6 @@
 ---
 name: steve-factory
-description: "Runbook per il profilo main: orchestrare il ciclo factory (task, review, merge) dalla chat senza coordinatore esterno."
+description: "Runbook for the main profile: orchestrate the factory cycle (task, review, merge) from chat without an external coordinator."
 version: 1.0.0
 author: Steve Agent
 license: MIT
@@ -10,152 +10,152 @@ metadata:
     related_skills: []
 ---
 
-# Steve Factory — runbook del profilo main
+# Steve Factory — main profile runbook
 
 ## Overview
 
-Questa skill insegna al profilo main (Steve, l'orchestratore in chat) a gestire
-l'intero ciclo factory senza un coordinatore esterno: creare task di sviluppo,
-farli revieware, portarli alla decisione di merge. La board kanban e' la verita';
-la chat e' dove si decide, non dove si sviluppa.
+This skill teaches the main profile (Steve, the orchestrator in chat) to manage
+the entire factory cycle without an external coordinator: create development tasks,
+have them reviewed, bring them to the merge decision. The kanban board is the source of truth;
+chat is where decisions are made, not where development happens.
 
-Steve NON sviluppa in chat (vedi SOUL.md), NON tocca il runtime dell'istanza,
-NON mergia: il gate deterministico esegue i merge `safe` autorizzati; i tier
-superiori restano merge umani su GitHub.
+Steve DOES NOT develop in chat (see SOUL.md), DOES NOT touch the instance runtime,
+DOES NOT merge: the deterministic gate executes authorized `safe` merges; higher
+tiers remain human merges on GitHub.
 
-## Quando si usa
+## When to use
 
-- Un membro propone un lavoro che finira' in un repo tracked.
-- Arriva la notifica di una PR aperta e serve avviare la review.
-- Serve redirigere un task dopo una review con request-changes.
+- A member proposes work that will end up in a tracked repo.
+- Notification arrives that a PR has been opened and a review must be started.
+- A task must be redirected after a review with request-changes.
 
-Non si usa per: discussioni di solo prodotto, brainstorming, o cio' che non
-produce file committati.
+Do not use it for: product-only discussions, brainstorming, or anything that does not
+produce committed files.
 
-## 1. Ruolo e confini
+## 1. Role and boundaries
 
-- Steve orchestra dalla chat. Lo sviluppo avviene nei task dispatchati, mai in
-  conversazione diretta (la regola vive in SOUL.md, qui la si onora).
-- Mai modificare il runtime dell'istanza (config live, profili, credenziali):
-  quelle sono operazioni di ops, non di orchestrazione.
-- Mai mergiare direttamente. La catena unattended e' provata end-to-end tre
-  volte:
-  dopo l'approve in chat Steve applica la label `steve-approved` e si ferma;
-  ogni cinque minuti lo scanner cron cerca le PR, il gate verifica le 5
-  condizioni (label, review, CI, tier safe, SHA match) e la App esegue il
-  merge. Il gate non decide se la policy locale e' indietro rispetto a
-  `origin/main`. Steve NON esegue il gate (vedi .steve/pr-lifecycle.md).
-- La board e' la verita': se un lavoro non e' un task sulla board, non esiste.
+- Steve orchestrates from chat. Development happens in dispatched tasks, never in
+  direct conversation (the rule lives in SOUL.md; it is honored here).
+- Never modify the instance runtime (live config, profiles, credentials):
+  those are ops operations, not orchestration.
+- Never merge directly. The unattended chain has been tested end-to-end three
+  times:
+  after approval in chat, Steve applies the `steve-approved` label and stops;
+  every five minutes the cron scanner searches for PRs, the gate verifies the 5
+  conditions (label, review, CI, safe tier, SHA match), and the App executes the
+  merge. The gate does not determine whether the local policy is behind
+  `origin/main`. Steve DOES NOT execute the gate (see .steve/pr-lifecycle.md).
+- The board is the source of truth: if work is not a task on the board, it does not exist.
 
-## 2. Creare un task di sviluppo
+## 2. Creating a development task
 
-Prima di creare e dispatchare task, aggiorna `main` nel clone, così i nuovi
-worktree partono dalla base corrente:
+Before creating and dispatching tasks, update `main` in the clone, so new
+worktrees start from the current base:
 
     git -C <clone> fetch --quiet origin main && git -C <clone> merge --ff-only origin/main
 
-I worktree sono creati da `HEAD` con `git worktree add`, senza fetch: un clone
-stale produce branch stale e lavoro di rebase successivo. Se il merge non è
-fast-forward, fermati e segnalalo: il clone è divergente, è una situazione
-ops e non va forzata.
-Per un batch di task indipendenti esegui l'aggiornamento una sola volta, prima
-di crearli, non una volta per task.
+Worktrees are created from `HEAD` with `git worktree add`, without fetching: a
+stale clone produces stale branches and subsequent rebase work. If the merge is not
+fast-forward, stop and report it: the clone has diverged, this is an
+ops situation and must not be forced.
+For a batch of independent tasks, perform the update only once, before
+creating them, not once per task.
 
-Usa il tool `kanban_create` (o il CLI `hermes kanban create`). Il brief DEVE
-contenere, in modo che il worker possa verificarlo da solo:
+Use the `kanban_create` tool (or the `hermes kanban create` CLI). The brief MUST
+contain the following, so the worker can verify it independently:
 
-- **Goal** in una frase.
-- **Vincoli** (convenzioni, dipendenze, vincoli di linguaggio).
-- **Boundaries**: elenco esplicito dei file/cartelle toccabili. Tutto cio' che
-  non e' in lista e' fuori limite.
-- **Verify eseguibili**: comandi con exit 0 atteso che il worker deve mostrare
-  eseguiti nel proprio result.
-- **Stop-when**: condizione che dice al worker quando fermarsi e riportare.
+- **Goal** in one sentence.
+- **Constraints** (conventions, dependencies, language constraints).
+- **Boundaries**: explicit list of files/folders that may be touched. Anything
+  not on the list is out of bounds.
+- **Executable verifies**: commands expected to exit 0 that the worker must show
+  as executed in its own result.
+- **Stop-when**: condition that tells the worker when to stop and report.
 
-Prima di scrivere il brief, leggi `task_rules` in
-`.steve/review-policy.yaml` e applica quelle regole ai verify: ogni brief le
-eredita, non dipende dalla memoria di chi lo prepara.
+Before writing the brief, read `task_rules` in
+`.steve/review-policy.yaml` and apply those rules to the verifies: every brief
+inherits them; it does not depend on the memory of whoever prepares it.
 
-Quando il task apre una pull request, il brief impone al worker di compilare
-nel body `.github/PULL_REQUEST_TEMPLATE.md`. La riga sulla CI va attestata
-come scritta: l'autore dichiara di aver interrogato la CI una volta dopo il
-push e ne riporta lo stato, non dichiara che sia verde.
+When the task opens a pull request, the brief requires the worker to fill out
+`.github/PULL_REQUEST_TEMPLATE.md` in the body. The CI line must be attested
+as written: the author declares that they queried CI once after the
+push and reports its status; they do not declare that it is green.
 
-Quando in chat si prende una decisione che cambia il modo di lavorare del
-progetto, l'ADR viaggia nella stessa pull request della decisione e il suo testo
-e' scritto da chi ha preso quella decisione. Usa un file per decisione in
-`docs/decisions/`, chiamato `adr-YYYYMMDD-slug.md`, con stato e formato descritti
-nel relativo `README.md`.
+When a decision made in chat changes the way the project works,
+the ADR travels in the same pull request as the decision, and its text
+is written by whoever made that decision. Use one file per decision in
+`docs/decisions/`, named `adr-YYYYMMDD-slug.md`, with status and format described
+in the corresponding `README.md`.
 
-Campi del task:
+Task fields:
 
 - `assignee: steve-worker`
-- `--project steve-agent` (worktree e branch li deriva il sistema)
-- `--goal` per i task sostanziali (goal loop)
-- `--skill` per forzare le skill bundled pertinenti; in particolare
-  `github/github-pr-workflow` per i task che aprono PR
-- `--parent` per le dipendenze: la promozione a ready quando i parent sono done
-  e' automatica, non va gestita a mano
+- `--project steve-agent` (the system derives the worktree and branch)
+- `--goal` for substantial tasks (goal loop)
+- `--skill` to force the relevant bundled skills; in particular
+  `github/github-pr-workflow` for tasks that open PRs
+- `--parent` for dependencies: promotion to ready when parents are done
+  is automatic and must not be managed manually
 
-**Task che aprono PR e coinvolgono CI:** nel brief scrivi esplicito che il
-worker NON deve fare polling attivo sullo stato CI (vedi Pitfall #6): una
-sola chiamata con timeout generoso, poi completa con il numero PR anche se la
-CI e' ancora pending. Il coordinatore verifica a posteriori. Comando per lo
-stato CI: `gh run list --commit <sha>` (NON `gh pr checks`, che richiede lo
-scope separato "Checks: read" non disponibile sui PAT correnti).
+**Tasks that open PRs and involve CI:** state explicitly in the brief that the
+worker MUST NOT actively poll CI status (see Pitfall #6): make a
+single call with a generous timeout, then complete with the PR number even if
+CI is still pending. The coordinator checks afterward. Command for CI
+status: `gh run list --commit <sha>` (NOT `gh pr checks`, which requires the
+separate "Checks: read" scope unavailable on current PATs).
 
-Dopo la creazione: notify-subscribe del task al topic Telegram della story (o al
-topic Backlog di default), cosi' gli esiti arrivano in push invece di dover
-essere interrogati.
+After creation: notify-subscribe the task to the story's Telegram topic (or to the
+default Backlog topic), so results arrive by push instead of having to be
+queried.
 
-**Batch di task indipendenti (dispatch parallelo):** quando un membro propone
-N task indipendenti (es. batch pre-publish: scrub, license, narrative), prima di
-creare il batch verifica gli insiemi di boundary dichiarati nei brief:
-`python3 tools/boundary-check.py --batch <file.json>`. Se gli insiemi si
-intersecano, non eseguire i task in parallelo: concatenali con `--parent`, così
-la promozione automatica li serializza. Verifica inoltre i boundary di ogni
-nuovo task rispetto alle pull request già aperte, perché il conflitto può
-riguardare anche il lavoro in corso:
-`python3 tools/boundary-check.py --repo <owner/name> --paths <path>...`. Segui
+**Batch of independent tasks (parallel dispatch):** when a member proposes
+N independent tasks (e.g., a pre-publish batch: scrub, license, narrative), before
+creating the batch, verify the boundary sets declared in the briefs:
+`python3 tools/boundary-check.py --batch <file.json>`. If the sets
+intersect, do not run the tasks in parallel: chain them with `--parent`, so
+automatic promotion serializes them. Also verify the boundaries of each
+new task against pull requests that are already open, because the conflict may
+also concern work in progress:
+`python3 tools/boundary-check.py --repo <owner/name> --paths <path>...`. Follow
 `docs/decisions/adr-20260728-parallel-dispatch-requires-disjoint-boundaries.md`.
-Il check confronta soltanto gli insiemi di file dichiarati tra task: non rileva
-che due task possano condividere uno stesso workspace, né impedisce che un task
-committi sul branch condiviso un file fuori dal proprio boundary. Superati i
-controlli, crea tutti i task con `kanban_create` (senza `parents` reciproci:
-vanno dritti a `ready`), poi esegui un solo `hermes kanban dispatch`. Il
-dispatcher spawna i worker in parallelo, ciascuno nel proprio worktree su branch
-indipendente. Each worker creates its own review task when it opens its pull
+The check compares only the file sets declared across tasks: it does not detect
+that two tasks may share the same workspace, nor does it prevent a task from
+committing a file outside its boundary on the shared branch. Once the
+checks pass, create all tasks with `kanban_create` (without reciprocal `parents`:
+they go straight to `ready`), then run a single `hermes kanban dispatch`. The
+dispatcher spawns the workers in parallel, each in its own worktree on an
+independent branch. Each worker creates its own review task when it opens its pull
 request, so the orchestrator creates no routine review tasks.
 
-## 3. Sanitizzazione
+## 3. Sanitization
 
-OBBLIGATORIO per ogni task che produce file committati. La lista delle stringhe
-vietate ha UNA SORGENTE LOGICA (un seed condiviso) con copie per-macchina:
+MANDATORY for every task that produces committed files. The list of forbidden
+strings has ONE LOGICAL SOURCE (a shared seed) with per-machine copies:
 
-- Sull'istanza vive in `~/.hermes/private/forbidden-strings.txt` ed e' quella
-  che Steve legge per costruire i brief.
-- Sulla stessa macchina, il clone del repo la aggancia come
-  `.local/privacy-denylist.txt` tramite un symlink gitignorato, cosi' la guardia
-  `scripts/check_privacy.sh` consuma la STESSA lista (il path e'
-  `.local/privacy-denylist.txt`, overridabile via `PRIVACY_DENYLIST`).
-- Tenere sincronizzate le copie tra macchine e' un compito ops dichiarato, non
-  di Steve: se le copie divergono fa fede il seed della guardia dev-privacy.
+- On the instance, it lives at `~/.hermes/private/forbidden-strings.txt` and is the one
+  Steve reads to build briefs.
+- On the same machine, the repo clone links it as
+  `.local/privacy-denylist.txt` through a gitignored symlink, so the
+  `scripts/check_privacy.sh` guard consumes the SAME list (the path is
+  `.local/privacy-denylist.txt`, overridable via `PRIVACY_DENYLIST`).
+- Keeping copies synchronized across machines is a declared ops task, not
+  Steve's: if the copies diverge, the dev-privacy guard's seed prevails.
 
-Nei worktree `--project` il symlink `.local/privacy-denylist.txt` NON esiste
-(vive nel clone del repo): colma il gap `PRIVACY_DENYLIST` dall'ambiente — il
-gateway la esporta ai worker dispatchati dal `.env` dell'istanza. Se punta al
-file denylist (path assoluto, es. `~/.hermes/private/forbidden-strings.txt`),
-`scripts/check_privacy.sh` lo usa direttamente: il worker esegue i check del
-brief anche senza il `.local/`.
+In `--project` worktrees, the `.local/privacy-denylist.txt` symlink DOES NOT exist
+(it lives in the repo clone): `PRIVACY_DENYLIST` fills the gap from the environment — the
+gateway exports it to dispatched workers from the instance's `.env`. If it points to the
+denylist file (absolute path, e.g. `~/.hermes/private/forbidden-strings.txt`),
+`scripts/check_privacy.sh` uses it directly: the worker runs the brief's checks
+even without `.local/`.
 
-Per ogni stringa della lista, includi nel verify del brief un check negativo:
+For every string in the list, include a negative check in the brief's verify:
 
     ! grep -qi <stringa> <file>
 
-REGOLA FONDAMENTALE: mai copiare i valori della lista in file committabili, nei
-body delle PR o nei messaggi pubblici. Nel brief si citano come check, non si
-commentano e non si trascrivono. Il path e' il riferimento; il contenuto resta
-locale e privato.
+FUNDAMENTAL RULE: never copy the list values into committable files, PR
+bodies, or public messages. In the brief they are cited as checks; they are not
+commented on or transcribed. The path is the reference; the content remains
+local and private.
 
 ## 4. Ciclo di review
 
