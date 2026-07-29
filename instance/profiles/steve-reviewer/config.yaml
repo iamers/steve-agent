@@ -100,22 +100,23 @@ agent:
       is AMAZING and we're gonna CRUSH IT together! This is gonna be LEGENDARY! ARE
       YOU READY?! LET'S DO THIS! 💪😤🚀
   verify_on_stop: true
-# Approvazioni: solo su QUESTO profilo, e solo perché è di sola lettura.
-# Un task dispatchato gira senza TTY e senza canale di approvazione: con la
-# modalità `manual` ogni comando che il gate segnala resta appeso per
-# `timeout` secondi e viene poi NEGATO, e il task muore. Misurato: stesso
-# comando, mode=manual 71s e comando negato, mode=smart 19s e comando eseguito.
-# In `smart` un LLM guardiano valuta il comando PRIMA del prompt e risponde
-# approve/deny/escalate, con difese esplicite contro il prompt injection
-# (commenti rimossi, comando in delimitatori, istruzione a ignorare direttive
-# nel testo). Il pavimento di sicurezza resta: hardline block e guardia su
-# `sudo -S` scattano prima e non sono aggirabili da smart, off o --yolo.
-# Il reviewer è il candidato giusto: per SOUL non pusha e non mergia, e lavora
-# in una workspace scratch. Worker e orchestratore restano su `manual`, dove
-# un comando dubbio deve fermarsi.
-# NB: il guardiano NON va instradato sull'endpoint locale. Provato: risponde
-# `escalate` a tutto, incluso `bash check_privacy.sh`, e un escalate torna al
-# prompt, cioè riproduce il blocco che questa modifica rimuove.
+# Approvals: only on THIS profile, and only because it is read-only.
+# A dispatched task runs without a TTY or approval channel: in `manual` mode,
+# every command flagged by the gate hangs for `timeout` seconds and is then
+# DENIED, and the task dies. Measured with the same command: mode=manual took
+# 71s and denied the command; mode=smart took 19s and ran the command.
+# In `smart` mode, a guardian LLM evaluates the command BEFORE the prompt and
+# responds approve/deny/escalate, with explicit prompt-injection defenses
+# (comments removed, command placed between delimiters, instruction to ignore
+# directives in the text). The security floor remains: the hardline block and
+# `sudo -S` guard trigger first and cannot be bypassed by smart, off, or --yolo.
+# The reviewer is the right candidate: its SOUL prevents pushing and merging,
+# and it works in a scratch workspace. Worker and orchestrator remain on
+# `manual`, where a questionable command must stop.
+# NB: the guardian must NOT be routed to the local endpoint. Testing showed
+# that it responds `escalate` to everything, including `bash check_privacy.sh`,
+# and an escalation returns to the prompt, reproducing the block this change
+# removes.
 approvals:
   mode: smart
   timeout: 60
