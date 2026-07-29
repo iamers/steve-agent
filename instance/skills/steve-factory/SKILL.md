@@ -483,168 +483,174 @@ task.
       `gave_up`, a `kanban_comment` with "retry" + `kanban_unblock` restarts the
       task at the next dispatch.
 
-14. **Accoppiamento assert/stringa in pr-brief.py: la dipendenza e' interna al tool.** Nei brief che toccano pr-brief.py, l'accoppiamento critico tra `run_self_test()` e il template NON e' template→tool (come si potrebbe pensare): la stringa emessa nel brief la inietta pr-brief.py stesso, non il template. Quindi la dipendenza da cercare e' tutta interna al tool — se traduci una stringa emessa da render_brief(), l'assert in run_self_test() che la controlla va aggiornato nello stesso file, nello stesso commit.
+14. **Assert/string coupling in pr-brief.py: the dependency is internal to the tool.** In briefs that touch pr-brief.py, the critical coupling between `run_self_test()` and the template is NOT template→tool (as one might think): pr-brief.py itself injects the string emitted in the brief, not the template. Therefore, the dependency to look for is entirely internal to the tool—if you translate a string emitted by `render_brief()`, the assert in `run_self_test()` that checks it must be updated in the same file and the same commit.
 
-15. **Testo canonico da fonti esterne: verify con diff, non con grep marker.**
-    Quando un worker deve riprodurre un testo canonico verbatim (licenze,
-    standard, specifiche), i verify basati su grep marker (`grep -c
-    'Covenants'`, `grep -c 'Notice'`) **non sono sufficienti**: confermano che
-    le sezioni ci sono, non che il contenuto e' corretto. Una singola parola
-    sbagliata nel testo legale (es. `EXPRESS, IMPLIED` invece di `EXPRESS OR
-    IMPLIED` in una disclaimer BUSL-1.1) passa tutti i grep marker.
-    - **Nel brief del task di review**, per testo canonico, includi un verify
-      che **scarica la fonte ufficiale** (con `curl`) e **confronta** il
-      contenuto del file nel worktree riga per riga, con tolleranza solo su
+15. **Canonical text from external sources: verify with a diff, not grep markers.**
+    When a worker must reproduce canonical text verbatim (licenses, standards,
+    specifications), verifies based on grep markers (`grep -c 'Covenants'`,
+    `grep -c 'Notice'`) **are not sufficient**: they confirm that the sections
+    exist, not that their content is correct. A single wrong word in legal text
+    (for example, `EXPRESS, IMPLIED` instead of `EXPRESS OR IMPLIED` in a
+    BUSL-1.1 disclaimer) passes every grep marker.
+    - **In the review task brief**, for canonical text, include a verify that
+      **downloads the official source** (with `curl`) and **compares** the file
+      content in the worktree line by line, allowing differences only in
       whitespace/wrapping.
-    - **Differenziare dal diff review normale:** il reviewer legge il diff come
-      racconto; per testo canonico, deve confrontare carattere per carattera
-      contro la fonte. Sono due check diversi con due tecniche diverse.
-    - **Pattern di brief:** "scarica `https://spdx.org/licenses/BUSL-1.1.html`,
-      estrai il testo dalla sezione 'Terms' in poi, confronta col file LICENSE
-      nel worktree. Tolleranza solo su whitespace/wrapping. Se trovi
-      discrepanze materiali nel testo legale -> REQUEST_CHANGES."
+    - **Distinguish this from normal diff review:** the reviewer reads the diff
+      as a narrative; for canonical text, they must compare it character by
+      character against the source. These are two different checks using two
+      different techniques.
+    - **Brief pattern:** "download `https://spdx.org/licenses/BUSL-1.1.html`,
+      extract the text from the 'Terms' section onward, and compare it with the
+      LICENSE file in the worktree. Allow differences only in
+      whitespace/wrapping. If you find material discrepancies in the legal text
+      -> REQUEST_CHANGES."
 
-16. **Race condition sui commenti di review ai task running.** Quando il coordinatore posta un `kanban_comment` con findings aggiuntivi su un task di review gia' in stato `running`, il reviewer puo' completare e approvare PRIMA di leggere il commento. La finestra e' di decine di secondi: il commento arriva dopo che il reviewer ha gia' passato la fase di lettura del brief, o addirittura dopo che ha gia' chiamato `gh pr review --approve`.
-    - **Sintomi:** il reviewer completa con APPROVED, e il coordinatore vede il proprio commento marcato "just now" accanto a un task gia' done. I difetti segnalati non sono nella review su GitHub.
-    - **Causa:** il dispatcher spawna il reviewer al `dispatch`; il commento arriva dopo, ma il reviewer non rilegge i commenti durante l'esecuzione.
-    - **Gestione (approccio adottato):** se il reviewer salta il commento, scatena comunque il fix sul branch esistente (come si fa per qualsiasi REQUEST_CHANGES post-approve). L'approve su GitHub resta valido; il fix commit aggiorna la PR e richiede re-review.
-    - **Prevenzione (protocollo operativo):** quando il coordinatore (o il repo owner) manda rilievi su review in corso, **sempre opzione (a) prima**: `kanban_block` il task di review **prima** di commentare, poi `kanban_unblock` dopo aver postato il commento. Questo garantisce che il reviewer rilegga i commenti quando riprende. Solo se il reviewer ha gia' chiuso (task `done`), ricorrere all'opzione (b): fix task sul branch + re-review. Non commentare MAI un task `running` senza averlo prima bloccato: e' il bug che questa sessione ha confermato (reviewer ha approvato #38 e #39 senza incorporare i rilievi, #37 e #40 hanno richiesto fix post-approve).
+16. **Race condition when adding review comments to running tasks.** When the coordinator posts a `kanban_comment` with additional findings on a review task already in the `running` state, the reviewer may complete and approve BEFORE reading the comment. The window is tens of seconds: the comment arrives after the reviewer has already passed the brief-reading phase, or even after they have already called `gh pr review --approve`.
+    - **Symptoms:** the reviewer completes with APPROVED, and the coordinator sees their comment marked "just now" next to a task already marked done. The reported defects are not in the GitHub review.
+    - **Cause:** the dispatcher spawns the reviewer at `dispatch`; the comment arrives later, but the reviewer does not reread comments during execution.
+    - **Handling (adopted approach):** if the reviewer misses the comment, trigger the fix on the existing branch anyway (as for any post-approval REQUEST_CHANGES). The GitHub approval remains valid; the fix commit updates the PR and requires re-review.
+    - **Prevention (operating protocol):** when the coordinator (or repo owner) sends findings on an ongoing review, **always use option (a) first**: `kanban_block` the review task **before** commenting, then `kanban_unblock` after posting the comment. This guarantees that the reviewer rereads the comments when they resume. Only if the reviewer has already finished (task `done`) should option (b) be used: a fix task on the branch + re-review. NEVER comment on a `running` task without blocking it first: this is the bug confirmed by this session (the reviewer approved #38 and #39 without incorporating the findings; #37 and #40 required post-approval fixes).
 
-17. **Redazione del display layer su pattern `Authorization:` (falsi positivi nei review).** Il terminal layer di Hermes maschera qualsiasi pattern `Authorization: *** come `Authorization: ***`. Questo vale per `cat`, `sed -n <N>p`, `grep`, `git show :file | cat`: tutti mostrano `***` anche quando i byte reali sono `${auth}` o `token xyz`. Un reviewer che legge il diff o il file via terminal vede un bug che non esiste.
-    - **Sintomi:** il reviewer flagga `Authorization: ***` come literal placeholder, REQUEST_CHANGES. Il worker giustamente dice "il fix e' gia' presente". Si crea un deadlock di review basato su un fantasma.
-    - **Diagnosi:** verifica con hex dump (`xxd`, `od -An -tx1`) o Python byte-level (`b"${auth}" in line`). L'hex bypassa il display layer.
-    - **Prevenzione:** quando un worker o un reviewer flagga un pattern `Authorization: ***`, prima di dispatchare un fix, verifica i byte reali con `xxd`. Non fidarti di `cat`, `sed`, `grep` per linee che contengono header di autenticazione.
-    - **Nel brief di review:** quando si chiede al reviewer di tracciare il flusso auth nel codice, specificare esplicitamente di usare `xxd` o `od` per verificare i byte delle righe con `Authorization:`.
+17. **Display-layer redaction of `Authorization:` patterns (false positives in reviews).** The Hermes terminal layer masks any `Authorization: ***` pattern as `Authorization: ***`. This applies to `cat`, `sed -n <N>p`, `grep`, and `git show :file | cat`: they all show `***` even when the real bytes are `${auth}` or `token xyz`. A reviewer reading the diff or file through the terminal sees a bug that does not exist.
+    - **Symptoms:** the reviewer flags `Authorization: ***` as a literal placeholder and submits REQUEST_CHANGES. The worker correctly says "the fix is already present." This creates a review deadlock based on a phantom.
+    - **Diagnosis:** verify with a hex dump (`xxd`, `od -An -tx1`) or byte-level Python (`b"${auth}" in line`). Hex bypasses the display layer.
+    - **Prevention:** when a worker or reviewer flags an `Authorization: ***` pattern, verify the real bytes with `xxd` before dispatching a fix. Do not trust `cat`, `sed`, or `grep` for lines containing authentication headers.
+    - **In the review brief:** when asking the reviewer to trace the auth flow in the code, explicitly require `xxd` or `od` to verify the bytes of lines containing `Authorization:`.
 
-18. **Shell scripts: `bash -n` non basta, la CI esegue `shellcheck --severity=warning`.** Quando un worker modifica file `.sh`, `bash -n` verifica solo la sintassi (parse) ma non catcha i warning di shellcheck (variabili non quotate, pattern di quoting annidato, ecc.). La CI di steve-agent esegue `shellcheck --severity=warning instance/*.sh scripts/*.sh`: un warning e' rosso.
-    - **Nei brief di task che toccano `.sh`:** il verify DEVE includere
-      `shellcheck --severity=warning <file>` oltre a `bash -n <file>`. Se
-      shellcheck non e' installato nel worktree, il worker lo installa
-      (`apt-get install -qq shellcheck` o equivalente) o dichiara l'assenza.
-    - **Quoting SSH e SC2027:** il pattern `'"'"$VAR"'"'` per passare variabili
-      localmente espandendole dentro single-quote SSH e' fragilissimo: shellcheck
-      lo flagga come SC2027 ("surrounding quotes actually unquote this"). La
-      forma corretta e' `"'$VAR'"` (close-single-quote dopo la virgoletta
-      letterale, expand double-quoted, reopen prima della virgoletta di chiusura).
-      Se il task richiede quoting di variabili dentro stringhe SSH single-quoted,
-      testa il pattern esplicitamente con shellcheck prima di pushare, e verifica
-      empiricamente (sourcing con stub) che il comando remoto assemblato sia
-      corretto sotto default e override.
+18. **Shell scripts: `bash -n` is not enough; CI runs `shellcheck --severity=warning`.** When a worker modifies `.sh` files, `bash -n` checks only syntax (parsing) and does not catch shellcheck warnings (unquoted variables, nested quoting patterns, and so on). Steve Agent CI runs `shellcheck --severity=warning instance/*.sh scripts/*.sh`: a warning is red.
+    - **In task briefs that touch `.sh` files:** the verify MUST include
+      `shellcheck --severity=warning <file>` in addition to `bash -n <file>`. If
+      shellcheck is not installed in the worktree, the worker installs it
+      (`apt-get install -qq shellcheck` or equivalent) or reports its absence.
+    - **SSH quoting and SC2027:** the `'"'"$VAR"'"'` pattern for passing locally
+      expanded variables inside single-quoted SSH is extremely fragile:
+      shellcheck flags it as SC2027 ("surrounding quotes actually unquote
+      this"). The correct form is `"'$VAR'"` (close the single quote after the
+      literal quotation mark, expand double-quoted, and reopen before the
+      closing quotation mark). If the task requires quoting variables inside
+      single-quoted SSH strings, explicitly test the pattern with shellcheck
+      before pushing, and empirically verify (by sourcing with a stub) that the
+      assembled remote command is correct with both defaults and overrides.
 
-19. **Code path non testabili senza credenziali: il brief di review DEVE imporre code-tracing manuale.** Quando un worker implementa uno script con path che non possono essere esercitati nel worktree (flussi di auth, chiamate di rete, gestione credenziali), il `--self-test` copre solo la logica pura. Il path di auth/rete e' codice morto fino al deploy. Il brief di review DEVE istruire esplicitamente il reviewer di tracciare quei path LEGGENDO il codice, non solo eseguendo i verify. Verificare che ogni parametro ricevuto da una funione arrivi effettivamente alla chiamata di rete (es. `curl -H "Authorization: $auth"`, non un literal placeholder). Questa sessione: merge-gate.sh `gh_api()` aveva `-H "Authorization: ***"` (asterischi letterali) invece di `$auth`: self-test 10/10 verde, shellcheck verde, CI verde. Solo il code-tracing manuale del reviewer ha catturato il bug.
+19. **Code paths that cannot be tested without credentials: the review brief MUST require manual code tracing.** When a worker implements a script with paths that cannot be exercised in the worktree (auth flows, network calls, credential handling), the `--self-test` covers only the pure logic. The auth/network path is dead code until deployment. The review brief MUST explicitly instruct the reviewer to trace those paths BY READING the code, not only by running the verifies. Check that every parameter received by a function actually reaches the network call (for example, `curl -H "Authorization: $auth"`, not a literal placeholder). In this session, merge-gate.sh `gh_api()` had `-H "Authorization: ***"` (literal asterisks) instead of `$auth`: self-test 10/10 green, shellcheck green, CI green. Only the reviewer's manual code tracing caught the bug.
 
-**Sottocaso: code-trace della stringa SSH interna va ESEGUITO, non estratto a mano (falso positivo #49).** Quando il path da tracciare e' dentro una stringa single-quoted passata a `ssh "$HOST" "$@"` (come i check di smoke.sh), la tecnica e' giusta (parsare la stringa interna con `bash -n`) ma **l'estrazione manuale/regex della stringa "tra il primo e l'ultimo apice" e' il difetto**: perde caratteri sui boundary `'"$VAR"'` e fabbrica il bug fantasma che poi "trova". PR #49: il reviewer ha estratto la stringa a mano, perso 5 `;` ai boundary `); if`/`); [`/`); then`, verificato la stringa CORROTTA con `bash -n`, visto fallire e attribuito il difetto al codice. I `;` c'erano tutti nel codice reale. **Metodo corretto (affidabile, niente SSH):** stub della funzione `check()` che rimpiazza `ssh` con `bash -nc` per PARSE-only, definisce le STEVE_* ai default, poi source la SOLA riga del check preso dal file: bash espande variabili e quote-transition ESATTAMENTE come a runtime, `bash -nc` parsa il comando REALE. Mai estrarre a occhio o con regex: il code-trace si fa ESEGUENDO il parse sul comando espanso.
+**Subcase: code tracing the inner SSH string must be EXECUTED, not extracted manually (false positive #49).** When the path to trace is inside a single-quoted string passed to `ssh "$HOST" "$@"` (as in smoke.sh checks), the technique is correct (parse the inner string with `bash -n`), but **manually or with regex extracting the string "between the first and last quote" is the defect**: it loses characters at `'"$VAR"'` boundaries and fabricates the phantom bug it later "finds." In PR #49, the reviewer extracted the string manually, lost five `;` characters at the `); if`/`); [`/`); then` boundaries, checked the CORRUPTED string with `bash -n`, saw it fail, and attributed the defect to the code. Every `;` was present in the real code. **Correct method (reliable, no SSH):** stub the `check()` function so it replaces `ssh` with `bash -nc` for PARSE-only, define the STEVE_* values with their defaults, then source ONLY the check line taken from the file: bash expands variables and quote transitions EXACTLY as it does at runtime, and `bash -nc` parses the REAL command. Never extract it by eye or with regex: code tracing is done by EXECUTING the parse on the expanded command.
 
-20. **Storico fino al 2026-07-27: fix task con `--parent` fermo in `todo`.**
-    Quando il worker parcheggiava con `review-required`, un task di fix con
-    `--parent` puntava a un parent non `done`, restava in `todo` e il dispatcher
-    ritornava `Spawned: 0` silenziosamente. Il fix operativo era completare
-    manualmente il parent con `kanban_complete` prima del dispatch. Dal
-    2026-07-27 il worker completa il task dopo avere aperto la PR e creato la
-    review indipendente: il parent è già `done` quando una REQUEST_CHANGES genera
-    il task di fix. Il rischio resta soltanto per task storici ancora parcheggiati.
+20. **History through 2026-07-27: fix task with `--parent` stuck in `todo`.**
+    When the worker used to park with `review-required`, a fix task with
+    `--parent` pointed to a parent that was not `done`, remained in `todo`, and
+    the dispatcher silently returned `Spawned: 0`. The operational fix was to
+    complete the parent manually with `kanban_complete` before dispatch. Since
+    2026-07-27, the worker completes the task after opening the PR and creating
+    the independent review: the parent is already `done` when REQUEST_CHANGES
+    generates the fix task. The risk remains only for historical tasks that
+    are still parked.
 
-21. **Bug nei path di rete non testabili: pattern ricorrente e tecnica di scoperta (canary).** L'implementazione del merge-gate ha rivelato una classe di bug sistematica: codice che parsa risposte API GitHub e che e' invisibile a self-test, shellcheck e CI perche' il path di rete non si esercita nel worktree. Tre bug trovati in una sessione, tutti della stessa classe:
-    - **Bug tipo 1 (read_field su array):** `cond_label()` usava `read_field(body, "name")` su un endpoint che ritorna un ARRAY di oggetti. `read_field` cammina dot-path e per array pretende indice numerico: `int("name")` → eccezione → stringa vuota → label mai trovata. Fix: parse diretto con Python inline.
-    - **Bug tipo 2 (semantica API misconosciuta):** `cond_ci()` declassava a 0 quando GitHub rispondeva `state: "pending"` con `total_count: 0`. Su repo con solo GitHub Actions (zero legacy status), quello "pending" e' sintetico (nessuno status reale). Fix: onorare il legacy status solo se `total_count > 0`.
-    - **Bug tipo 3 (substring match dove serve exact):** il `case *"$label"*` faceva match substring. `steve-approved` avrebbe matchato `steve-approved-x`. Fix: funzione pura con confronto esatto.
-    - **Tecnica di scoperta (il canary):** nessuno di questi bug era visibile finche' il gate non e' stato eseguito contro un PR reale con credenziali vere (dry-run). Il `--self-test` copriva la logica pura (decide_merge, ci_verdict, label_present), ma i gatherer (cond_label, cond_ci, cond_review) fanno rete e sono codice morto nel worktree. **Il canary e' la tecnica per scoprire questi bug**: una PR safe-tier reale, con label applicata, su cui il gate viene eseguito in dry-run. Ogni condizione che risulta 0 quando dovrebbe essere 1 e' un bug da fixare con regression guard (funzione pura estratta + fixture).
-    - **Lezione strutturale:** quando implementi uno script con path di rete, estrai SEMPRE la logica di interpretazione in funzioni pure (come `ci_verdict`, `label_present`) e coprile nel self-test. I gatherer diventano thin wrapper che leggono i dati e li passano alle funzioni pure. Il canary scopre i bug residui.
+21. **Bugs in untestable network paths: recurring pattern and discovery technique (canary).** The merge-gate implementation revealed a systematic class of bugs: code that parses GitHub API responses and is invisible to self-test, shellcheck, and CI because the network path is not exercised in the worktree. Three bugs found in one session, all from the same class:
+    - **Bug type 1 (read_field on an array):** `cond_label()` used `read_field(body, "name")` on an endpoint that returns an ARRAY of objects. `read_field` walks dot paths and requires a numeric index for arrays: `int("name")` → exception → empty string → label never found. Fix: parse directly with inline Python.
+    - **Bug type 2 (misunderstood API semantics):** `cond_ci()` downgraded to 0 when GitHub returned `state: "pending"` with `total_count: 0`. In repos with only GitHub Actions (zero legacy statuses), that "pending" is synthetic (there is no real status). Fix: honor the legacy status only when `total_count > 0`.
+    - **Bug type 3 (substring match where exact matching is required):** `case *"$label"*` performed a substring match. `steve-approved` would have matched `steve-approved-x`. Fix: a pure function with an exact comparison.
+    - **Discovery technique (the canary):** none of these bugs was visible until the gate was run against a real PR with real credentials (dry-run). The `--self-test` covered pure logic (decide_merge, ci_verdict, label_present), but the gatherers (cond_label, cond_ci, cond_review) access the network and are dead code in the worktree. **The canary is the technique for discovering these bugs**: a real safe-tier PR, with the label applied, on which the gate is run in dry-run. Any condition that is 0 when it should be 1 is a bug to fix with a regression guard (extracted pure function + fixture).
+    - **Structural lesson:** when implementing a script with network paths, ALWAYS extract the interpretation logic into pure functions (such as `ci_verdict`, `label_present`) and cover them in the self-test. The gatherers become thin wrappers that read data and pass it to the pure functions. The canary finds the remaining bugs.
 
-22. **Outage GitHub transiente (create-PR path).** GitHub puo' andare in outage sul `POST /repos/.../pulls` con HTTP 500 vuoto per decine di minuti. I GET funzionano, il push del branch funziona, il rate-limit e' sano. Il worker non puo' aprire la PR. **Non e' un errore nostro.** Il branch e' pronto, la PR nasce alla ripresa. Sintomi: `gh pr create` ritorna "Something went wrong while executing your query", `gh api -X POST .../pulls` ritorna "unexpected end of JSON input". **Azione:** non bruciare retry. Aspetta che GitHub recuperi (controlla githubstatus.com). Il worktree conserva il codice (pitfall #7). Se il timeout del worker scade, il coordinatore puo' aprire la PR dal main profile quando GitHub e' tornato.
+22. **Transient GitHub outage (create-PR path).** GitHub may have an outage where `POST /repos/.../pulls` returns an empty HTTP 500 for tens of minutes. GET requests work, the branch push works, and the rate limit is healthy. The worker cannot open the PR. **This is not our error.** The branch is ready, and the PR can be created after recovery. Symptoms: `gh pr create` returns "Something went wrong while executing your query", and `gh api -X POST .../pulls` returns "unexpected end of JSON input". **Action:** do not burn retries. Wait for GitHub to recover (check githubstatus.com). The worktree preserves the code (pitfall #7). If the worker times out, the coordinator can open the PR from the main profile once GitHub has recovered.
 
-23. **Escape hatch senza gate inferita come scelta prudente.** Disabilita in silenzio l'approve-in-chat e ripristina il merge manuale. Esegui sempre il probe prescritto nel §6 prima di prendere quel ramo.
+23. **Escape hatch without a gate inferred as the prudent choice.** Silently disables approve-in-chat and restores manual merging. Always run the probe prescribed in §6 before taking that branch.
 
-24. **PR che richiedono rebase senza motivo apparente.** Il clone non è stato
-    aggiornato prima del dispatch: i worktree, creati da `HEAD` senza fetch,
-    sono partiti da una base stale. Aggiorna `main` una volta prima di creare i
-    task, come descritto nel §2.
+24. **PRs require a rebase for no apparent reason.** The clone was not updated
+    before dispatch: worktrees created from `HEAD` without fetching started
+    from a stale base. Update `main` once before creating tasks, as described
+    in §2.
 
-25. **`triage` è una coda di ingresso, non un parcheggio.** Una card creata con
-    `hermes kanban create --triage` viene promossa a `todo`, scomposta in task
-    figli e dispatchata. Il 2026-07-28 dieci card scritte come backlog hanno
-    prodotto autonomamente tredici pull request, compresa una modifica del pin
-    del runtime che era stata esplicitamente rinviata. Per parcheggiare
-    deliberatamente una card di backlog, usa invece
-    `hermes kanban create --initial-status blocked`: è la forma che la trattiene;
-    scrivi il motivo del blocco nel body della card.
-    - **Sintomo:** parte lavoro che nessuno ha chiesto di eseguire subito.
-    - **Fix:** su una card già `ready`, esegui
-      `hermes kanban block <id> "<reason>" --kind needs_input`; attendi un tick
-      del dispatcher e rileggi lo stato con `hermes kanban show <id>`, senza
-      fidarti dell'output del comando di blocco. Rispetta l'ordine degli
-      argomenti: se `--ids` precede il motivo, il motivo viene consumato come id.
+25. **`triage` is an intake queue, not a parking lot.** A card created with
+    `hermes kanban create --triage` is promoted to `todo`, decomposed into child
+    tasks, and dispatched. On 2026-07-28, ten cards written as backlog items
+    autonomously produced thirteen pull requests, including a runtime pin
+    change that had been explicitly deferred. To deliberately park a backlog
+    card, use `hermes kanban create --initial-status blocked` instead: this is
+    the form that holds it; write the blocking reason in the card body.
+    - **Symptom:** work starts that nobody requested to run immediately.
+    - **Fix:** on a card already in `ready`, run
+      `hermes kanban block <id> "<reason>" --kind needs_input`; wait for one
+      dispatcher tick and reread the state with `hermes kanban show <id>`,
+      without trusting the block command's output. Respect the argument order:
+      if `--ids` precedes the reason, the reason is consumed as an id.
 
-26. **Una card senza assignee resta in `ready` e non genera mai un worker.** Il
-    dispatcher non può avviare ciò che non può instradare e non segnala alcun
-    errore: la card resta semplicemente ferma.
-    - **Sintomo:** la card è `ready` e intatta mentre le altre avanzano. Controlla
-      la colonna assignee con `hermes kanban list` prima di sospettare un guasto
-      del dispatcher.
-    - **Fix:** esegui `hermes kanban assign <id> <profile>`.
+26. **A card without an assignee remains in `ready` and never spawns a worker.**
+    The dispatcher cannot start what it cannot route and reports no error: the
+    card simply remains still.
+    - **Symptom:** the card is `ready` and untouched while the others progress.
+      Check the assignee column with `hermes kanban list` before suspecting a
+      dispatcher failure.
+    - **Fix:** run `hermes kanban assign <id> <profile>`.
 
-27. **Una card con una pull request già aperta non può essere riavviata.** Lo
-    sblocco induce il dispatcher a rispondere una volta al minuto
-    `respawn_guarded {reason: active_pr}` senza fine; il 2026-07-28 questo ciclo
-    è rimasto vuoto per due ore e mezza.
-    - **Sintomo:** `hermes kanban diagnostics` riporta `stranded_in_ready` e
-      `grep 'dispatcher stuck:' ~/.hermes/logs/gateway.log` mostra ripetutamente
+27. **A card with an open pull request cannot be restarted.** Unblocking causes
+    the dispatcher to respond once a minute with
+    `respawn_guarded {reason: active_pr}` indefinitely; on 2026-07-28, this
+    empty loop continued for two and a half hours.
+    - **Symptom:** `hermes kanban diagnostics` reports `stranded_in_ready`, and
+      `grep 'dispatcher stuck:' ~/.hermes/logs/gateway.log` repeatedly shows
       `dispatcher stuck: ready queue non-empty for N consecutive ticks but 0 workers spawned`.
-    - **Fix:** applica `new_task_instead_of_unblock` anche qui, non soltanto a
-      una card `done`: chiudi la card e creane una nuova sullo stesso workspace
-      con `--workspace dir:<path>`.
+    - **Fix:** apply `new_task_instead_of_unblock` here too, not only to a `done`
+      card: close the card and create a new one in the same workspace with
+      `--workspace dir:<path>`.
 
 ## Verification Checklist
 
-- [ ] Il brief del task ha goal, vincoli, boundaries, verify eseguibili, stop-when.
-- [ ] I check di sanitizzazione sono nel verify per ogni stringa vietata.
-- [ ] La review e' assegnata a steve-reviewer con la skill github-code-review.
-- [ ] I task della story sono iscritti al topic dedicato.
-- [ ] Nessun merge eseguito dall'orchestratore.
-- [ ] I verify su policy YAML usano un parser, non `grep -A<N>` (pitfall #9).
-- [ ] Se il task usa `--project`, il worker esegue `check_privacy.sh` con
-      `PRIVACY_DENYLIST` dall'ambiente; il reviewer lo riesegue come
-      cintura di sicurezza (pitfall #8).
-- [ ] Se steve-reviewer e' down (2+ crash consecutivi), non bruciare retry:
-      documenta i verify dal main e segnala al coordinatore (pitfall #10, #11).
-- [ ] Il worker che ha aperto la PR e creato la review indipendente ha completato
-      il proprio task con `kanban_complete`; soltanto i task storici parcheggiati
-      richiedono il completamento manuale (pitfall #12).
-- [ ] Se un profilo crasha per 429 provider (transiente), sblocca con
-      `kanban_unblock` invece di bruciare retry (pitfall #13).
-- [ ] Se il worker produce testo canonico verbatim (licenze, standard), il
-      brief della review include un verify che scarica la fonte ufficiale e
-      confronta riga per riga, non solo grep marker (pitfall #15).
-- [ ] Se aggiungi rilievi a una review in corso, BLOCCA il task con
-      `kanban_block` PRIMA di commentare, poi `kanban_unblock`. Non
-      commentare MAI un task `running` senza bloccarlo prima (pitfall #16).
-- [ ] Se il task tocca file `.sh`, il verify include `shellcheck
-      --severity=warning` oltre a `bash -n`, e il worker lo esegue prima del
-      push (pitfall #18).
-- [ ] Il repo ha `dismiss_stale_reviews_on_push` attivo: un commit spinto
-      dopo l'approvazione INVALIDA la review. Ogni fix post-approve richiede
-      una re-review esplicita. Pianifica il ciclo fix -> re-review, non
-      assumere che l'approve precedente copra il nuovo commit (pitfall #16).
-- [ ] Se uno script ha path non testabili senza credenziali (auth, rete), il
-      brief della review impone al reviewer di tracciare quei path LEGGENDO
-      il codice, non solo eseguendo i verify (pitfall #19).
-      **Sottocaso stringhe SSH interne (smoke.sh):** il code-trace va fatto
-      ESEGUENDO `bash -nc` sul comando ESPANSO (stub check() + source della
-      riga dal file), MAI estraendo la stringa a mano/regex: l'estrazione
-      perde caratteri e fabbrica falsi positivi (lesson da #49).
-- [ ] Se un reviewer o un worker flagga `Authorization: ***` in un file,
-      verifica i byte reali con `xxd` o `od` prima di dispatchare un fix:
-      il display layer maschera i pattern Authorization (pitfall #17).
-- [ ] Se crei un fix task con `--parent`, verifica che il worker originario sia
-      `done`. Nel flusso attuale lo completa dopo PR e review; un parent storico
-      ancora parcheggiato lascia il figlio in `todo` (pitfall #20).
-- [ ] Se implementi uno script con path di rete (API, auth), estrai la logica
-      di interpretazione in funzioni pure e coprile nel self-test. Usa una
-      PR canary safe-tier per testare end-to-end prima della produzione
-      (pitfall #21).
-- [ ] Se la creazione di una PR ritorna HTTP 500 vuoto, e' un outage GitHub
-      transiente. Non bruciare retry: il branch e' pronto, la PR nasce alla
-      ripresa (pitfall #22).
-- [ ] Quando l'admin approva in chat una PR safe-tier, applichi la label
-      steve-approved + commento di decisione. NON mergi: il gate (cron) o
-      l'umano (GitHub UI) eseguono il merge.
+- [ ] The task brief has a goal, constraints, boundaries, executable verifies,
+      and a stop-when condition.
+- [ ] The verify includes sanitization checks for every forbidden string.
+- [ ] The review is assigned to steve-reviewer with the github-code-review skill.
+- [ ] The story tasks are subscribed to the dedicated topic.
+- [ ] The orchestrator has not performed any merge.
+- [ ] Verifies on YAML policies use a parser, not `grep -A<N>` (pitfall #9).
+- [ ] If the task uses `--project`, the worker runs `check_privacy.sh` with
+      `PRIVACY_DENYLIST` from the environment; the reviewer reruns it as a
+      safety net (pitfall #8).
+- [ ] If steve-reviewer is down (2+ consecutive crashes), do not burn retries:
+      document the verifies from main and notify the coordinator (pitfalls #10,
+      #11).
+- [ ] The worker that opened the PR and created the independent review has
+      completed its task with `kanban_complete`; only historical parked tasks
+      require manual completion (pitfall #12).
+- [ ] If a profile crashes because of a transient provider 429, unblock it with
+      `kanban_unblock` instead of burning retries (pitfall #13).
+- [ ] If the worker produces canonical text verbatim (licenses, standards), the
+      review brief includes a verify that downloads the official source and
+      compares it line by line, not only grep markers (pitfall #15).
+- [ ] If you add findings to an ongoing review, BLOCK the task with
+      `kanban_block` BEFORE commenting, then `kanban_unblock`. NEVER comment on
+      a `running` task without blocking it first (pitfall #16).
+- [ ] If the task touches `.sh` files, the verify includes `shellcheck
+      --severity=warning` in addition to `bash -n`, and the worker runs it
+      before pushing (pitfall #18).
+- [ ] The repo has `dismiss_stale_reviews_on_push` enabled: a commit pushed
+      after approval INVALIDATES the review. Every post-approval fix requires
+      an explicit re-review. Plan the fix -> re-review cycle; do not assume that
+      the previous approval covers the new commit (pitfall #16).
+- [ ] If a script has paths that cannot be tested without credentials (auth,
+      network), the review brief requires the reviewer to trace those paths BY
+      READING the code, not only by running the verifies (pitfall #19).
+      **Inner SSH strings subcase (smoke.sh):** code tracing must be done by
+      EXECUTING `bash -nc` on the EXPANDED command (stub check() + source the
+      line from the file), NEVER by extracting the string manually/with regex:
+      extraction loses characters and fabricates false positives (lesson from
+      #49).
+- [ ] If a reviewer or worker flags `Authorization: ***` in a file, verify the
+      real bytes with `xxd` or `od` before dispatching a fix: the display layer
+      masks Authorization patterns (pitfall #17).
+- [ ] If you create a fix task with `--parent`, verify that the original worker
+      is `done`. In the current flow, it completes after the PR and review; a
+      historical parent that is still parked leaves the child in `todo`
+      (pitfall #20).
+- [ ] If you implement a script with network paths (API, auth), extract the
+      interpretation logic into pure functions and cover them in the self-test.
+      Use a safe-tier canary PR to test end-to-end before production (pitfall
+      #21).
+- [ ] If PR creation returns an empty HTTP 500, it is a transient GitHub outage.
+      Do not burn retries: the branch is ready, and the PR can be created after
+      recovery (pitfall #22).
+- [ ] When the admin approves a safe-tier PR in chat, apply the steve-approved
+      label + decision comment. DO NOT merge: the gate (cron) or a human
+      (GitHub UI) performs the merge.
