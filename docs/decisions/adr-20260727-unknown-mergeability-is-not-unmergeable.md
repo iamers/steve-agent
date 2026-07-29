@@ -3,40 +3,40 @@ status: accepted
 date: 2026-07-27
 ---
 
-# Una mergeability sconosciuta non è una pull request non mergiabile
+# Unknown mergeability does not make a pull request unmergeable
 
 ## Context
 
-GitHub calcola la mergeability di una pull request in modo asincrono. La prima
-lettura può quindi restituire `null`, mentre una lettura successiva restituisce
-il valore calcolato. Il gate trasformava quel `null` in una stringa vuota e lo
-riferiva come pull request non mergiabile. Il rifiuto era prudente, ma la
-motivazione comunicata in chat era falsa.
+GitHub calculates a pull request's mergeability asynchronously. The first read
+can therefore return `null`, while a subsequent read returns the calculated
+value. The gate converted that `null` into an empty string and reported it as
+an unmergeable pull request. The rejection was prudent, but the reason
+communicated in chat was false.
 
 ## Decision
 
-Quando la prima lettura dei metadati restituisce una mergeability sconosciuta,
-il gate attende una pausa breve e fissa, poi ripete una sola volta la stessa
-richiesta. Questo segue il rimedio documentato da GitHub per il calcolo
-asincrono e rimuove il transitorio nel caso ordinario.
+When the first metadata read returns unknown mergeability, the gate waits for a
+short, fixed pause, then repeats the same request once. This follows GitHub's
+documented remedy for asynchronous calculation and removes the transient state
+in the ordinary case.
 
-Se anche la seconda risposta non contiene un valore, il gate mantiene lo stato
-sconosciuto come terzo stato distinto. Il gate rifiuta comunque la pull request,
-ma dichiara che la mergeability non è ancora nota invece di dichiarare che la
-pull request non è mergiabile.
+If the second response also does not contain a value, the gate preserves the
+unknown state as a distinct third state. The gate still rejects the pull
+request, but states that mergeability is not yet known instead of stating that
+the pull request is unmergeable.
 
 ## Consequences
 
-Nel caso ordinario il gate usa il valore disponibile alla seconda lettura. La
-valutazione aggiunge al massimo una richiesta e una pausa fissa, senza cicli.
-Se GitHub non ha ancora terminato il calcolo, il comportamento resta fail-closed
-e il messaggio descrive correttamente l'incertezza.
+In the ordinary case, the gate uses the value available on the second read. The
+evaluation adds at most one request and one fixed pause, without loops. If
+GitHub has not yet finished the calculation, the behavior remains fail-closed
+and the message accurately describes the uncertainty.
 
 ## Alternatives considered
 
-Non ripetere la richiesta: scartato, perché conserverebbe un transitorio che
-GitHub indica di risolvere con una nuova lettura. Ripetere in un ciclo:
-scartato, perché non offre un limite fisso all'attesa né al numero di richieste.
-Trattare lo stato sconosciuto come non mergiabile: scartato, perché produce una
-motivazione falsa. Consentire il merge quando lo stato è sconosciuto: scartato,
-perché violerebbe il principio fail-closed.
+Do not repeat the request: rejected because it would preserve a transient state
+that GitHub says to resolve with another read. Repeat in a loop: rejected
+because it offers no fixed limit on either the wait or the number of requests.
+Treat the unknown state as unmergeable: rejected because it produces a false
+reason. Allow the merge when the state is unknown: rejected because it would
+violate the fail-closed principle.
