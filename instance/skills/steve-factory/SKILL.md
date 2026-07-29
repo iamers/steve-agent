@@ -157,108 +157,109 @@ bodies, or public messages. In the brief they are cited as checks; they are not
 commented on or transcribed. The path is the reference; the content remains
 local and private.
 
-## 4. Ciclo di review
+## 4. Review cycle
 
-Il worker che apre la PR crea un task di review indipendente, senza parent,
-seguendo le proprie direttive, quindi completa il proprio task con
-`kanban_complete`. Un task figlio resterebbe in `todo` finché il task originario
-non fosse `done`; per questo la review è indipendente. Il body del task di review
-registra l'id del task originario: il collegamento appartiene lì.
+The worker that opens the PR creates an independent review task, without a parent,
+following its own directives, then completes its task with `kanban_complete`. A
+child task would remain in `todo` until the originating task was `done`; this is
+why the review is independent. The review task body records the originating task
+id: the link belongs there.
 
 - `assignee: steve-reviewer`
 - `--skill github/github-code-review`
-- Review formale della PR via `gh`: `approve` oppure `request-changes` motivato.
+- Formal review of the PR via `gh`: `approve` or a justified `request-changes`.
 
-L'orchestratore non crea normalmente un secondo task di review. Ne crea uno
-aggiuntivo, oppure commenta quello esistente, solo quando serve profondita'
-oltre la riesecuzione meccanica: tier `blast`, un dubbio specifico o una
-proprieta' che richiede giudizio. Il criterio e'
+The orchestrator does not normally create a second review task. It creates an
+additional one, or comments on the existing one, only when depth beyond the
+mechanical rerun is needed: `blast` tier, a specific concern, or a property that
+requires judgment. The criterion is
 `review_depth_matches_consequence` in `.steve/review-policy.yaml`.
 
-Come stabilito da
-`docs/decisions/adr-20260727-human-review-is-requested-not-required.md`, per una
-pull request `blast`, o `propagation` che modifica una guardia, l'orchestratore
-richiede anche il reviewer umano configurato in `STEVE_HUMAN_REVIEWER` con:
+As established by
+`docs/decisions/adr-20260727-human-review-is-requested-not-required.md`, for a
+`blast` pull request, or a `propagation` one that modifies a guard, the
+orchestrator also requests the human reviewer configured in
+`STEVE_HUMAN_REVIEWER` with:
 
     gh api repos/<owner>/<repo>/pulls/<n>/requested_reviewers -X POST -f 'reviewers[]=<login>'
 
-Se la chiave non e' impostata o e' vuota, non richiede alcuna review umana e
-nulla resta bloccato. È una convenzione, non un requisito: l'assenza di una
-risposta umana non blocca mai la pull request.
+If the key is not set or is empty, it does not request any human review and
+nothing remains blocked. This is a convention, not a requirement: the absence
+of a human response never blocks the pull request.
 
-Fa eccezione una pull request senza task originario: in quel caso
-l'orchestratore crea il task di review. La rilevazione è deterministica: il
-branch non porta il prefisso `steve-agent/t_<id>-`, quindi il compilatore non
-risolve alcun task originario e il brief non mostra la riga `Origin`.
+The exception is a pull request without an originating task: in that case the
+orchestrator creates the review task. Detection is deterministic: the branch
+does not have the `steve-agent/t_<id>-` prefix, so the compiler does not resolve
+an originating task and the brief does not show the `Origin` line.
 
-Per questa review non esistono comandi verify né output osservati da un worker,
-e l'orchestratore non li inventa. Nel body del task mette invece:
+For this review there are no verify commands or output observed by a worker, and
+the orchestrator does not invent them. Instead, it puts the following in the
+task body:
 
-- il tier, ricalcolato con `tools/pr-brief.py`, e le conseguenze del tier per il
-  merge;
-- i file modificati e la domanda di boundary: il diff resta entro quanto
-  dichiara la descrizione della pull request;
-- i check di progetto pertinenti alle aree toccate, nominati esplicitamente:
+- the tier, recalculated with `tools/pr-brief.py`, and the consequences of the
+  tier for the merge;
+- the modified files and the boundary question: whether the diff remains within
+  what the pull request description declares;
+- the project checks relevant to the areas touched, named explicitly:
   `python3 tools/pr-brief.py --self-test`, `bash -n instance/*.sh scripts/*.sh`,
-  `shellcheck --severity=warning instance/*.sh scripts/*.sh` e ogni
-  `--self-test` previsto da uno script modificato;
-- cosa giudicare, scritto dall'orchestratore: non essendoci un brief originario
-  rispetto al quale controllare il lavoro, il giudizio del reviewer pesa più
-  del consueto.
+  `shellcheck --severity=warning instance/*.sh scripts/*.sh`, and every
+  `--self-test` provided by a modified script;
+- what to judge, written by the orchestrator: since there is no originating
+  brief against which to check the work, the reviewer's judgment carries more
+  weight than usual.
 
-Restano ferme le regole ordinarie: il reviewer riesegue i check invece di
-rileggere gli esiti dichiarati, un solo fallimento impone REQUEST_CHANGES a
-prescindere dal diff, e il body di review pubblicato non contiene path di
-istanza, alias, hostname o identità. Il reviewer non tratta l'assenza di output
-osservato da un worker come un difetto della pull request: è una proprietà della
-sua origine.
+The ordinary rules remain in force: the reviewer reruns the checks instead of
+rereading the declared results, a single failure requires REQUEST_CHANGES
+regardless of the diff, and the published review body contains no instance
+paths, aliases, hostnames, or identities. The reviewer does not treat the
+absence of output observed by a worker as a defect in the pull request: it is a
+property of its origin.
 
-Limite attuale del trigger: il cron watcher consegna il brief compilato nel
-topic chat in modalità `no-agent`, quindi non risveglia l'orchestratore. Finché
-questo non cambia, il percorso parte quando una persona menziona la pull
-request in chat.
+Current trigger limitation: the cron watcher delivers the compiled brief to the
+chat topic in `no-agent` mode, so it does not wake the orchestrator. Until this
+changes, the path starts when a person mentions the pull request in chat.
 
-Il dispatcher incorporato nel gateway raccoglie un task ready entro circa un
-minuto: il task creato dal worker parte senza un comando di dispatch manuale.
+The dispatcher embedded in the gateway picks up a ready task within about one
+minute: the task created by the worker starts without a manual dispatch command.
 
-Il brief del task di review DEVE imporre la **riesecuzione** dei verify, non la
-sola rilettura del diff: il reviewer non si fida delle claim di esecuzione del
-worker, le **riesegue**. Per **ogni** task di review:
+The review task brief MUST require the **rerun** of the verify commands, not only
+a rereading of the diff: the reviewer does not trust the worker's execution
+claims; it **reruns** them. For **every** review task:
 
-- Come stabilito da
-  `docs/decisions/adr-20260727-reviews-check-that-a-pr-is-current.md`, riporta
-  quanti commit il branch è indietro rispetto a `main` e se uno dei file toccati
-  dalla pull request è cambiato su `main` da quando il branch se ne è separato.
-  Il fatto che GitHub dichiari la pull request mergeable non risponde a questa
-  domanda; un branch stale è un finding da riportare, non un blocco automatico.
+- As established by
+  `docs/decisions/adr-20260727-reviews-check-that-a-pr-is-current.md`,
+  report how many commits the branch is behind `main` and whether any of the
+  files touched by the pull request have changed on `main` since the branch
+  diverged. The fact that GitHub declares the pull request mergeable does not
+  answer this question; a stale branch is a finding to report, not an automatic
+  block.
 
-- **(a)** Riporta **testuali** nel body del task i comandi verify del brief
-  originario del worker: copiali, non parafrasarli (il reviewer deve eseguire
-  esattamente cio' che il worker ha dichiarato).
-- **(b)** Il reviewer **riesegue** i verify nel worktree del task e **incolla**
-  nel result di review il loro esito (stdout + exit code) per ciascuno.
-- **(c)** Se anche un solo verify fallisce, la review e' **REQUEST_CHANGES** a
-  prescindere dal diff: un codice che sembra corretto ma non passa i verify non e'
-  approvabile. La review verifica, non rilegge soltanto.
+- **(a)** Include the originating worker brief's verify commands **verbatim** in
+  the task body: copy them, do not paraphrase them (the reviewer must run exactly
+  what the worker declared).
+- **(b)** The reviewer **reruns** the verify commands in the task worktree and
+  **pastes** their result (stdout + exit code) into the review result for each one.
+- **(c)** If even one verify command fails, the review is **REQUEST_CHANGES**
+  regardless of the diff: code that looks correct but does not pass the verify
+  commands cannot be approved. The review verifies; it does not merely reread.
 
-L'autore non revisiona mai se stesso: se il worker che ha aperto la PR coincide
-con il reviewer, assegna la review a un altro profilo.
+The author never reviews itself: if the worker that opened the PR is the same as
+the reviewer, assign the review to another profile.
 
-Se la review è REQUEST_CHANGES, il task del worker originale è già `done`: il
-worker lo ha completato dopo avere aperto la PR e creato il task di review. Un
-task `done` non si ri-dispatcha nel nostro flusso. Crea invece un NUOVO task di
-fix:
+If the review is REQUEST_CHANGES, the original worker's task is already `done`:
+the worker completed it after opening the PR and creating the review task. A
+`done` task is not redispatched in our flow. Instead, create a NEW fix task:
 
-1. `kanban_create` con `assignee: steve-worker`, `--parent` il task originario,
-   e `workspace dir:<path del worktree del task originario>` (cosi' lavora sullo
-   stesso branch e la PR si aggiorna).
-2. Il body del task di fix riporta i finding del reviewer **testuali** piu'
-   l'istruzione di pushare sul branch corrente **senza aprire nuove PR**.
-3. Dopo il fix, crea un nuovo task di re-review per `steve-reviewer`.
+1. `kanban_create` with `assignee: steve-worker`, `--parent` the originating task,
+   and `workspace dir:<path del worktree del task originario>` (so it works on
+   the same branch and the PR is updated).
+2. The fix task body reports the reviewer's findings **verbatim**, plus the
+   instruction to push to the current branch **without opening new PRs**.
+3. After the fix, create a new re-review task for `steve-reviewer`.
 
-Il thread di commenti del task originario resta il posto dove tracciare la
-catena: un `kanban_comment` sul task padre registra l'esito di ogni giro
-(fix applicato, re-review richiesta, esito della re-review).
+The originating task's comment thread remains the place to track the chain: a
+`kanban_comment` on the parent task records the outcome of each round (fix
+applied, re-review requested, re-review outcome).
 
 ## 5. Brief approvabile e decisione umana
 
