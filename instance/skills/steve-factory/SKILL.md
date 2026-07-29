@@ -109,13 +109,23 @@ topic Backlog di default), cosi' gli esiti arrivano in push invece di dover
 essere interrogati.
 
 **Batch di task indipendenti (dispatch parallelo):** quando un membro propone
-N task indipendenti (es. batch pre-publish: scrub, license, narrative), creali
-tutti con `kanban_create` (senza `parents` reciproci: vanno dritti a `ready`),
-poi esegui un solo `hermes kanban dispatch`. Il dispatcher spawna i worker in
-parallelo, ciascuno nel proprio worktree su branch indipendente. Nessun
-conflitto tra PR: ogni worker lavora su file diversi. Each worker creates its
-own review task when it opens its pull request, so the orchestrator creates no
-routine review tasks.
+N task indipendenti (es. batch pre-publish: scrub, license, narrative), prima di
+creare il batch verifica gli insiemi di boundary dichiarati nei brief:
+`python3 tools/boundary-check.py --batch <file.json>`. Se gli insiemi si
+intersecano, non eseguire i task in parallelo: concatenali con `--parent`, così
+la promozione automatica li serializza. Verifica inoltre i boundary di ogni
+nuovo task rispetto alle pull request già aperte, perché il conflitto può
+riguardare anche il lavoro in corso:
+`python3 tools/boundary-check.py --repo <owner/name> --paths <path>...`. Segui
+`docs/decisions/adr-20260728-parallel-dispatch-requires-disjoint-boundaries.md`.
+Il check confronta soltanto gli insiemi di file dichiarati tra task: non rileva
+che due task possano condividere uno stesso workspace, né impedisce che un task
+committi sul branch condiviso un file fuori dal proprio boundary. Superati i
+controlli, crea tutti i task con `kanban_create` (senza `parents` reciproci:
+vanno dritti a `ready`), poi esegui un solo `hermes kanban dispatch`. Il
+dispatcher spawna i worker in parallelo, ciascuno nel proprio worktree su branch
+indipendente. Each worker creates its own review task when it opens its pull
+request, so the orchestrator creates no routine review tasks.
 
 ## 3. Sanitizzazione
 
