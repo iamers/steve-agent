@@ -111,13 +111,33 @@ moa:
   save_traces: true
   presets:
     default:
+      # Advisors run ONCE per user turn instead of on every tool iteration.
+      # The default (`per_iteration`) re-runs the whole fan-out whenever the
+      # advisory view changes, and the view grows with each tool result: on a
+      # task with 30 iterations and 3 advisors that is 90 advisory calls for
+      # one request. `user_turn` hashes only the prefix up to the last real
+      # user message, so iterations 2+ are a cache hit and the aggregator
+      # works alone with the advice already gathered. Cost of the trade: the
+      # advisors do not see what the agent discovers mid-turn.
+      fanout: user_turn
+      # Cap on ADVISOR output only; the aggregator is never capped because its
+      # output is the user-visible answer. Uncapped, each advisor generates up
+      # to its own maximum, which on the local endpoint means a 262k window.
+      # Measured on our three advisor-style prompts, answers land between 600
+      # and 950 tokens: 800 truncated two of three, 1200 leaves headroom.
+      reference_max_tokens: 1200
       reference_models:
-        - provider: lab-gpu
+        # Thinking-off variant: the aggregator reads only `content`, and the
+        # reasoning trace is discarded, so on this slot thinking is paid in
+        # wall time and never reaches its reader. Measured 3-4x faster with no
+        # loss of answer length. The thinking-on `lab-gpu` stays for the
+        # judgement roles, where the verdict IS the output.
+        - provider: lab-gpu-fast
           model: qwen36-35b-a3b-fp8
         - provider: openai-codex
           model: gpt-5.6-luna
         - provider: gemini
-          model: gemini-3.5-flash
+          model: gemini-3.6-flash
       aggregator:
         provider: openai-codex
         model: gpt-5.6-terra
@@ -198,7 +218,7 @@ fallback_model:
   - provider: lab-gpu
     model: qwen36-35b-a3b-fp8
   - provider: gemini
-    model: gemini-3.5-flash
+    model: gemini-3.6-flash
 # Auxiliary tasks: high volume, non-critical quality. Routed to the local
 # endpoint to avoid consuming the primary provider's quota.
 auxiliary:
@@ -216,6 +236,21 @@ custom_providers:
     base_url: ${VLLM_BASE_URL}
     key_env: VLLM_API_KEY
     api_mode: chat_completions
+  # Same endpoint and same model, thinking disabled. Two entries rather than
+  # one switch because the choice is per ROLE, not per endpoint: an advisor is
+  # read for its conclusion (the reasoning trace is discarded), a judge is read
+  # for the verdict its reasoning produces. MoA slots accept only provider,
+  # model and reasoning_effort, so a per-slot toggle does not exist and the
+  # distinction has to live at provider level.
+  # The qwen chat template exposes `enable_thinking` as a boolean only: there
+  # is no thinking budget, so there is no middle setting to reach for.
+  - name: lab-gpu-fast
+    base_url: ${VLLM_BASE_URL}
+    key_env: VLLM_API_KEY
+    api_mode: chat_completions
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
 
 # ── Security ──────────────────────────────────────────────────────────
 # Secret redaction is ON by default — strings that look like API keys,
