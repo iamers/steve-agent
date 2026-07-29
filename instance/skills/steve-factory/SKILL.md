@@ -353,135 +353,135 @@ task.
 
 ## Common Pitfalls
 
-1. **Sviluppare in chat.** Se stai scrivendo codice nella conversazione invece
-   di creare un task, stai violando la SOUL. Ferma e metti sulla board.
+1. **Developing in chat.** If you are writing code in the conversation instead
+   of creating a task, you are violating the SOUL. Stop and put it on the board.
 
-2. **Brief senza verify eseguibili.** "funziona" non e' un verify. Il verify e'
-   un comando con exit 0 atteso che il worker esegue e mostra nel result.
+2. **Briefs without executable verifies.** "it works" is not a verify. A verify
+   is a command expected to exit 0 that the worker runs and shows in the result.
 
-3. **Sanitizzazione mancante.** Un task che produce file senza i check negativi
-   sulle stringhe vietate e' un task non spedito.
+3. **Missing sanitization.** A task that produces files without negative checks
+   for forbidden strings is an undelivered task.
 
-4. **Tener traccia della catena di review.** Su REQUEST_CHANGES il task del
-   worker originale e' gia' `done`: crea un nuovo task di fix con `--parent`
-   (vedi §4) e registra l'esito di ogni giro con `kanban_comment` sul task padre.
+4. **Tracking the review chain.** On REQUEST_CHANGES, the original worker task
+   is already `done`: create a new fix task with `--parent` (see §4) and record
+   the outcome of each round with `kanban_comment` on the parent task.
 
-5. **L'approve in chat non esegue il merge.** L'approve autorizza. Il merge
-   e' eseguito dal gate (`instance/merge-gate.sh`) dopo che Steve ha applicato
-   la label `steve-approved`. Il gate e' deployato e attivo (canary #46
-   riuscito). Steve NON esegue il gate lui stesso.
+5. **Approval in chat does not perform the merge.** Approval authorizes it. The
+   merge is performed by the gate (`instance/merge-gate.sh`) after Steve applies
+   the `steve-approved` label. The gate is deployed and active (canary #46
+   succeeded). Steve does NOT run the gate himself.
 
-6. **Worker in loop su attesa CI (budget esaurito).** Nei task che aprono una
-   PR, il worker puo' bruciare tutto il budget iterazioni (60/60) aspettando
-   che la CI diventi verde interrogando lo stato in loop. Due trappole:
-   - **Circularita':** lo stato CI non torna mai verde finche' la PR non e'
-     aperta; se il worker fa polling prima di aprire la PR, e' un loop vuoto.
-   - **Costo iterazioni:** ogni interrogazione e' un'iterazione; GitHub CI
-     impiega minuti, il budget si esaurisce prima.
-   Comando corretto per lo stato CI: `gh run list --commit <sha>` (NON
-   `gh pr checks`, che richiede lo scope "Checks: read" non disponibile sui
-   PAT correnti). Nei brief di task che aprono PR, scrivi esplicito: "dopo il
-   push, apri la PR; chiama `gh run list --commit <sha>` **una sola volta**
-   con timeout generoso; se la CI e' ancora pending, completa il task con il
-   numero PR — il coordinatore verifica a posteriori". Mai polling attivo.
+6. **Worker loops while waiting for CI (budget exhausted).** In tasks that open
+   a PR, the worker can burn the entire iteration budget (60/60) waiting for CI
+   to turn green by querying the status in a loop. There are two traps:
+   - **Circularity:** CI status never turns green until the PR is open; if the
+     worker polls before opening the PR, it is an empty loop.
+   - **Iteration cost:** every query is an iteration; GitHub CI takes minutes,
+     so the budget runs out first.
+   The correct command for CI status is `gh run list --commit <sha>` (NOT
+   `gh pr checks`, which requires the "Checks: read" scope unavailable to the
+   current PATs). In briefs for tasks that open PRs, state explicitly: "after
+   the push, open the PR; call `gh run list --commit <sha>` **only once** with a
+   generous timeout; if CI is still pending, complete the task with the PR
+   number — the coordinator will verify it afterward". Never actively poll.
 
-7. **Diagnosi dei timeout via worktree.** Quando un worker va in timeout
-   (`Iteration budget exhausted`), prima di rilanciare o bloccare, ispeziona il
-   suo worktree: `git -C <workspace_path> log --oneline -3`, `git status`, e
-   verifica se il branch e' pushato sul remote (`git fetch origin <branch>` +
-   `gh pr list --head <branch> --state all`). Il lavoro e' spesso gia' commit
-   e pushato, ma la PR non e' mai stata aperta (collegato al pitfall #6). In
-   quel caso un `kanban_comment` sul task con istruzione "non ripartire da
-   zero, apri la PR dal branch esistente" basta a sbloccare il retry.
-   Questo pattern si e' confermato valido anche per crash di natura runtime
-   (pid not alive, protocol violation): il codice scritto prima del crash
-   sopravvive nel worktree, il retry lo riutilizza.
+7. **Diagnosing timeouts through the worktree.** When a worker times out
+   (`Iteration budget exhausted`), inspect its worktree before relaunching or
+   blocking: `git -C <workspace_path> log --oneline -3`, `git status`, and check
+   whether the branch was pushed to the remote (`git fetch origin <branch>` +
+   `gh pr list --head <branch> --state all`). The work is often already
+   committed and pushed, but the PR was never opened (related to pitfall #6).
+   In that case, a `kanban_comment` on the task instructing "do not start over;
+   open the PR from the existing branch" is enough to unblock the retry.
+   This pattern has also proven valid for runtime crashes (pid not alive,
+   protocol violation): code written before the crash survives in the worktree,
+   and the retry reuses it.
 
-8. **Sanitizzazione nei worktree del project.** I worktree creati con
-   `--project steve-agent` NON hanno il symlink `.local/privacy-denylist.txt`
-   (vive nel clone del repo, non nei worktree derivati): il gap originale era
-   reale. **E' ora chiuso** quando `PRIVACY_DENYLIST` e' nell'ambiente del
-   worker — il gateway esporta le chiavi del `.env` dell'istanza ai worker
-   dispatchati, e se la variabile punta al file denylist dell'istanza,
-   `scripts/check_privacy.sh` lo usa direttamente anche senza il symlink
-   `.local/`. Il reviewer che la riesegue e' **cintura di sicurezza**, non
-   workaround per un gap. Se invece `PRIVACY_DENYLIST` non e' nell'ambiente
-   (deploy non ancora fatto), il worker skippa e lo dichiara; il reviewer
-   colma il gap leggendo la denylist da
-   `~/.hermes/private/forbidden-strings.txt`. Transitorio, non strutturale.
+8. **Sanitization in project worktrees.** Worktrees created with
+   `--project steve-agent` do NOT have the `.local/privacy-denylist.txt` symlink
+   (it lives in the repository clone, not in derived worktrees): the original
+   gap was real. **It is now closed** when `PRIVACY_DENYLIST` is in the worker's
+   environment — the gateway exports the instance `.env` keys to dispatched
+   workers, and if the variable points to the instance denylist file,
+   `scripts/check_privacy.sh` uses it directly even without the `.local/`
+   symlink. The reviewer rerunning it is a **safety net**, not a workaround for
+   a gap. If `PRIVACY_DENYLIST` is not in the environment instead (deployment
+   not yet completed), the worker skips it and declares that; the reviewer
+   closes the gap by reading the denylist from
+   `~/.hermes/private/forbidden-strings.txt`. Transitional, not structural.
 
-9. **Verify grep `-A<N>` fragili su policy YAML.** Nei brief, i check
-   `grep -A20 'propagation' <policy> | grep <path>` producono falsi positivi
-   quando i blocchi YAML sono vicini: `-A20` sfora dal blocco target in quello
-   adiacente. Per i verify di classificazione tier su `.steve/review-policy.yaml`,
-   **usa un parser YAML** invece di grep contestuale:
+9. **Fragile `-A<N>` grep verifies on YAML policy.** In briefs, checks such as
+   `grep -A20 'propagation' <policy> | grep <path>` produce false positives when
+   YAML blocks are close together: `-A20` runs past the target block into the
+   adjacent one. For tier-classification verifies on `.steve/review-policy.yaml`,
+   **use a YAML parser** instead of contextual grep:
    `python3 -c "import yaml; t=yaml.safe_load(open('.steve/review-policy.yaml')); assert '<path>' not in t['tiers'].get('propagation',{}).get('paths',[])"`.
-   Vale anche per i verify nei brief di review.
+   This also applies to verifies in review briefs.
 
-10. **Profile down dopo deploy di config (model swap).** Quando un profilo
-    worker o reviewer riceve un nuovo config deployato (in particolare un cambio
-    di `model.default` o `model.provider`), puo' diventare instabile: crash
-    ripetuti con `protocol violation` (exit rc=0 senza chiamare
-    `kanban_complete`) o `pid not alive`. I worktree conservano il lavoro
-    pre-crash (vedi pitfall #7), ma il profilo resta down finche' il config non
-    viene corretto o roll-back-ato.
-    - **Sintomi:** 2+ crash consecutivi con la stessa `protocol_violation` sullo
-      stesso task, heartbeat regolari fino all'uscita pulita senza complete.
-    - **Diagnosi:** se il crash segue a meno di 1h dal deploy di un config con
-      model swap, sospetta correlazione. Chiedi al coordinatore (ops) di
-      verificare il config attivo del profilo.
-    - **Non bruciare retry** oltre il secondo crash consecutivo identico: il
-      problema e' sistemico, non transiente.
+10. **Profile down after config deployment (model swap).** When a worker or
+    reviewer profile receives a newly deployed config (especially a change to
+    `model.default` or `model.provider`), it can become unstable: repeated
+    crashes with `protocol violation` (exit rc=0 without calling
+    `kanban_complete`) or `pid not alive`. Worktrees preserve pre-crash work
+    (see pitfall #7), but the profile remains down until the config is fixed or
+    rolled back.
+    - **Symptoms:** 2+ consecutive crashes with the same `protocol_violation` on
+      the same task, with regular heartbeats until a clean exit without complete.
+    - **Diagnosis:** if the crash occurs less than 1h after deployment of a config
+      with a model swap, suspect correlation. Ask the coordinator (ops) to check
+      the profile's active config.
+    - **Do not burn retries** beyond the second identical consecutive crash: the
+      problem is systemic, not transient.
 
-11. **Self-review GitHub constraint blocca il fallback.** I profili `main` e
-    `steve-worker` condividono lo stesso account GitHub (`scrat-ai-dev`):
-    GitHub vieta a un account di approvare la propria PR. Quando
-    `steve-reviewer` (account separato `scrat-ai-rev`) e' down, l'orchestratore
-    **non puo' sostituirsi** registrando l'approve su GitHub — anche se esegue
-    i verify e documenta tutto in un `kanban_comment`.
-    - **Fallback quando il reviewer e' down:** esegui i verify dal profilo main
-      nel worktree di review, registra esito e verdetto in un `kanban_comment`
-      sul task, e **segnala al coordinatore** che serve un approve manuale
-      (dalla UI GitHub con l'account `scrat-ai-rev`, se accessibile) o il
-      ripristino del reviewer.
-    - **Non tentare `gh pr review --approve` dal profilo main** su PR aperte da
-      steve-worker: restituisce `Review can not approve your own pull request`.
+11. **GitHub self-review constraint blocks the fallback.** The `main` and
+    `steve-worker` profiles share the same GitHub account (`scrat-ai-dev`):
+    GitHub prohibits an account from approving its own PR. When
+    `steve-reviewer` (separate account `scrat-ai-rev`) is down, the orchestrator
+    **cannot take its place** by recording approval on GitHub — even if it runs
+    the verifies and documents everything in a `kanban_comment`.
+    - **Fallback when the reviewer is down:** run the verifies from the main
+      profile in the review worktree, record the outcome and verdict in a
+      `kanban_comment` on the task, and **notify the coordinator** that manual
+      approval is needed (from the GitHub UI with the `scrat-ai-rev` account, if
+      accessible) or that the reviewer must be restored.
+    - **Do not attempt `gh pr review --approve` from the main profile** on PRs
+      opened by steve-worker: it returns
+      `Review can not approve your own pull request`.
 
-12. **Storico fino al 2026-07-27: deadlock `respawn_guarded` con `active_pr` e
-    figli bloccati.** Quando un worker apriva la PR e si bloccava con
-    `review-required`, il dispatcher poteva respawnerlo in loop con
-    `respawn_guarded` reason `active_pr`. Il worker non faceva progresso, non
-    raggiungeva mai `done` e gli eventuali task figli restavano in `todo`
-    indefinitamente. Una causa era parcheggiare con un dependency block dopo
-    avere creato un task di review senza parent: il blocco tornava subito in
-    `ready`. Dal 2026-07-27 il worker completa il proprio task dopo avere aperto
-    la PR e creato il task di review indipendente, quindi questo non è più il
-    flusso attivo.
-    - **Sintomi:** `hermes kanban diagnostics` mostra `stranded_in_ready` sul
-      task padre; su un task con PR gia' aperta si ripete circa ogni minuto un
-      evento `respawn_guarded` con reason `active_pr`.
-      task figlio e' in `todo` con zero run.
-    - **Fix per task storici:** completa manualmente il padre con `hermes kanban complete
-      <task_id> --summary "..."` o `kanban_complete(task_id=..., summary=...)`.
-      Il padre passa a `done`, il figlio si promuove a `ready`, il prossimo
-      `hermes kanban dispatch` lo pick up.
-    - **Prevenzione attuale:** il worker non parcheggia dopo avere creato la
-      review; completa il proprio task con `kanban_complete`. Il task di review
-      resta indipendente e senza parent.
+12. **History through 2026-07-27: `respawn_guarded` deadlock with `active_pr`
+    and blocked children.** When a worker opened the PR and blocked with
+    `review-required`, the dispatcher could respawn it in a loop with
+    `respawn_guarded` reason `active_pr`. The worker made no progress, never
+    reached `done`, and any child tasks remained in `todo` indefinitely. One
+    cause was parking with a dependency block after creating a review task
+    without a parent: the block immediately returned to `ready`. Since
+    2026-07-27, the worker completes its task after opening the PR and creating
+    the independent review task, so this is no longer the active flow.
+    - **Symptoms:** `hermes kanban diagnostics` shows `stranded_in_ready` on the
+      parent task; on a task with a PR already open, a `respawn_guarded` event
+      with reason `active_pr` repeats about once a minute. The child task is in
+      `todo` with zero runs.
+    - **Fix for historical tasks:** manually complete the parent with `hermes kanban complete
+      <task_id> --summary "..."` or `kanban_complete(task_id=..., summary=...)`.
+      The parent moves to `done`, the child is promoted to `ready`, and the next
+      `hermes kanban dispatch` picks it up.
+    - **Current prevention:** the worker does not park after creating the review;
+      it completes its task with `kanban_complete`. The review task remains
+      independent and without a parent.
 
-13. **Provider rate-limit (429) causa crash review transienti.** Non solo i
-    model swap (pitfall #10): anche un rate-limit 429 del provider LLM
-    causa crash `pid not alive` e `protocol_violation` sui profili worker e
-    reviewer. Diversamente dal pitfall #10 (sistemico), questo e' **transiente**:
-    la quota si libera, e al retry il profilo completa pulito.
-    - **Sintomi:** 1-2 crash consecutivi, poi un unblock manuale e retry
-      che completa in pochi minuti.
-    - **Diagnosi:** se il crash avviene in finestra di carico e il retry
-      post-unblock chiude pulito, era rate-limit. Controlla gli eventi del task
-      per `gave_up` seguito da `unblocked` e `completed`.
-    - **Azione:** non bruciare retry. Se il dispatcher ha gia' fatto `gave_up`,
-      un `kanban_comment` con "retry" + `kanban_unblock` fa ripartire il task al
-      prossimo dispatch.
+13. **Provider rate limit (429) causes transient review crashes.** Model swaps
+    (pitfall #10) are not the only cause: a 429 rate limit from the LLM provider
+    also causes `pid not alive` and `protocol_violation` crashes in worker and
+    reviewer profiles. Unlike pitfall #10 (systemic), this is **transient**: the
+    quota becomes available, and the profile completes cleanly on retry.
+    - **Symptoms:** 1-2 consecutive crashes, followed by a manual unblock and a
+      retry that completes within a few minutes.
+    - **Diagnosis:** if the crash occurs during a high-load window and the retry
+      after unblocking finishes cleanly, it was a rate limit. Check task events
+      for `gave_up` followed by `unblocked` and `completed`.
+    - **Action:** do not burn retries. If the dispatcher already issued
+      `gave_up`, a `kanban_comment` with "retry" + `kanban_unblock` restarts the
+      task at the next dispatch.
 
 14. **Accoppiamento assert/stringa in pr-brief.py: la dipendenza e' interna al tool.** Nei brief che toccano pr-brief.py, l'accoppiamento critico tra `run_self_test()` e il template NON e' template→tool (come si potrebbe pensare): la stringa emessa nel brief la inietta pr-brief.py stesso, non il template. Quindi la dipendenza da cercare e' tutta interna al tool — se traduci una stringa emessa da render_brief(), l'assert in run_self_test() che la controlla va aggiornato nello stesso file, nello stesso commit.
 
