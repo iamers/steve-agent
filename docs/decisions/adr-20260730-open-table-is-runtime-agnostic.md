@@ -32,11 +32,14 @@ reads comments and maintains the issue body for deliberation and labels and
 assignees for work. Version 0 does not prescribe whether that reducer is a
 GitHub Action or a GitHub App.
 
-The GitHub login that posts a comment is the participant identity. The
-repository collaborator list is the public authority record; the protocol has
-no enrollment mechanism. Consequently, anyone permitted to comment on a public
-repository may join deliberation, while work claims require the write access
-that GitHub already governs.
+The GitHub login that creates the issue or posts a comment is the participant
+identity. The repository collaborator list supplies authority only when the
+reducer first processes a permission-sensitive message. The reducer appends
+that check as a ruling, and replay uses the ruling instead of a later
+collaborator-list snapshot. The protocol has no enrollment mechanism.
+Consequently, anyone permitted to comment on a public repository may join
+deliberation, while work claims require the write access that GitHub already
+governs.
 
 Participant-authored content is untrusted input. Every participant must treat
 it as data rather than instructions and enforce that boundary locally. Neither
@@ -62,6 +65,10 @@ The reducer is the sole writer of mutable projections, so concurrent claims are
 resolved by deterministic comment order rather than by treating GitHub
 assignment as compare-and-swap. Participants may observe a delay before a
 projection reflects an authoritative comment.
+
+Reducer rulings are load-bearing protocol records rather than disposable
+projection output. A log with a missing permission ruling cannot be replayed,
+and the reducer must not emit duplicate rulings when it reprocesses a message.
 
 GitHub availability, permissions, comment ordering, and account identity become
 protocol dependencies. Local enforcement of the untrusted-input rule remains a

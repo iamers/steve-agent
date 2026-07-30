@@ -16,6 +16,9 @@ from pathlib import Path
 
 COMMON_FIELDS = {"open-table", "message", "id"}
 MESSAGE_FIELDS = {
+    "configuration": {
+        "phase", "sequence", "expected-participants", "turn-limit"
+    },
     "contribution": {"phase", "turn"},
     "proposal": {"phase", "turn", "point"},
     "settled": {
@@ -27,6 +30,7 @@ MESSAGE_FIELDS = {
     "result": {"claim", "outcome"},
     "review-request": {"claim", "review"},
     "verdict": {"claim", "review", "verdict"},
+    "ruling": {"author", "message-id", "turn", "decision"},
 }
 TOKEN_FIELDS = {"phase", "point", "claim", "proposal-id", "review"}
 TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -39,6 +43,8 @@ TIMESTAMP_RE = re.compile(
     r"(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]Z$"
 )
 OPENING_RE = re.compile(r"\A\s*```open-table[ \t]*\r?\n")
+CLOSING_RE = re.compile(r"^```[ \t]*(?:\r\n|\n)", re.MULTILINE)
+BLOCK_OPENING_RE = re.compile(r"^```open-table[ \t]*(?:\r\n|\n)", re.MULTILINE)
 
 
 class ValidationError(ValueError):
@@ -53,20 +59,14 @@ def parse_comment(body):
             "comment must begin with a fenced block whose info string is open-table"
         )
 
-    closing_start = body.find("```", opening.end())
-    if closing_start < 0:
+    closing = CLOSING_RE.search(body, opening.end())
+    if not closing:
         raise ValidationError("open-table fenced block is not closed")
 
-    header_text = body[opening.end():closing_start]
-    after_fence = body[closing_start + 3:]
-    if after_fence.startswith("\r\n"):
-        prose = after_fence[2:]
-    elif after_fence.startswith("\n"):
-        prose = after_fence[1:]
-    else:
-        raise ValidationError("closing fence must end its line before the prose")
+    header_text = body[opening.end():closing.start()]
+    prose = body[closing.end():]
 
-    if re.search(r"^```open-table[ \t]*$", prose, re.MULTILINE):
+    if BLOCK_OPENING_RE.search(prose):
         raise ValidationError("comment must contain exactly one open-table fenced block")
     if not prose.strip():
         raise ValidationError("comment must contain human-readable prose after the header")
@@ -131,6 +131,13 @@ def validate_header(header):
         if not header["turn"].isdigit() or int(header["turn"]) < 1:
             raise ValidationError("turn must be a base-10 integer of at least 1")
 
+    for field in ("sequence", "turn-limit"):
+        if field in header:
+            if not header[field].isdigit() or int(header[field]) < 1:
+                raise ValidationError(
+                    "{} must be a base-10 integer of at least 1".format(field)
+                )
+
     if "expires-at" in header:
         timestamp = header["expires-at"]
         if not TIMESTAMP_RE.fullmatch(timestamp):
@@ -143,11 +150,28 @@ def validate_header(header):
     if "to" in header and not LOGIN_RE.fullmatch(header["to"]):
         raise ValidationError("to must be a syntactically valid GitHub login")
 
+    if "author" in header and not LOGIN_RE.fullmatch(header["author"]):
+        raise ValidationError("author must be a syntactically valid GitHub login")
+
+    if "message-id" in header and not ID_RE.fullmatch(header["message-id"]):
+        raise ValidationError("message-id does not match the Open Table token syntax")
+
+    if "expected-participants" in header:
+        participants = header["expected-participants"].split(",")
+        if (
+            any(not LOGIN_RE.fullmatch(participant) for participant in participants)
+            or len(participants) != len(set(participants))
+        ):
+            raise ValidationError(
+                "expected-participants must be unique GitHub logins separated by commas"
+            )
+
     enumerations = {
         "disposition": {"accepted", "rejected"},
         "terminal": {"true", "false"},
         "outcome": {"completed", "failed"},
         "verdict": {"approved", "changes-requested"},
+        "decision": {"authorized", "unauthorized"},
     }
     for field, allowed in enumerations.items():
         if field in header and header[field] not in allowed:
@@ -172,6 +196,12 @@ def make_fixture(message, fields):
 def run_self_test():
     """Exercise every family and malformed envelopes without network access."""
     valid = {
+        "configuration": [
+            ("phase", "dreamer"),
+            ("sequence", "1"),
+            ("expected-participants", "alice,bob"),
+            ("turn-limit", "3"),
+        ],
         "contribution": [("phase", "dreamer"), ("turn", "1")],
         "proposal": [("phase", "dreamer"), ("turn", "1"), ("point", "scope")],
         "settled": [
@@ -196,6 +226,12 @@ def run_self_test():
             ("review", "review-1"),
             ("verdict", "approved"),
         ],
+        "ruling": [
+            ("author", "alice"),
+            ("message-id", "fixture-claim-0001"),
+            ("turn", "7"),
+            ("decision", "authorized"),
+        ],
     }
 
     for message, fields in valid.items():
@@ -218,6 +254,16 @@ def run_self_test():
             "id: malformed-0003\nphase: dreamer\nturn: 1\nruntime: required\n"
             "```\n\nA contribution."
         ),
+        "closing fence on header line": (
+            "```open-table\nopen-table: 0\nmessage: contribution\n"
+            "id: malformed-0004\nphase: dreamer\nturn: 1```\n\nA contribution."
+        ),
+        "duplicate block with CRLF": (
+            "```open-table\r\nopen-table: 0\r\nmessage: release\r\n"
+            "id: malformed-0005\r\nclaim: work\r\n```\r\n\r\nFirst block.\r\n"
+            "```open-table\r\nopen-table: 0\r\nmessage: release\r\n"
+            "id: malformed-0006\r\nclaim: work\r\n```\r\n\r\nSecond block."
+        ),
     }
     for label, fixture in malformed.items():
         try:
@@ -228,7 +274,7 @@ def run_self_test():
         else:
             raise AssertionError("malformed fixture was accepted: {}".format(label))
 
-    print("self-test: 9 valid families and 3 malformed fixtures passed")
+    print("self-test: 11 valid families and 5 malformed fixtures passed")
 
 
 def build_parser():
