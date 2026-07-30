@@ -111,13 +111,32 @@ moa:
   save_traces: true
   presets:
     default:
+      # Advisors run ONCE per user turn instead of on every tool iteration.
+      # The default (`per_iteration`) re-runs the whole fan-out whenever the
+      # advisory view changes, and the view grows with each tool result: on a
+      # task with 30 iterations and 3 advisors that is 90 advisory calls for
+      # one request. `user_turn` hashes only the prefix up to the last real
+      # user message, so iterations 2+ are a cache hit and the aggregator
+      # works alone with the advice already gathered. Cost of the trade: the
+      # advisors do not see what the agent discovers mid-turn.
+      fanout: user_turn
+      # NO `reference_max_tokens` here, deliberately. A cap on advisor output
+      # is only safe once the advisor stops emitting a reasoning trace, and on
+      # this runtime it cannot: `_slot_runtime` in `agent/moa_loop.py` forwards
+      # only base_url, api_key and api_mode to a slot, and drops the
+      # `request_overrides` that carry a custom provider's `extra_body`. So
+      # `chat_template_kwargs.enable_thinking: false` never reaches the wire
+      # for a MoA slot, however the provider is declared. With thinking on, a
+      # 1200-token cap was measured returning EMPTY content on substantive
+      # questions: the trace consumes the whole budget. Uncapped is slower and
+      # correct; capped would be faster and silently empty.
       reference_models:
         - provider: lab-gpu
           model: qwen36-35b-a3b-fp8
         - provider: openai-codex
           model: gpt-5.6-luna
         - provider: gemini
-          model: gemini-3.5-flash
+          model: gemini-3.6-flash
       aggregator:
         provider: openai-codex
         model: gpt-5.6-terra
@@ -198,7 +217,7 @@ fallback_model:
   - provider: lab-gpu
     model: qwen36-35b-a3b-fp8
   - provider: gemini
-    model: gemini-3.5-flash
+    model: gemini-3.6-flash
 # Auxiliary tasks: high volume, non-critical quality. Routed to the local
 # endpoint to avoid consuming the primary provider's quota.
 auxiliary:
@@ -216,6 +235,14 @@ custom_providers:
     base_url: ${VLLM_BASE_URL}
     key_env: VLLM_API_KEY
     api_mode: chat_completions
+  # A second entry with `extra_body.chat_template_kwargs.enable_thinking: false`
+  # was tried here for the MoA advisor slot and REMOVED: it is inert. The
+  # runtime turns a custom provider's `extra_body` into `request_overrides`
+  # (`hermes_cli/runtime_provider.py`), but the MoA bridge `_slot_runtime`
+  # (`agent/moa_loop.py`) forwards only base_url, api_key and api_mode, so the
+  # override never reaches the wire. A provider declared that way behaves
+  # exactly like this one while claiming not to, which is worse than not having
+  # it. Revisit only if that bridge starts forwarding overrides.
 
 # ── Security ──────────────────────────────────────────────────────────
 # Secret redaction is ON by default — strings that look like API keys,
