@@ -120,19 +120,18 @@ moa:
       # works alone with the advice already gathered. Cost of the trade: the
       # advisors do not see what the agent discovers mid-turn.
       fanout: user_turn
-      # Cap on ADVISOR output only; the aggregator is never capped because its
-      # output is the user-visible answer. Uncapped, each advisor generates up
-      # to its own maximum, which on the local endpoint means a 262k window.
-      # Measured on our three advisor-style prompts, answers land between 600
-      # and 950 tokens: 800 truncated two of three, 1200 leaves headroom.
-      reference_max_tokens: 1200
+      # NO `reference_max_tokens` here, deliberately. A cap on advisor output
+      # is only safe once the advisor stops emitting a reasoning trace, and on
+      # this runtime it cannot: `_slot_runtime` in `agent/moa_loop.py` forwards
+      # only base_url, api_key and api_mode to a slot, and drops the
+      # `request_overrides` that carry a custom provider's `extra_body`. So
+      # `chat_template_kwargs.enable_thinking: false` never reaches the wire
+      # for a MoA slot, however the provider is declared. With thinking on, a
+      # 1200-token cap was measured returning EMPTY content on substantive
+      # questions: the trace consumes the whole budget. Uncapped is slower and
+      # correct; capped would be faster and silently empty.
       reference_models:
-        # Thinking-off variant: the aggregator reads only `content`, and the
-        # reasoning trace is discarded, so on this slot thinking is paid in
-        # wall time and never reaches its reader. Measured 3-4x faster with no
-        # loss of answer length. The thinking-on `lab-gpu` stays for the
-        # judgement roles, where the verdict IS the output.
-        - provider: lab-gpu-fast
+        - provider: lab-gpu
           model: qwen36-35b-a3b-fp8
         - provider: openai-codex
           model: gpt-5.6-luna
@@ -236,21 +235,14 @@ custom_providers:
     base_url: ${VLLM_BASE_URL}
     key_env: VLLM_API_KEY
     api_mode: chat_completions
-  # Same endpoint and same model, thinking disabled. Two entries rather than
-  # one switch because the choice is per ROLE, not per endpoint: an advisor is
-  # read for its conclusion (the reasoning trace is discarded), a judge is read
-  # for the verdict its reasoning produces. MoA slots accept only provider,
-  # model and reasoning_effort, so a per-slot toggle does not exist and the
-  # distinction has to live at provider level.
-  # The qwen chat template exposes `enable_thinking` as a boolean only: there
-  # is no thinking budget, so there is no middle setting to reach for.
-  - name: lab-gpu-fast
-    base_url: ${VLLM_BASE_URL}
-    key_env: VLLM_API_KEY
-    api_mode: chat_completions
-    extra_body:
-      chat_template_kwargs:
-        enable_thinking: false
+  # A second entry with `extra_body.chat_template_kwargs.enable_thinking: false`
+  # was tried here for the MoA advisor slot and REMOVED: it is inert. The
+  # runtime turns a custom provider's `extra_body` into `request_overrides`
+  # (`hermes_cli/runtime_provider.py`), but the MoA bridge `_slot_runtime`
+  # (`agent/moa_loop.py`) forwards only base_url, api_key and api_mode, so the
+  # override never reaches the wire. A provider declared that way behaves
+  # exactly like this one while claiming not to, which is worse than not having
+  # it. Revisit only if that bridge starts forwarding overrides.
 
 # ── Security ──────────────────────────────────────────────────────────
 # Secret redaction is ON by default — strings that look like API keys,
