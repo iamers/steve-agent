@@ -125,6 +125,24 @@ auxiliary:
   goal_judge:
     provider: lab-gpu
     model: qwen36-35b-a3b-fp8
+# Named custom providers are NOT inherited from the root config: each profile
+# resolves providers from its own config only. Without this block the two
+# references to `lab-gpu` above (goal_judge) and in fallback_model resolve to
+# "Unknown provider 'lab-gpu'". Two distinct consequences follow, both silent:
+#   - the first fallback link is skipped and the chain advances to the next
+#     entry, so a failover never reaches the local endpoint;
+#   - the goal judge is never constructed, so the gate in `hermes_cli/kanban.py`
+#     that tests `get_text_auxiliary_client("goal_judge")` before judging fails
+#     open, and a `--goal` card completes with no judgement at all.
+# The judge is NOT rerouted to another provider: the fallback chains live
+# inside the LLM call, and that gate returns before any call is made.
+# Verified 2026-07-29: the same one-shot answered on the root profile and
+# failed here.
+custom_providers:
+  - name: lab-gpu
+    base_url: ${VLLM_BASE_URL}
+    key_env: VLLM_API_KEY
+    api_mode: chat_completions
 platform_toolsets:
   cli:
     - hermes-cli
