@@ -64,8 +64,8 @@ Results carry stable result ids and machine-readable immutable artefact
 references. Review requests and verdicts bind to the same result and artefact
 version, and reviewer independence compares numeric actor ids.
 
-The conformance floor and adapter compatibility matrix remain deferred as open
-points F and H in issue #130. This decision does not choose either.
+The conformance tiers and adapter compatibility matrix are settled in
+`adr-20260802-open-table-conformance-and-reducer.md`.
 
 Version 0 lives in this repository. The specification and validator move to a
 dedicated repository when a second project adopts the protocol.
