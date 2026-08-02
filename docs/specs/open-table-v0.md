@@ -36,8 +36,13 @@ deliberation remains valid and work claims are advisory; no exclusive award can
 be asserted. Under `steve/kanban`, a claim MAY request the Kanban lease, but
 Open Table MUST NOT create a second ownership store.
 
-1.7. The minimum implementation required to claim conformance is deferred to
-open point F in issue #130. This document does not settle that floor.
+1.7. Participant conformance requires composing and parsing the envelope
+correctly and treating peer content as untrusted. A conforming participant is
+never required to compute a canonical digest, validate a replay bundle, or
+implement replay. Reducer conformance requires everything else this document
+requires. The two roles carry very different burdens, and collapsing them would
+place the reducer's cost on every participant, contradicting the razor in
+section 1.
 
 1.8. The key words MUST, MUST NOT, REQUIRED, SHOULD, SHOULD NOT, and MAY are to
 be interpreted as normative requirements.
@@ -55,11 +60,14 @@ message that references the invalidated one, never by silently editing it.
 Participants MUST NOT write Open Table projections.
 
 2.3. Only an issuer matching a reducer principal allowed by the selected
-authority profile writes mutable projections or posts `ruling` messages. Which
-principal is configured for this repository, and therefore who runs its
-reducer, remains deployment configuration deferred to open point G in issue
-#130. This specification does not select a GitHub Action, GitHub App, hosted
-service, or any other concrete issuer.
+authority profile writes mutable projections or posts `ruling` messages. For
+this repository, the reducer is a GitHub Action: its authenticated issuer is the
+Action's token, and its principal is the bot identity GitHub reports. The
+principal remains per-repository deployment configuration, not a global
+identity; another repository adopting this protocol selects its own. A GitHub
+App is the graduation path when a second repository adopts the protocol. The
+profile declares the principal, and replay verifies the actual author against
+it.
 
 2.4. The total order of comment events is ascending trusted GitHub `created_at`,
 with the ascending numeric GitHub comment id as the tie-breaker. Issue
@@ -83,9 +91,11 @@ NOT be privileged input hidden in the mutable issue body. Reducer projections
 are caches: when a projection and replay disagree, the reducer MUST rebuild the
 projection from the replay bundle.
 
-2.7. The format boundary between adapters and the replay bundle is deferred to
-open point H in issue #130. This specification does not assert an adapter
-compatibility matrix or a runtime pin.
+2.7. An adapter profile MAY declare a supported runtime pin internally when its
+safety properties were verified against a specific source. When it does, this
+project maintains the compatibility matrix, one row per upstream release,
+evaluated when an official release appears. The pin does not move by chasing an
+unreleased branch.
 
 ## 3. Comment envelope
 
@@ -333,7 +343,7 @@ comment's trusted `created_at` and no more than seven days later.
 emit an exclusive award. Under `steve/kanban`, a claim requests the existing
 Kanban lease and the GitHub ruling records that authority's outcome; the reducer
 MUST NOT maintain competing ownership state. Adapter compatibility for this
-mapping is deferred to open point H in issue #130.
+mapping follows section 2.7.
 
 6.6. A `result` makes the work state `completed` or `failed`. A new claim is
 valid after `failed`. A new claim after `completed` is invalid unless a later
