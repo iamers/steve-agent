@@ -636,11 +636,15 @@ def validate_integrity_bundle(bundle):
                     source_message, source_comment_id
                 )
             )
-        allowed_decisions = (
-            {"awarded", "rejected"}
-            if source_message == "claim"
-            else {"authorized", "unauthorized"}
-        ) | {"invalidated"}
+        if source_message == "claim":
+            allowed_decisions = (
+                {"rejected"}
+                if authority_policy["profile"] == "deliberation-only"
+                else {"awarded", "rejected"}
+            )
+        else:
+            allowed_decisions = {"authorized", "unauthorized"}
+        allowed_decisions.add("invalidated")
         if header["decision"] not in allowed_decisions:
             raise ValidationError(
                 "ruling decision {} is not legal for {} source comment {}".format(
@@ -986,6 +990,18 @@ def run_self_test():
         print("integrity fixture (illegal claim ruling decision): rejected")
     else:
         raise AssertionError("an authorized decision was accepted for a claim")
+
+    deliberation_award_bundle = json.loads(json.dumps(mismatch_bundle))
+    deliberation_award_bundle["authority_policy"]["profile"] = "deliberation-only"
+    deliberation_award_bundle["ordered_events"][1]["body"] = valid_ruling
+    refresh_fixture_receipt(deliberation_award_bundle["ordered_events"][1])
+    try:
+        validate_fixture_bundle(deliberation_award_bundle)
+    except ValidationError as error:
+        assert "decision awarded is not legal for claim" in str(error)
+        print("integrity fixture (deliberation-only claim award): rejected")
+    else:
+        raise AssertionError("deliberation-only accepted an awarded claim ruling")
 
     invalidated_claim_bundle = json.loads(json.dumps(mismatch_bundle))
     invalidated_claim_bundle["ordered_events"][1]["body"] = valid_ruling.replace(
@@ -1656,7 +1672,7 @@ def run_self_test():
     print("integrity fixture (ambiguous surrogate ids): no id reserved")
 
     print(
-        "self-test: 14 valid families, 7 malformed fixtures, and 45 integrity "
+        "self-test: 14 valid families, 7 malformed fixtures, and 46 integrity "
         "rules passed"
     )
 

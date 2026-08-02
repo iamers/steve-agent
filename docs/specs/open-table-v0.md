@@ -409,10 +409,11 @@ under the recipient. Renewal and handoff expiry MUST be later than the source
 comment's trusted `created_at` and no more than seven days later.
 
 6.5. Under `deliberation-only`, claims remain advisory and the reducer MUST NOT
-emit an exclusive award. Under `steve/kanban`, a claim requests the existing
-Kanban lease and the GitHub ruling records that authority's outcome; the reducer
-MUST NOT maintain competing ownership state. Adapter compatibility for this
-mapping follows section 2.7.
+emit an exclusive award; a claim ruling under this profile MUST be `rejected`
+unless the sole reserved `invalidated` decision applies. Under `steve/kanban`, a
+claim requests the existing Kanban lease and the GitHub ruling records that
+authority's outcome; the reducer MUST NOT maintain competing ownership state.
+Adapter compatibility for this mapping follows section 2.7.
 
 6.6. A `result` makes the work state `completed` or `failed`. A new claim is
 valid after `failed`. A new claim after `completed` is invalid unless a later
