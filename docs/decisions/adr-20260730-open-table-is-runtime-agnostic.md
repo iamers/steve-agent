@@ -38,8 +38,9 @@ and assignees for work. Replay uses
 `reduce(ordered_events, trusted_context, authority_policy, as_of)` and trusted
 GitHub event timestamps, never the reducer's wall clock. Session configuration
 is a protocol event with trusted metadata rather than hidden mutable-body input.
-Who runs the reducer in this repository remains deferred as open point G in
-issue #130.
+The first reducer here is a GitHub Action. Its issuer is the Action's token,
+and its principal is the bot identity GitHub reports, selected per repository;
+see `adr-20260802-open-table-conformance-and-reducer.md`.
 
 Participant identity is the numeric GitHub user id; the login is display only.
 Authenticated GitHub context supplies identity, repository and source metadata.
