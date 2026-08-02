@@ -14,7 +14,9 @@ import hashlib
 import ipaddress
 import json
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -458,7 +460,8 @@ def validate_integrity_bundle(bundle):
         raise ValidationError(
             "authority_policy must contain only profile and reducer_principals"
         )
-    if authority_policy["profile"] not in {
+    authority_profile = authority_policy["profile"]
+    if not isinstance(authority_profile, str) or authority_profile not in {
         "deliberation-only", "open-table/ordered-claims", "steve/kanban"
     }:
         raise ValidationError("authority_policy profile is not supported")
@@ -1048,6 +1051,41 @@ def run_self_test():
             print("malformed fixture ({}): rejected: {}".format(label, error))
         else:
             raise AssertionError("malformed fixture was accepted: {}".format(label))
+
+    malformed_profile_bundle = {
+        "authority_policy": {"profile": [], "reducer_principals": [999]},
+        "ordered_events": [],
+    }
+    try:
+        validate_integrity_bundle(malformed_profile_bundle)
+    except ValidationError as error:
+        assert "profile is not supported" in str(error)
+        print("integrity fixture (nonscalar authority profile): rejected")
+    else:
+        raise AssertionError("a nonscalar authority profile was accepted")
+
+    bare_cr_body = make_fixture(
+        "contribution", [("phase", "dreamer"), ("turn", "1")]
+    ).replace("turn: 1\n```", "turn: 1\r\r\n```").encode("utf-8")
+    with tempfile.TemporaryDirectory() as fixture_dir:
+        fixture_path = Path(fixture_dir) / "bare-cr-comment.md"
+        fixture_path.write_bytes(bare_cr_body)
+        path_result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()), str(fixture_path)],
+            capture_output=True,
+            check=False,
+        )
+    assert path_result.returncode == 1
+    assert b"bare carriage return" in path_result.stderr
+    stdin_result = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve())],
+        input=bare_cr_body,
+        capture_output=True,
+        check=False,
+    )
+    assert stdin_result.returncode == 1
+    assert b"bare carriage return" in stdin_result.stderr
+    print("CLI fixture (bare carriage return via path and stdin): rejected")
 
     duplicate_body = make_fixture(
         "contribution", [("phase", "dreamer"), ("turn", "1")]
@@ -1907,7 +1945,7 @@ def run_self_test():
     print("integrity fixture (ambiguous surrogate ids): no id reserved")
 
     print(
-        "self-test: 14 valid families, 19 malformed fixtures, and 50 integrity "
+        "self-test: 14 valid families, 19 malformed fixtures, and 52 integrity "
         "rules passed"
     )
 
@@ -1956,10 +1994,14 @@ def main(argv=None):
         return 0
 
     try:
-        body = Path(args.path).read_text(encoding="utf-8") if args.path else sys.stdin.read()
+        raw_body = Path(args.path).read_bytes() if args.path else sys.stdin.buffer.read()
+        body = raw_body.decode("utf-8")
     except OSError as error:
         print("error: cannot read comment: {}".format(error), file=sys.stderr)
         return 2
+    except UnicodeDecodeError as error:
+        print("invalid: comment is not valid UTF-8: {}".format(error), file=sys.stderr)
+        return 1
 
     try:
         header, _ = parse_comment(body)
