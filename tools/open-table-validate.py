@@ -223,14 +223,46 @@ def validate_header(header):
 
 def validate_integrity_bundle(bundle):
     """Validate trusted event integrity without performing protocol reduction."""
-    if not isinstance(bundle, dict) or set(bundle) != {"ordered_events"}:
-        raise ValidationError("integrity bundle must contain only ordered_events")
+    required_bundle_fields = {"authority_policy", "ordered_events"}
+    if not isinstance(bundle, dict) or set(bundle) != required_bundle_fields:
+        raise ValidationError(
+            "integrity bundle must contain only authority_policy and ordered_events"
+        )
+    authority_policy = bundle["authority_policy"]
+    if not isinstance(authority_policy, dict) or set(authority_policy) != {
+        "profile", "reducer_principals"
+    }:
+        raise ValidationError(
+            "authority_policy must contain only profile and reducer_principals"
+        )
+    if authority_policy["profile"] not in {
+        "deliberation-only", "open-table/ordered-claims", "steve/kanban"
+    }:
+        raise ValidationError("authority_policy profile is not supported")
+    reducer_principals = authority_policy["reducer_principals"]
+    if (
+        not isinstance(reducer_principals, list)
+        or not reducer_principals
+        or any(
+            isinstance(principal, bool)
+            or not isinstance(principal, int)
+            or principal < 1
+            for principal in reducer_principals
+        )
+        or len(reducer_principals) != len(set(reducer_principals))
+    ):
+        raise ValidationError(
+            "authority_policy reducer_principals must be unique positive numeric "
+            "GitHub actor ids"
+        )
+    allowed_reducer_principals = set(reducer_principals)
     events = bundle["ordered_events"]
     if not isinstance(events, list) or not events:
         raise ValidationError("ordered_events must be a non-empty list")
 
     parsed = []
     by_comment_id = {}
+    seen_comment_ids = set()
     seen_messages = {}
     notices = []
     previous_order = None
@@ -257,8 +289,9 @@ def validate_integrity_bundle(bundle):
             raise ValidationError(
                 "event {} comment_id must be a positive integer".format(index)
             )
-        if comment_id in by_comment_id:
+        if comment_id in seen_comment_ids:
             raise ValidationError("duplicate trusted comment id: {}".format(comment_id))
+        seen_comment_ids.add(comment_id)
         if not isinstance(created_at, str) or not TIMESTAMP_RE.fullmatch(created_at):
             raise ValidationError(
                 "event {} created_at must use the exact RFC 3339 UTC form".format(index)
@@ -279,6 +312,15 @@ def validate_integrity_bundle(bundle):
 
         header, _ = parse_comment(body)
         digest = canonical_digest(body)
+        if (
+            header["message"] == "ruling"
+            and actor_id not in allowed_reducer_principals
+        ):
+            notices.append(
+                "excluded ruling-shaped comment {} from unauthorized actor {}; "
+                "treated as prose".format(comment_id, actor_id)
+            )
+            continue
         key = (actor_id, header["id"])
         if key in seen_messages:
             previous_digest = seen_messages[key]
@@ -304,12 +346,19 @@ def validate_integrity_bundle(bundle):
         parsed.append(record)
         by_comment_id[comment_id] = record
 
-    ruled_sources = set()
+    ruled_sources = {}
     for record in parsed:
         header = record["header"]
         if header["message"] != "ruling":
             continue
         source_comment_id = int(header["source-comment-id"])
+        if source_comment_id in ruled_sources:
+            raise ValidationError(
+                "duplicate ruling {} for source comment {}; first ruling was {}".format(
+                    header["id"], source_comment_id,
+                    ruled_sources[source_comment_id]["header"]["id"]
+                )
+            )
         source = by_comment_id.get(source_comment_id)
         if source is None:
             raise ValidationError(
@@ -326,7 +375,7 @@ def validate_integrity_bundle(bundle):
                 "ruling source digest mismatch; source was edited or binding is invalid; "
                 "fail closed"
             )
-        ruled_sources.add(source_comment_id)
+        ruled_sources[source_comment_id] = record
 
     requires_ruling = {
         "configuration", "settled", "claim", "renewal", "release", "handoff",
@@ -466,6 +515,10 @@ def run_self_test():
         "contribution", [("phase", "dreamer"), ("turn", "1")]
     )
     duplicate_bundle = {
+        "authority_policy": {
+            "profile": "open-table/ordered-claims",
+            "reducer_principals": [999],
+        },
         "ordered_events": [
             {
                 "actor_id": 101,
@@ -509,6 +562,10 @@ def run_self_test():
         ],
     )
     mismatch_bundle = {
+        "authority_policy": {
+            "profile": "open-table/ordered-claims",
+            "reducer_principals": [999],
+        },
         "ordered_events": [
             {
                 "actor_id": 101,
@@ -532,7 +589,86 @@ def run_self_test():
     else:
         raise AssertionError("ruling digest mismatch did not fail closed")
 
-    print("self-test: 14 valid families, 5 malformed fixtures, and 3 integrity rules passed")
+    valid_ruling = make_fixture(
+        "ruling",
+        [
+            ("target-actor-id", "101"),
+            ("message-id", "fixture-claim-0001"),
+            ("source-comment-id", "3"),
+            ("source-digest", canonical_digest(source_body)),
+            ("decision", "awarded"),
+        ],
+    )
+    second_ruling = valid_ruling.replace(
+        "id: fixture-ruling-0001", "id: fixture-ruling-0002"
+    ).replace("decision: awarded", "decision: rejected")
+    duplicate_ruling_bundle = {
+        "authority_policy": {
+            "profile": "open-table/ordered-claims",
+            "reducer_principals": [999],
+        },
+        "ordered_events": [
+            mismatch_bundle["ordered_events"][0],
+            {
+                "actor_id": 999,
+                "comment_id": 4,
+                "created_at": "2026-08-01T00:00:01Z",
+                "body": valid_ruling,
+            },
+            {
+                "actor_id": 999,
+                "comment_id": 5,
+                "created_at": "2026-08-01T00:00:02Z",
+                "body": second_ruling,
+            },
+        ],
+    }
+    try:
+        validate_integrity_bundle(duplicate_ruling_bundle)
+    except ValidationError as error:
+        assert "duplicate ruling fixture-ruling-0002" in str(error)
+        assert "source comment 3" in str(error)
+        print("integrity fixture (duplicate ruling): rejected: {}".format(error))
+    else:
+        raise AssertionError("second ruling for one source was accepted")
+
+    unauthorized_ruling = make_fixture(
+        "ruling",
+        [
+            ("target-actor-id", "101"),
+            ("message-id", "fixture-contribution-0001"),
+            ("source-comment-id", "6"),
+            ("source-digest", canonical_digest(duplicate_body)),
+            ("decision", "authorized"),
+        ],
+    )
+    unauthorized_bundle = {
+        "authority_policy": {
+            "profile": "open-table/ordered-claims",
+            "reducer_principals": [999],
+        },
+        "ordered_events": [
+            {
+                "actor_id": 101,
+                "comment_id": 6,
+                "created_at": "2026-08-01T00:00:00Z",
+                "body": duplicate_body,
+            },
+            {
+                "actor_id": 888,
+                "comment_id": 7,
+                "created_at": "2026-08-01T00:00:01Z",
+                "body": unauthorized_ruling,
+            },
+        ],
+    }
+    notices = validate_integrity_bundle(unauthorized_bundle)
+    assert notices == [
+        "excluded ruling-shaped comment 7 from unauthorized actor 888; treated as prose"
+    ]
+    print("integrity fixture (unauthorized ruling author): excluded as prose")
+
+    print("self-test: 14 valid families, 5 malformed fixtures, and 5 integrity rules passed")
 
 
 def build_parser():

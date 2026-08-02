@@ -28,11 +28,13 @@ message is created, and that outcome is recorded so replay MUST NOT consult
 mutable current permissions. Open Table defines no enrollment mechanism.
 
 1.6. Each session selects exactly one authority profile:
-`deliberation-only`, `open-table/ordered-claims`, or `steve/kanban`. Without a
-selected, authenticated authority profile, deliberation remains valid and work
-claims are advisory; no exclusive award can be asserted. Under `steve/kanban`,
-a claim MAY request the Kanban lease, but Open Table MUST NOT create a second
-ownership store.
+`deliberation-only`, `open-table/ordered-claims`, or `steve/kanban`. The profile
+MUST declare one or more reducer principals from trusted GitHub metadata: a
+numeric actor id or the App or bot identity as GitHub reports it, never a field
+from comment payload. Without a selected, authenticated authority profile,
+deliberation remains valid and work claims are advisory; no exclusive award can
+be asserted. Under `steve/kanban`, a claim MAY request the Kanban lease, but
+Open Table MUST NOT create a second ownership store.
 
 1.7. The minimum implementation required to claim conformance is deferred to
 open point F in issue #130. This document does not settle that floor.
@@ -52,8 +54,10 @@ can be edited or deleted. Participants MUST correct a message by posting a new
 message that references the invalidated one, never by silently editing it.
 Participants MUST NOT write Open Table projections.
 
-2.3. Only the reducer writes mutable projections or posts `ruling` messages.
-Who runs the reducer in this repository is deferred to open point G in issue
+2.3. Only an issuer matching a reducer principal allowed by the selected
+authority profile writes mutable projections or posts `ruling` messages. Which
+principal is configured for this repository, and therefore who runs its
+reducer, remains deployment configuration deferred to open point G in issue
 #130. This specification does not select a GitHub Action, GitHub App, hosted
 service, or any other concrete issuer.
 
@@ -68,10 +72,11 @@ the declared event order.
     projection = reduce(ordered_events, trusted_context, authority_policy, as_of)
 
 `ordered_events` contains the declared GitHub events. `trusted_context` contains
-authenticated GitHub metadata and recorded rulings. `authority_policy` is the
-selected profile. `as_of` is an explicit trusted timestamp. Historical validity
-uses trusted GitHub event timestamps and MUST NOT use the reducer's current
-clock. Two reducers given the same replay bundle and `as_of` MUST agree.
+authenticated GitHub metadata, including each event's actual author, and
+recorded rulings. `authority_policy` is the selected profile and its allowed
+reducer principals. `as_of` is an explicit trusted timestamp. Historical
+validity uses trusted GitHub event timestamps and MUST NOT use the reducer's
+current clock. Two reducers given the same replay bundle and `as_of` MUST agree.
 
 2.6. Session configuration is a protocol event with trusted metadata. It MUST
 NOT be privileged input hidden in the mutable issue body. Reducer projections
@@ -252,8 +257,13 @@ and a new result, review request, and verdict correlation is REQUIRED.
   `invalidated`.
 
 The target is identified by numeric actor id, message id, numeric source comment
-id, and source digest, and every field MUST agree with trusted context. Exactly
-one ruling MUST exist for each target that requires one. A ruling is reducer
+id, and source digest, and every field MUST agree with trusted context. During
+replay, a ruling is valid only when its actual author from the trusted event
+wrapper matches a reducer principal allowed by the active authority profile. A
+ruling-shaped comment by any other author is not a ruling: replay MUST
+deterministically exclude it from the projection, treat it as prose, and MUST
+NOT reject the bundle or make the log unreplayable because of it. Exactly one
+valid ruling MUST exist for each target that requires one. A ruling is reducer
 output and its prose explains the decision. Its effective position is the
 target's position, not the later position where the ruling is appended.
 
