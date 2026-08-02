@@ -38,8 +38,9 @@ and assignees for work. Replay uses
 `reduce(ordered_events, trusted_context, authority_policy, as_of)` and trusted
 GitHub event timestamps, never the reducer's wall clock. Session configuration
 is a protocol event with trusted metadata rather than hidden mutable-body input.
-Who runs the reducer in this repository remains deferred as open point G in
-issue #130.
+The first reducer here is a GitHub Action. Its issuer is the Action's token,
+and its principal is the bot identity GitHub reports, selected per repository;
+see `adr-20260802-open-table-conformance-and-reducer.md`.
 
 Participant identity is the numeric GitHub user id; the login is display only.
 Authenticated GitHub context supplies identity, repository and source metadata.
@@ -64,8 +65,8 @@ Results carry stable result ids and machine-readable immutable artefact
 references. Review requests and verdicts bind to the same result and artefact
 version, and reviewer independence compares numeric actor ids.
 
-The conformance floor and adapter compatibility matrix remain deferred as open
-points F and H in issue #130. This decision does not choose either.
+The conformance tiers and adapter compatibility matrix are settled in
+`adr-20260802-open-table-conformance-and-reducer.md`.
 
 Version 0 lives in this repository. The specification and validator move to a
 dedicated repository when a second project adopts the protocol.
