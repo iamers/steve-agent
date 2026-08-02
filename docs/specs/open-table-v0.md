@@ -58,7 +58,16 @@ the protocol header.
 append-only. This is a protocol convention, not a GitHub guarantee: comments
 can be edited or deleted. Participants MUST correct a message by posting a new
 message that references the invalidated one, never by silently editing it.
-Participants MUST NOT write Open Table projections.
+Participants MUST NOT write Open Table projections. A replay adapter MUST
+capture an authenticated GitHub comment-creation event receipt containing the
+original complete-body canonical digest, plus trusted `created_at`, `updated_at`,
+and GitHub GraphQL `lastEditedAt` metadata. It also MUST capture a complete issue
+timeline capable of exposing deletions. Replay MUST match the current body to
+the creation-receipt digest; `lastEditedAt` MUST be null and `updated_at` MUST
+equal `created_at`. Any edit or deletion makes the affected protocol history
+unreplayable and MUST fail closed. A session without authenticated creation
+receipts is not reducer-conformant and cannot be retroactively upgraded by
+trusting its current comment bodies.
 
 2.3. Only an issuer matching a reducer principal allowed by the selected
 authority profile writes mutable projections or posts `ruling` messages. This
@@ -82,12 +91,15 @@ the declared event order.
 
     projection = reduce(ordered_events, trusted_context, authority_policy, as_of)
 
-`ordered_events` contains the declared GitHub events. `trusted_context` contains
-authenticated GitHub metadata, including each event's actual author, and
-recorded rulings. `authority_policy` is the selected profile and its allowed
-reducer principals. `as_of` is an explicit trusted timestamp. Historical
-validity uses trusted GitHub event timestamps and MUST NOT use the reducer's
-current clock. Two reducers given the same replay bundle and `as_of` MUST agree.
+`ordered_events` contains the complete declared GitHub issue timeline, including
+comment-deletion evidence when GitHub exposes it. `trusted_context` contains
+authenticated GitHub metadata, including each event's actual author,
+authenticated creation-receipt body digest, `created_at`, `updated_at`,
+`lastEditedAt`, and recorded rulings. `authority_policy` is the selected profile
+and its allowed reducer principals. `as_of` is an explicit trusted timestamp.
+Historical validity uses trusted GitHub event timestamps and MUST NOT use the
+reducer's current clock. Two reducers given the same replay bundle and `as_of`
+MUST agree.
 The deployment adapter, not participant content, MUST authenticate and bind
 `trusted_context` and `authority_policy` to the numeric repository and issue
 identifying the session.
@@ -107,17 +119,21 @@ does not move by chasing an unreleased branch.
 2.8. `tools/open-table-validate.py --integrity-bundle` validates only the
 comment-event integrity slice supplied to it: envelope structure, trusted event
 ordering, numeric identity, canonical digests, reducer-output principals,
-duplicates, conflicts, ruling bindings, and event-local timestamps. Its input
-is not the complete replay bundle from section 2.5: it intentionally has no
-`trusted_context` or `as_of` field and performs no contextual reduction,
-permission lookup, claim arbitration, result/review correlation, or projection
-write. A green integrity check therefore MUST NOT be represented as reducer
-conformance. Within this integrity slice, any first-occurrence comment from an
-allowed reducer principal that begins an `open-table` block but fails strict
-envelope, UTF-8 scalar, or event-local validation is fatal; malformed
-participant input is instead excluded deterministically as section 7.5
-requires. Exact retries are identified before event-local checks and remain
-inert under section 7.2.
+duplicates, conflicts, ruling bindings, null trusted `last_edited_at`, trusted
+`created_at`/`updated_at` equality, authenticated `created_body_digest` equality,
+and event-local timestamps. Its input is not the complete replay bundle from
+section 2.5: it intentionally has no
+`trusted_context`, deletion timeline, or `as_of` field and performs no
+contextual reduction, permission lookup, claim arbitration, result/review
+correlation, or projection write. The deployment adapter MUST supply a complete
+trusted comment inventory; this slice cannot prove completeness by itself. A
+green integrity check therefore MUST NOT be represented as reducer conformance.
+Within this integrity slice, any creation-receipt digest mismatch or other edit
+signal is fatal. Any first-occurrence comment from an allowed reducer principal
+that begins an `open-table` block but fails strict envelope, UTF-8 scalar, or
+event-local validation is also fatal; malformed participant input is instead
+excluded deterministically as section 7.5 requires. Exact retries are identified
+before event-local checks and remain inert under section 7.2.
 
 ## 3. Comment envelope
 
@@ -136,8 +152,11 @@ Human-readable prose explaining the contribution.
 ````
 
 3.2. The `open-table` fenced block MUST be the first non-whitespace content in
-the comment. It MUST use backticks, carry the exact info string `open-table`,
-and contain only header lines. The comment MUST contain exactly one such block.
+the comment. Its opening and closing fences MAY be indented by zero to three
+ASCII spaces, matching Markdown fenced-code indentation, but MUST NOT use tabs
+or four or more spaces. It MUST use backticks, carry the exact info string
+`open-table`, and contain only header lines. The comment MUST contain exactly
+one such block under the same indentation grammar.
 
 3.3. Each header line MUST be `key: value`. Keys MUST contain only lowercase
 ASCII letters and hyphens. A key MUST occur once. Values MUST be single-line,
@@ -168,6 +187,17 @@ SHA-256 digest of the UTF-8 encoding of the complete comment body exactly as
 returned in trusted GitHub context. Header and prose are both covered. A
 participant is not required to calculate this digest; the authenticated reducer
 calculates it when creating a ruling.
+
+3.8. The common `id` remains actor-scoped for idempotency, but identifiers used
+as cross-message references MUST be unambiguous within one session. The common
+`id` of every contextually valid `proposal` is unique across all proposal
+actors. An initial `claim` declares a session-global `claim`; a `result`
+declares a session-global `result-id`; and a `review-request` declares a
+session-global `review`. Later messages reuse those declared identifiers only
+as references. A later declaration that collides with an earlier contextually
+valid declaration is invalid, regardless of actor.
+The reducer enforces these namespaces after contextual validity is known;
+structurally valid but contextually invalid comments MUST NOT reserve them.
 
 ## 4. Message families
 
@@ -206,7 +236,8 @@ and rationale.
 requires:
 
 - `point`: the point identifier used by the proposal;
-- `proposal-id`: the `id` of an earlier valid `proposal` for that point;
+- `proposal-id`: the session-global `id` of an earlier valid `proposal` for
+  that point;
 - `disposition`: `accepted` or `rejected`;
 - `terminal`: `true` or `false`.
 
@@ -279,9 +310,11 @@ requires:
 - `artefact`: exactly the immutable artefact reference carried by that result;
 - `verdict`: `approved` or `changes-requested`.
 
-The verdict actor id MUST differ from the actor id of the referenced `result`.
-If the artefact changes, the earlier verdict remains attached to the old result
-and a new result, review request, and verdict correlation is REQUIRED.
+The verdict actor id MUST differ from the actor id of the referenced `result`
+and MUST have repository write access recorded in trusted context at the
+verdict's ordered position. If the artefact changes, the earlier verdict remains
+attached to the old result and a new result, review request, and verdict
+correlation is REQUIRED.
 
 4.16. `ruling` records one authenticated decision. It requires:
 
@@ -308,7 +341,17 @@ MUST use its recorded decision and MUST NOT consult current permissions.
 `release`, `renewal`, `handoff`, `cancellation`, and `result` MUST be authored by
 the current claim holder. A `review-request` MUST be authored by the actor of the
 referenced completed `result`. A `verdict` MAY be authored by any other actor
-with an `authorized` ruling.
+with repository write access recorded at its ordered position. `configuration`
+and `settled` MUST be authored by an actor with repository write access recorded
+at their ordered position. A `claim` is ruled `awarded` or `rejected` by the
+predicate in section 6.2. Every other family named in this paragraph is ruled
+`authorized` exactly when its stated actor, reference, state, and permission
+predicates all hold, and `unauthorized` otherwise. The base profiles MUST NOT
+use `awarded` or `rejected` for those families, nor `authorized` or
+`unauthorized` for a claim. `invalidated` is reserved for adapter-defined
+trusted-context invalidation before any other ruling exists; it MUST be the sole
+ruling for its source. An edit after a ruling is not repairable by a second
+ruling and fails closed under section 7.
 
 ## 5. Deliberation turns and phases
 
@@ -389,10 +432,14 @@ occurrence reserves the key; it cannot be repaired by reposting and requires a
 new id.
 
 7.3. Every ruling binds to the numeric source comment id and canonical digest of
-the complete message. If an edited source no longer matches, replay MUST fail
-closed or consume an explicit `invalidated` ruling. A deleted or missing source
-or ruling makes dependent state unreplayable and MUST fail closed. A correction
-is a new message referencing the invalidated source.
+the complete message. The current canonical body digest MUST equal the digest in
+the authenticated GitHub creation-event receipt. Trusted `updated_at` MUST equal
+`created_at`, and trusted GitHub GraphQL `lastEditedAt` MUST be null. Any
+violation means the comment was edited and replay MUST fail closed. The creation
+receipt comparison, not timestamp equality, detects an edit within timestamp
+display precision. A deleted or missing source or ruling makes dependent state
+unreplayable and MUST fail closed. A correction is a new message with a new id;
+it does not rewrite the invalidated history.
 
 7.4. Structural and integrity validation can be performed offline when supplied
 with trusted context. Contextual reduction, including permissions, references,
