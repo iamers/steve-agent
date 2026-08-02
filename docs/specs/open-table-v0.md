@@ -161,7 +161,9 @@ one such block under the same indentation grammar.
 3.3. Each header line MUST be `key: value`. Keys MUST contain only lowercase
 ASCII letters and hyphens. A key MUST occur once. Values MUST be single-line,
 MUST have no leading or trailing whitespace, and MUST be non-empty. Unknown
-keys make the message invalid.
+keys make the message invalid. Physical lines use LF or CRLF only. Bare carriage
+returns and Unicode line-separator characters such as U+0085 and U+2028 are
+invalid and MUST NOT be interpreted as header line endings.
 
 3.4. The closing fence MUST be followed by non-whitespace free prose. The prose
 is for people and MAY use any Markdown. A header-only comment and a prose-only
@@ -212,14 +214,21 @@ structurally valid but contextually invalid comments MUST NOT reserve them.
 - `turn-limit`: the maximum turn number in the phase.
 
 A session uses either one `configuration` message per phase or no configuration
-messages. Each configuration is a protocol event with trusted metadata and MUST
-precede every deliberation message. Configuration MUST NOT be inferred from the
-mutable issue body. Sequence values MUST be unique and contiguous from 1, phase
-identifiers MUST be unique, and every configuration in one session MUST select
-the same authority profile. The phase with `sequence: 1` is initial. Each
-configuration requires an `authorized` ruling. This grammar is the only source
-of phase names, order, expected actors, turn limits, and authority profile;
-reducers MUST NOT derive those values from free prose.
+messages. Configuration-free mode is limited to participant-conformance,
+advisory `deliberation-only` messages: it has no authoritative rulings,
+termination, work award, or reducer projection. A reducer-conformant session
+MUST include configuration messages and derive its authority profile from them;
+the top-level replay `authority_policy` MUST match that declared profile. Each
+configuration is a protocol event with trusted metadata and MUST precede every
+deliberation message. Configuration MUST NOT be inferred from the mutable issue
+body. Sequence values MUST be unique and contiguous from 1, phase identifiers
+MUST be unique, and every configuration in one session MUST select the same
+authority profile. The phase with `sequence: 1` is initial. Each configuration
+requires an `authorized` ruling. This grammar is the only source of phase names,
+order, expected actors, turn limits, and authority profile; reducers MUST NOT
+derive those values from free prose. The reference integrity slice MAY validate
+a partial comment-event set without configuration, but that does not make the
+set a reducer-conformant replay bundle under section 2.5.
 
 4.2. The deliberation family contains `contribution`, `proposal`, and `settled`.
 All deliberation messages require `phase` and `turn` in addition to the common
@@ -291,8 +300,11 @@ untrusted prose and has no protocol effect.
 For GitHub software work, `artefact` MUST have the form
 `github:<numeric-repository-id>:pull:<pull-request-number>:head:<full-head-sha>`.
 A generic authority profile MAY instead use an absolute artefact URI followed
-by `#sha256=<lowercase-hex-digest>`. The prose describes the result; it is not
-the immutable reference.
+by `#sha256=<lowercase-hex-digest>`. The URI MUST use the RFC 3986 ASCII
+serialization: non-ASCII octets are percent-encoded, each percent escape is two
+hexadecimal digits, and characters excluded by RFC 3986 (including backslash
+and controls) are invalid. The prose describes the result; it is not the
+immutable reference.
 
 4.14. `review-request` asks for review of a completed result. It additionally
 requires:

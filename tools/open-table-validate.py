@@ -11,6 +11,7 @@ Usage:
 import argparse
 import datetime
 import hashlib
+import ipaddress
 import json
 import re
 import sys
@@ -59,8 +60,25 @@ GITHUB_ARTEFACT_RE = re.compile(
     r"(?:[0-9a-f]{40}|[0-9a-f]{64})$"
 )
 GENERIC_ARTEFACT_RE = re.compile(
-    r"^[A-Za-z][A-Za-z0-9+.-]*:[^\s#]+#sha256=[0-9a-f]{64}$"
+    r"^(?P<uri>[^#]+)#sha256=[0-9a-f]{64}$"
 )
+URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*$")
+URI_PATH_RE = re.compile(
+    r"^(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}|[!$&'()*+,;=]|[:@/])*$"
+)
+URI_QUERY_RE = re.compile(
+    r"^(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}|[!$&'()*+,;=]|[:@/?])*$"
+)
+URI_USERINFO_RE = re.compile(
+    r"^(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}|[!$&'()*+,;=]|:)*$"
+)
+URI_REG_NAME_RE = re.compile(
+    r"^(?:[A-Za-z0-9._~-]|%[0-9A-Fa-f]{2}|[!$&'()*+,;=])*$"
+)
+URI_IPVFUTURE_RE = re.compile(
+    r"^[vV][0-9A-Fa-f]+\.(?:[A-Za-z0-9._~-]|[!$&'()*+,;=]|:)+$"
+)
+UNSUPPORTED_LINE_SEPARATOR_RE = re.compile(r"[\v\f\x1c-\x1e\x85\u2028\u2029]")
 OPENING_RE = re.compile(
     r"\A(?:[ \t]*\r?\n)* {0,3}```open-table[ \t]*\r?\n"
 )
@@ -105,6 +123,80 @@ def is_positive_protocol_integer(value):
     )
 
 
+def is_valid_uri_authority(authority):
+    """Return whether an RFC 3986 authority uses supported canonical syntax."""
+    host_port = authority
+    if "@" in authority:
+        userinfo, host_port = authority.rsplit("@", 1)
+        if not URI_USERINFO_RE.fullmatch(userinfo):
+            return False
+
+    if host_port.startswith("["):
+        close = host_port.find("]")
+        if close < 0:
+            return False
+        literal = host_port[1:close]
+        suffix = host_port[close + 1:]
+        if not URI_IPVFUTURE_RE.fullmatch(literal):
+            if "%" in literal:
+                return False
+            try:
+                if ipaddress.ip_address(literal).version != 6:
+                    return False
+            except ValueError:
+                return False
+        if suffix:
+            if not suffix.startswith(":"):
+                return False
+            if suffix[1:] and not re.fullmatch(r"[0-9]+", suffix[1:]):
+                return False
+        return True
+
+    if host_port.count(":") > 1:
+        return False
+    host, separator, port = host_port.rpartition(":")
+    if not separator:
+        host = host_port
+    elif port and not re.fullmatch(r"[0-9]+", port):
+        return False
+    return bool(URI_REG_NAME_RE.fullmatch(host))
+
+
+def is_generic_artefact(value):
+    """Validate a generic immutable artefact as an absolute RFC 3986 URI."""
+    match = GENERIC_ARTEFACT_RE.fullmatch(value)
+    if match is None:
+        return False
+    uri = match.group("uri")
+    if any(ord(character) < 0x21 or ord(character) > 0x7e for character in uri):
+        return False
+    scheme, separator, remainder = uri.partition(":")
+    if not separator or not URI_SCHEME_RE.fullmatch(scheme):
+        return False
+    has_authority = remainder.startswith("//")
+    if has_authority:
+        authority_and_suffix = remainder[2:]
+        boundaries = [
+            position
+            for delimiter in ("/", "?")
+            if (position := authority_and_suffix.find(delimiter)) >= 0
+        ]
+        boundary = min(boundaries) if boundaries else len(authority_and_suffix)
+        authority = authority_and_suffix[:boundary]
+        suffix = authority_and_suffix[boundary:]
+        if not is_valid_uri_authority(authority):
+            return False
+        if suffix and not suffix.startswith(("/", "?")):
+            return False
+    else:
+        suffix = remainder
+    path, query_separator, query = suffix.partition("?")
+    return bool(
+        URI_PATH_RE.fullmatch(path)
+        and (not query_separator or URI_QUERY_RE.fullmatch(query))
+    )
+
+
 def peek_header_values(body, key):
     """Read exact key lines from a leading block without accepting the envelope."""
     prefix = key + ": "
@@ -122,7 +214,21 @@ def peek_header_lines(body):
         return []
     closing = CLOSING_RE.search(body, opening.end())
     header_end = closing.start() if closing else len(body)
-    return body[opening.end():header_end].splitlines()
+    return split_physical_lines(body[opening.end():header_end])
+
+
+def split_physical_lines(text):
+    """Split LF/CRLF source lines without treating Unicode separators as lines."""
+    ends_with_lf = text.endswith("\n")
+    lines = text.split("\n")
+    if ends_with_lf:
+        lines.pop()
+    return [
+        line[:-1]
+        if line.endswith("\r") and (number < len(lines) - 1 or ends_with_lf)
+        else line
+        for number, line in enumerate(lines)
+    ]
 
 
 def identify_reducer_output_shapes(body):
@@ -218,7 +324,11 @@ def parse_comment(body):
 def parse_header(header_text):
     """Parse strict single-line key/value pairs from an envelope header."""
     header = {}
-    lines = header_text.splitlines()
+    if UNSUPPORTED_LINE_SEPARATOR_RE.search(header_text):
+        raise ValidationError("header contains an unsupported Unicode line separator")
+    lines = split_physical_lines(header_text)
+    if any("\r" in line for line in lines):
+        raise ValidationError("header contains a bare carriage return")
     if not lines:
         raise ValidationError("open-table header is empty")
 
@@ -311,7 +421,7 @@ def validate_header(header):
 
     if "artefact" in header and not (
         GITHUB_ARTEFACT_RE.fullmatch(header["artefact"])
-        or GENERIC_ARTEFACT_RE.fullmatch(header["artefact"])
+        or is_generic_artefact(header["artefact"])
     ):
         raise ValidationError("artefact must be an immutable GitHub or generic reference")
 
@@ -762,6 +872,41 @@ def run_self_test():
         assert prose.strip()
         print("valid fixture ({}): ok".format(message))
 
+    generic_artefact = make_fixture(
+        "result",
+        [
+            ("claim", "implementation"),
+            ("result-id", "result-1"),
+            ("outcome", "completed"),
+            (
+                "artefact",
+                "https://example.com/build%20output#sha256=" + "a" * 64,
+            ),
+        ],
+    )
+    assert parse_comment(generic_artefact)[0]["message"] == "result"
+    print("integrity fixture (RFC 3986 generic artefact): accepted")
+
+    authority_artefact = generic_artefact.replace(
+        "https://example.com/build%20output",
+        "https://user:pass@[2001:db8::1]:443/build?format=json",
+    )
+    assert parse_comment(authority_artefact)[0]["message"] == "result"
+    print("integrity fixture (RFC 3986 URI authority): accepted")
+
+    ipvfuture_artefact = generic_artefact.replace(
+        "https://example.com/build%20output",
+        "https://[V1.example]/build",
+    )
+    assert parse_comment(ipvfuture_artefact)[0]["message"] == "result"
+    print("integrity fixture (uppercase IPvFuture authority): accepted")
+
+    crlf_envelope = make_fixture(
+        "contribution", [("phase", "dreamer"), ("turn", "1")]
+    ).replace("\n", "\r\n")
+    assert parse_comment(crlf_envelope)[0]["message"] == "contribution"
+    print("integrity fixture (CRLF physical lines): accepted")
+
     indented_fence = make_fixture(
         "contribution", [("phase", "dreamer"), ("turn", "1")]
     ).replace("```open-table\n", "   ```open-table\n", 1).replace(
@@ -804,6 +949,96 @@ def run_self_test():
             "   ```open-table\nopen-table: 0\nmessage: release\n"
             "id: malformed-0009\nclaim: work\n   ```\n\nSecond block."
         ),
+        "generic artefact with backslash": make_fixture(
+            "result",
+            [
+                ("claim", "implementation"),
+                ("result-id", "result-1"),
+                ("outcome", "completed"),
+                ("artefact", "https://example.com\\artifact#sha256=" + "a" * 64),
+            ],
+        ),
+        "generic artefact with invalid percent escape": make_fixture(
+            "result",
+            [
+                ("claim", "implementation"),
+                ("result-id", "result-1"),
+                ("outcome", "completed"),
+                ("artefact", "https://example.com/%GG#sha256=" + "a" * 64),
+            ],
+        ),
+        "generic artefact with bracket in path": make_fixture(
+            "result",
+            [
+                ("claim", "implementation"),
+                ("result-id", "result-1"),
+                ("outcome", "completed"),
+                ("artefact", "https://example.com/a[b]#sha256=" + "a" * 64),
+            ],
+        ),
+        "generic artefact with malformed IP literal": make_fixture(
+            "result",
+            [
+                ("claim", "implementation"),
+                ("result-id", "result-1"),
+                ("outcome", "completed"),
+                ("artefact", "https://[not-ip]/a#sha256=" + "a" * 64),
+            ],
+        ),
+        "generic artefact with duplicate at-sign": make_fixture(
+            "result",
+            [
+                ("claim", "implementation"),
+                ("result-id", "result-1"),
+                ("outcome", "completed"),
+                ("artefact", "https://user@@example.com/a#sha256=" + "a" * 64),
+            ],
+        ),
+        "generic artefact with nonnumeric port": make_fixture(
+            "result",
+            [
+                ("claim", "implementation"),
+                ("result-id", "result-1"),
+                ("outcome", "completed"),
+                ("artefact", "https://example.com:no/a#sha256=" + "a" * 64),
+            ],
+        ),
+        "generic artefact with raw tab": make_fixture(
+            "result",
+            [
+                ("claim", "implementation"),
+                ("result-id", "result-1"),
+                ("outcome", "completed"),
+                ("artefact", "https://exam\tple.com/a#sha256=" + "a" * 64),
+            ],
+        ),
+        "generic artefact with scoped IPv6": make_fixture(
+            "result",
+            [
+                ("claim", "implementation"),
+                ("result-id", "result-1"),
+                ("outcome", "completed"),
+                ("artefact", "https://[fe80::1%eth0]/a#sha256=" + "a" * 64),
+            ],
+        ),
+        "generic artefact with non-ASCII port": make_fixture(
+            "result",
+            [
+                ("claim", "implementation"),
+                ("result-id", "result-1"),
+                ("outcome", "completed"),
+                ("artefact", "https://example.com:１２/a#sha256=" + "a" * 64),
+            ],
+        ),
+        "U+0085 header separator": make_fixture(
+            "contribution", [("phase", "dreamer"), ("turn", "1")]
+        ).replace("open-table: 0\nmessage:", "open-table: 0\u0085message:"),
+        "U+2028 header separator": make_fixture(
+            "contribution", [("phase", "dreamer"), ("turn", "1")]
+        ).replace("open-table: 0\nmessage:", "open-table: 0\u2028message:"),
+        "bare carriage return": make_fixture(
+            "contribution", [("phase", "dreamer"), ("turn", "1")]
+        ).replace("turn: 1\n```", "turn: 1\r\r\n```"),
     }
     for label, fixture in malformed.items():
         try:
@@ -1672,7 +1907,7 @@ def run_self_test():
     print("integrity fixture (ambiguous surrogate ids): no id reserved")
 
     print(
-        "self-test: 14 valid families, 7 malformed fixtures, and 46 integrity "
+        "self-test: 14 valid families, 19 malformed fixtures, and 50 integrity "
         "rules passed"
     )
 
