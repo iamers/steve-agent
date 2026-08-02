@@ -42,7 +42,8 @@ never required to compute a canonical digest, validate a replay bundle, or
 implement replay. Reducer conformance requires everything else this document
 requires. The two roles carry very different burdens, and collapsing them would
 place the reducer's cost on every participant, contradicting the razor in
-section 1.
+section 1. This repository currently ships a reference envelope and integrity
+validator, not a reducer-conformant implementation.
 
 1.8. The key words MUST, MUST NOT, REQUIRED, SHOULD, SHOULD NOT, and MAY are to
 be interpreted as normative requirements.
@@ -60,14 +61,16 @@ message that references the invalidated one, never by silently editing it.
 Participants MUST NOT write Open Table projections.
 
 2.3. Only an issuer matching a reducer principal allowed by the selected
-authority profile writes mutable projections or posts `ruling` messages. For
-this repository, the reducer is a GitHub Action: its authenticated issuer is the
-Action's token, and its principal is the bot identity GitHub reports. The
-principal remains per-repository deployment configuration, not a global
-identity; another repository adopting this protocol selects its own. A GitHub
-App is the graduation path when a second repository adopts the protocol. The
-profile declares the principal, and replay verifies the actual author against
-it.
+authority profile writes mutable projections or posts `ruling` messages. This
+repository has selected a GitHub Action for its first reducer deployment, but
+that reducer is not implemented in version 0 as currently shipped. Until it is,
+work claims remain advisory and this repository MUST NOT claim reducer
+conformance. When deployed, its authenticated issuer will be the Action's token
+and its principal will be the bot identity GitHub reports. The principal remains
+per-repository deployment configuration, not a global identity; another
+repository adopting this protocol selects its own. A GitHub App is the
+graduation path when a second repository adopts this protocol. The profile
+declares the principal, and replay verifies the actual author against it.
 
 2.4. The total order of comment events is ascending trusted GitHub `created_at`,
 with the ascending numeric GitHub comment id as the tie-breaker. Issue
@@ -85,6 +88,9 @@ recorded rulings. `authority_policy` is the selected profile and its allowed
 reducer principals. `as_of` is an explicit trusted timestamp. Historical
 validity uses trusted GitHub event timestamps and MUST NOT use the reducer's
 current clock. Two reducers given the same replay bundle and `as_of` MUST agree.
+The deployment adapter, not participant content, MUST authenticate and bind
+`trusted_context` and `authority_policy` to the numeric repository and issue
+identifying the session.
 
 2.6. Session configuration is a protocol event with trusted metadata. It MUST
 NOT be privileged input hidden in the mutable issue body. Reducer projections
@@ -92,10 +98,26 @@ are caches: when a projection and replay disagree, the reducer MUST rebuild the
 projection from the replay bundle.
 
 2.7. An adapter profile MAY declare a supported runtime pin internally when its
-safety properties were verified against a specific source. When it does, this
-project maintains the compatibility matrix, one row per upstream release,
-evaluated when an official release appears. The pin does not move by chasing an
-unreleased branch.
+safety properties were verified against a specific source. When it does, that
+declaration creates the obligation for this project to create and maintain the
+compatibility matrix, one row per upstream release, evaluated when an official
+release appears. No Open Table adapter currently declares such a pin. The pin
+does not move by chasing an unreleased branch.
+
+2.8. `tools/open-table-validate.py --integrity-bundle` validates only the
+comment-event integrity slice supplied to it: envelope structure, trusted event
+ordering, numeric identity, canonical digests, reducer-output principals,
+duplicates, conflicts, ruling bindings, and event-local timestamps. Its input
+is not the complete replay bundle from section 2.5: it intentionally has no
+`trusted_context` or `as_of` field and performs no contextual reduction,
+permission lookup, claim arbitration, result/review correlation, or projection
+write. A green integrity check therefore MUST NOT be represented as reducer
+conformance. Within this integrity slice, any first-occurrence comment from an
+allowed reducer principal that begins an `open-table` block but fails strict
+envelope, UTF-8 scalar, or event-local validation is fatal; malformed
+participant input is instead excluded deterministically as section 7.5
+requires. Exact retries are identified before event-local checks and remain
+inert under section 7.2.
 
 ## 3. Comment envelope
 
@@ -134,9 +156,11 @@ comment are not protocol messages.
 
 3.6. Boolean values are the lowercase literals `true` and `false`. `turn`,
 `sequence`, `turn-limit`, actor ids, numeric comment ids, repository ids, and
-pull-request numbers are base-10 integers greater than or equal to 1. Timestamps
-use RFC 3339 UTC in the exact form `YYYY-MM-DDTHH:MM:SSZ`. Phase, point, claim,
-proposal, result, and review identifiers match
+pull-request numbers use ASCII digits `[0-9]` and are base-10 integers greater
+than or equal to 1. Their canonical text has no leading zero and contains at
+most 20 digits. Timestamps use RFC 3339 UTC in the exact form
+`YYYY-MM-DDTHH:MM:SSZ`. Phase, point, claim, proposal, result, and review
+identifiers match
 `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Enumerated values are case-sensitive.
 
 3.7. The canonical digest is `sha256:` followed by the lowercase hexadecimal
@@ -222,7 +246,9 @@ claim holder but preserves the claim identifier.
 4.12. `expiration` records that an awarded claim expired. It additionally
 requires `claim` and `expired-at`. It is authenticated reducer output, and its
 trusted GitHub event timestamp MUST be at or after `expired-at`. Expiration is
-never inferred from the reducer's wall clock.
+never inferred from the reducer's wall clock. Its actual author MUST match an
+allowed reducer principal. An expiration-shaped comment from any other actor is
+untrusted prose and has no protocol effect.
 
 4.13. `result` reports completion or failure. It additionally requires:
 

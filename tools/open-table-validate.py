@@ -46,6 +46,8 @@ TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
 KEY_RE = re.compile(r"^[a-z]+(?:-[a-z]+)*$")
+POSITIVE_ASCII_INTEGER_RE = re.compile(r"^[1-9][0-9]{0,19}$")
+MAX_PROTOCOL_INTEGER = 10 ** 20 - 1
 TIMESTAMP_RE = re.compile(
     r"^(?:[0-9]{4})-(?:0[1-9]|1[0-2])-"
     r"(?:0[1-9]|[12][0-9]|3[01])T"
@@ -53,7 +55,8 @@ TIMESTAMP_RE = re.compile(
 )
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 GITHUB_ARTEFACT_RE = re.compile(
-    r"^github:[1-9][0-9]*:pull:[1-9][0-9]*:head:(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    r"^github:[1-9][0-9]{0,19}:pull:[1-9][0-9]{0,19}:head:"
+    r"(?:[0-9a-f]{40}|[0-9a-f]{64})$"
 )
 GENERIC_ARTEFACT_RE = re.compile(
     r"^[A-Za-z][A-Za-z0-9+.-]*:[^\s#]+#sha256=[0-9a-f]{64}$"
@@ -61,6 +64,14 @@ GENERIC_ARTEFACT_RE = re.compile(
 OPENING_RE = re.compile(r"\A\s*```open-table[ \t]*\r?\n")
 CLOSING_RE = re.compile(r"^```[ \t]*(?:\r\n|\n)", re.MULTILINE)
 BLOCK_OPENING_RE = re.compile(r"^```open-table[ \t]*(?:\r\n|\n)", re.MULTILINE)
+REDUCER_OUTPUT_MESSAGES = {"ruling", "expiration"}
+REDUCER_OUTPUT_MARKERS = {
+    "ruling": {
+        "target-actor-id", "message-id", "source-comment-id", "source-digest",
+        "decision"
+    },
+    "expiration": {"expired-at"},
+}
 
 
 class ValidationError(ValueError):
@@ -70,6 +81,105 @@ class ValidationError(ValueError):
 def canonical_digest(body):
     """Return the canonical digest of one complete GitHub comment body."""
     return "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def is_positive_ascii_integer(value):
+    """Return whether value is the protocol's canonical positive integer text."""
+    return bool(POSITIVE_ASCII_INTEGER_RE.fullmatch(value))
+
+
+def is_positive_protocol_integer(value):
+    """Return whether a decoded JSON value fits the protocol integer range."""
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, int)
+        and 1 <= value <= MAX_PROTOCOL_INTEGER
+    )
+
+
+def peek_header_values(body, key):
+    """Read exact key lines from a leading block without accepting the envelope."""
+    prefix = key + ": "
+    return [
+        line[len(prefix):]
+        for line in peek_header_lines(body)
+        if line.startswith(prefix)
+    ]
+
+
+def peek_header_lines(body):
+    """Read raw lines from a leading block without accepting the envelope."""
+    opening = OPENING_RE.match(body)
+    if not opening:
+        return []
+    closing = CLOSING_RE.search(body, opening.end())
+    header_end = closing.start() if closing else len(body)
+    return body[opening.end():header_end].splitlines()
+
+
+def identify_reducer_output_shapes(body):
+    """Identify reserved reducer output even when its discriminator is malformed."""
+    shapes = set()
+    for line in peek_header_lines(body):
+        normalized = re.sub(r"[^A-Za-z0-9]", "", line).lower()
+        for message in REDUCER_OUTPUT_MESSAGES:
+            if normalized == "message" + message:
+                shapes.add(message)
+        for message, markers in REDUCER_OUTPUT_MARKERS.items():
+            for marker in markers:
+                normalized_marker = marker.replace("-", "")
+                if (
+                    normalized.startswith(normalized_marker)
+                    and len(normalized) > len(normalized_marker)
+                ):
+                    shapes.add(message)
+    return shapes
+
+
+def recover_message_id(body):
+    """Return one unambiguous valid id value from a malformed leading block."""
+    candidates = {
+        value for value in peek_header_values(body, "id") if ID_RE.fullmatch(value)
+    }
+    return next(iter(candidates)) if len(candidates) == 1 else None
+
+
+def id_reservation_notice(candidate_id):
+    """Describe whether malformed input reserved one recoverable message id."""
+    return (
+        "; recoverable message id reserved"
+        if candidate_id is not None
+        else "; no unambiguous message id reserved"
+    )
+
+
+def parse_utc_timestamp(value, field):
+    """Parse one already shape-checked protocol timestamp."""
+    try:
+        return datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError as error:
+        raise ValidationError(
+            "{} is not a real UTC date and time".format(field)
+        ) from error
+
+
+def validate_event_local(header, created_at):
+    """Validate constraints that need only one trusted comment event."""
+    message = header["message"]
+    created = parse_utc_timestamp(created_at, "created_at")
+    if message in {"claim", "renewal", "handoff"}:
+        expires = parse_utc_timestamp(header["expires-at"], "expires-at")
+        if expires <= created or expires - created > datetime.timedelta(days=7):
+            raise ValidationError(
+                "{} expires-at must be later than created_at and no more than "
+                "seven days later".format(message)
+            )
+    if message == "expiration":
+        expired = parse_utc_timestamp(header["expired-at"], "expired-at")
+        if created < expired:
+            raise ValidationError(
+                "expiration trusted created_at must be at or after expired-at"
+            )
 
 
 def parse_comment(body):
@@ -149,12 +259,12 @@ def validate_header(header):
             raise ValidationError("{} does not match the token syntax".format(field))
 
     if "turn" in header:
-        if not header["turn"].isdigit() or int(header["turn"]) < 1:
+        if not is_positive_ascii_integer(header["turn"]):
             raise ValidationError("turn must be a base-10 integer of at least 1")
 
     for field in ("sequence", "turn-limit"):
         if field in header:
-            if not header[field].isdigit() or int(header[field]) < 1:
+            if not is_positive_ascii_integer(header[field]):
                 raise ValidationError(
                     "{} must be a base-10 integer of at least 1".format(field)
                 )
@@ -166,16 +276,11 @@ def validate_header(header):
                 raise ValidationError(
                     "{} must use the exact RFC 3339 UTC form".format(field)
                 )
-            try:
-                datetime.datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ")
-            except ValueError as error:
-                raise ValidationError(
-                    "{} is not a real UTC date and time".format(field)
-                ) from error
+            parse_utc_timestamp(timestamp, field)
 
     for field in ("target-actor-id", "to-actor-id", "source-comment-id"):
         if field in header:
-            if not header[field].isdigit() or int(header[field]) < 1:
+            if not is_positive_ascii_integer(header[field]):
                 raise ValidationError(
                     "{} must be a positive numeric GitHub id".format(field)
                 )
@@ -186,7 +291,7 @@ def validate_header(header):
     if "expected-actors" in header:
         actors = header["expected-actors"].split(",")
         if (
-            any(not actor.isdigit() or int(actor) < 1 for actor in actors)
+            any(not is_positive_ascii_integer(actor) for actor in actors)
             or len(actors) != len(set(actors))
         ):
             raise ValidationError(
@@ -244,21 +349,19 @@ def validate_integrity_bundle(bundle):
         not isinstance(reducer_principals, list)
         or not reducer_principals
         or any(
-            isinstance(principal, bool)
-            or not isinstance(principal, int)
-            or principal < 1
+            not is_positive_protocol_integer(principal)
             for principal in reducer_principals
         )
         or len(reducer_principals) != len(set(reducer_principals))
     ):
         raise ValidationError(
             "authority_policy reducer_principals must be unique positive numeric "
-            "GitHub actor ids"
+            "GitHub actor ids of at most 20 digits"
         )
     allowed_reducer_principals = set(reducer_principals)
     events = bundle["ordered_events"]
-    if not isinstance(events, list) or not events:
-        raise ValidationError("ordered_events must be a non-empty list")
+    if not isinstance(events, list):
+        raise ValidationError("ordered_events must be a list")
 
     parsed = []
     by_comment_id = {}
@@ -279,15 +382,15 @@ def validate_integrity_bundle(bundle):
         comment_id = event["comment_id"]
         created_at = event["created_at"]
         body = event["body"]
-        if isinstance(actor_id, bool) or not isinstance(actor_id, int) or actor_id < 1:
-            raise ValidationError("event {} actor_id must be a positive integer".format(index))
-        if (
-            isinstance(comment_id, bool)
-            or not isinstance(comment_id, int)
-            or comment_id < 1
-        ):
+        if not is_positive_protocol_integer(actor_id):
             raise ValidationError(
-                "event {} comment_id must be a positive integer".format(index)
+                "event {} actor_id must be a positive integer of at most 20 "
+                "digits".format(index)
+            )
+        if not is_positive_protocol_integer(comment_id):
+            raise ValidationError(
+                "event {} comment_id must be a positive integer of at most 20 "
+                "digits".format(index)
             )
         if comment_id in seen_comment_ids:
             raise ValidationError("duplicate trusted comment id: {}".format(comment_id))
@@ -310,17 +413,85 @@ def validate_integrity_bundle(bundle):
             raise ValidationError("ordered_events are not in trusted GitHub order")
         previous_order = order
 
-        header, _ = parse_comment(body)
-        digest = canonical_digest(body)
-        if (
-            header["message"] == "ruling"
+        reducer_output_shapes = identify_reducer_output_shapes(body)
+        authenticated_open_table_candidate = (
+            actor_id in allowed_reducer_principals and bool(OPENING_RE.match(body))
+        )
+        unauthorized_reducer_shape = (
+            bool(reducer_output_shapes)
             and actor_id not in allowed_reducer_principals
-        ):
+        )
+
+        try:
+            digest = canonical_digest(body)
+        except UnicodeEncodeError as error:
+            if authenticated_open_table_candidate:
+                output_shape = (
+                    sorted(reducer_output_shapes)[0]
+                    if reducer_output_shapes
+                    else "open-table"
+                )
+                raise ValidationError(
+                    "invalid authenticated {} comment {}: body is not valid UTF-8 "
+                    "scalar text".format(
+                        output_shape, comment_id
+                    )
+                ) from error
+            candidate_id = recover_message_id(body)
+            if candidate_id is not None:
+                key = (actor_id, candidate_id)
+                if key in seen_messages:
+                    raise ValidationError(
+                        "conflict: actor {} message id {} cannot be canonically "
+                        "digested".format(actor_id, candidate_id)
+                    )
+                seen_messages[key] = None
             notices.append(
-                "excluded ruling-shaped comment {} from unauthorized actor {}; "
-                "treated as prose".format(comment_id, actor_id)
+                "excluded comment {} whose body is not valid UTF-8 scalar text{}".format(
+                    comment_id, id_reservation_notice(candidate_id)
+                )
             )
             continue
+
+        try:
+            header, _ = parse_comment(body)
+        except ValidationError as error:
+            if authenticated_open_table_candidate:
+                output_shape = (
+                    sorted(reducer_output_shapes)[0]
+                    if reducer_output_shapes
+                    else "open-table"
+                )
+                raise ValidationError(
+                    "invalid authenticated {} comment {}: {}".format(
+                        output_shape, comment_id, error
+                    )
+                ) from error
+            candidate_id = recover_message_id(body)
+            if candidate_id is not None:
+                key = (actor_id, candidate_id)
+                if key in seen_messages and seen_messages[key] != digest:
+                    raise ValidationError(
+                        "conflict: actor {} message id {} has a different digest; "
+                        "it is not a duplicate".format(actor_id, candidate_id)
+                    )
+                # Section 7.2 deliberately reserves a syntactically recoverable
+                # actor/id key even when the earliest envelope is invalid.
+                seen_messages.setdefault(key, digest)
+            if OPENING_RE.match(body):
+                notices.append(
+                    "excluded invalid open-table comment {}: {}{}".format(
+                        comment_id, error, id_reservation_notice(candidate_id)
+                    )
+                )
+            else:
+                notices.append(
+                    "excluded non-protocol comment {}; treated as prose".format(
+                        comment_id
+                    )
+                )
+            continue
+
         key = (actor_id, header["id"])
         if key in seen_messages:
             previous_digest = seen_messages[key]
@@ -334,14 +505,46 @@ def validate_integrity_bundle(bundle):
                     actor_id, header["id"], digest
                 )
             )
+            continue
         else:
             seen_messages[key] = digest
+
+        try:
+            validate_event_local(header, created_at)
+        except ValidationError as error:
+            if authenticated_open_table_candidate:
+                output_shape = (
+                    sorted(reducer_output_shapes)[0]
+                    if reducer_output_shapes
+                    else "open-table"
+                )
+                raise ValidationError(
+                    "invalid authenticated {} comment {}: {}".format(
+                        output_shape, comment_id, error
+                    )
+                ) from error
+            notices.append(
+                "excluded invalid open-table comment {}: {}{}".format(
+                    comment_id, error, id_reservation_notice(header["id"])
+                )
+            )
+            continue
+
+        if unauthorized_reducer_shape:
+            message_shape = sorted(reducer_output_shapes)[0]
+            notices.append(
+                "excluded {}-shaped comment {} from unauthorized actor {}; "
+                "treated as prose".format(message_shape, comment_id, actor_id)
+            )
+            continue
 
         record = {
             "actor_id": actor_id,
             "comment_id": comment_id,
+            "created_at": created_at,
             "header": header,
             "digest": digest,
+            "order": order,
         }
         parsed.append(record)
         by_comment_id[comment_id] = record
@@ -366,6 +569,8 @@ def validate_integrity_bundle(bundle):
                     source_comment_id
                 )
             )
+        if source["order"] >= record["order"]:
+            raise ValidationError("ruling must be appended after its bound source")
         if source["actor_id"] != int(header["target-actor-id"]):
             raise ValidationError("ruling target actor does not match trusted source actor")
         if source["header"]["id"] != header["message-id"]:
@@ -599,6 +804,28 @@ def run_self_test():
             ("decision", "awarded"),
         ],
     )
+    late_duplicate_bundle = {
+        "authority_policy": mismatch_bundle["authority_policy"],
+        "ordered_events": [
+            mismatch_bundle["ordered_events"][0],
+            {
+                "actor_id": 101,
+                "comment_id": 4,
+                "created_at": "2026-08-02T00:00:00Z",
+                "body": source_body,
+            },
+            {
+                "actor_id": 999,
+                "comment_id": 5,
+                "created_at": "2026-08-02T00:00:01Z",
+                "body": valid_ruling,
+            },
+        ],
+    }
+    notices = validate_integrity_bundle(late_duplicate_bundle)
+    assert len(notices) == 1 and notices[0].startswith("exact duplicate:")
+    print("integrity fixture (late exact duplicate): ignored before timestamp checks")
+
     second_ruling = valid_ruling.replace(
         "id: fixture-ruling-0001", "id: fixture-ruling-0002"
     ).replace("decision: awarded", "decision: rejected")
@@ -668,7 +895,493 @@ def run_self_test():
     ]
     print("integrity fixture (unauthorized ruling author): excluded as prose")
 
-    print("self-test: 14 valid families, 5 malformed fixtures, and 5 integrity rules passed")
+    empty_bundle = {
+        "authority_policy": unauthorized_bundle["authority_policy"],
+        "ordered_events": [],
+    }
+    assert validate_integrity_bundle(empty_bundle) == []
+    print("integrity fixture (empty event stream): accepted")
+
+    oversized_bundle_values = {}
+    oversized_principal_bundle = json.loads(json.dumps(empty_bundle))
+    oversized_principal_bundle["authority_policy"]["reducer_principals"] = [
+        MAX_PROTOCOL_INTEGER + 1
+    ]
+    oversized_bundle_values["reducer principal"] = oversized_principal_bundle
+    oversized_actor_bundle = json.loads(json.dumps(duplicate_bundle))
+    oversized_actor_bundle["ordered_events"][0]["actor_id"] = (
+        MAX_PROTOCOL_INTEGER + 1
+    )
+    oversized_bundle_values["event actor"] = oversized_actor_bundle
+    oversized_comment_bundle = json.loads(json.dumps(duplicate_bundle))
+    oversized_comment_bundle["ordered_events"][0]["comment_id"] = (
+        MAX_PROTOCOL_INTEGER + 1
+    )
+    oversized_bundle_values["event comment"] = oversized_comment_bundle
+    for label, fixture in oversized_bundle_values.items():
+        try:
+            validate_integrity_bundle(fixture)
+        except ValidationError as error:
+            assert "at most 20 digits" in str(error)
+            print("integrity fixture (oversized {} id): rejected".format(label))
+        else:
+            raise AssertionError("oversized {} id was accepted".format(label))
+
+    invalid_claim = (
+        "```open-table\nopen-table: 0\nmessage: claim\n"
+        "id: invalid-claim-0001\nclaim: work\n```\n\nMissing expiry."
+    )
+    public_input_bundle = {
+        "authority_policy": unauthorized_bundle["authority_policy"],
+        "ordered_events": [
+            {
+                "actor_id": 101,
+                "comment_id": 8,
+                "created_at": "2026-08-01T00:00:00Z",
+                "body": "Ordinary public prose.",
+            },
+            {
+                "actor_id": 101,
+                "comment_id": 9,
+                "created_at": "2026-08-01T00:00:01Z",
+                "body": invalid_claim,
+            },
+        ],
+    }
+    notices = validate_integrity_bundle(public_input_bundle)
+    assert notices[0].startswith("excluded non-protocol comment 8")
+    assert notices[1].startswith("excluded invalid open-table comment 9")
+    print("integrity fixture (ordinary and malformed public input): excluded")
+
+    invalid_lease_body = make_fixture(
+        "claim",
+        [("claim", "implementation"), ("expires-at", "2026-08-20T00:00:00Z")],
+    )
+    invalid_lease_bundle = {
+        "authority_policy": unauthorized_bundle["authority_policy"],
+        "ordered_events": [
+            {
+                "actor_id": 101,
+                "comment_id": 8,
+                "created_at": "2026-08-01T00:00:00Z",
+                "body": invalid_lease_body,
+            }
+        ],
+    }
+    notices = validate_integrity_bundle(invalid_lease_bundle)
+    assert len(notices) == 1 and "seven days later" in notices[0]
+    print("integrity fixture (invalid public lease interval): excluded")
+
+    malformed_unauthorized_ruling = unauthorized_ruling.replace(
+        "source-digest: {}\n".format(canonical_digest(duplicate_body)), ""
+    )
+    malformed_unauthorized_bundle = {
+        "authority_policy": unauthorized_bundle["authority_policy"],
+        "ordered_events": [
+            unauthorized_bundle["ordered_events"][0],
+            {
+                "actor_id": 888,
+                "comment_id": 7,
+                "created_at": "2026-08-01T00:00:01Z",
+                "body": malformed_unauthorized_ruling,
+            },
+        ],
+    }
+    notices = validate_integrity_bundle(malformed_unauthorized_bundle)
+    assert len(notices) == 1
+    assert notices[0].startswith("excluded invalid open-table comment 7")
+    assert "recoverable message id reserved" in notices[0]
+    print("integrity fixture (malformed unauthorized ruling): excluded as prose")
+
+    truncated_ruling = unauthorized_ruling.rsplit("```", 1)[0]
+    truncated_unauthorized_bundle = json.loads(
+        json.dumps(malformed_unauthorized_bundle)
+    )
+    truncated_unauthorized_bundle["ordered_events"][1]["body"] = truncated_ruling
+    notices = validate_integrity_bundle(truncated_unauthorized_bundle)
+    assert len(notices) == 1
+    assert notices[0].startswith("excluded invalid open-table comment 7")
+    assert "recoverable message id reserved" in notices[0]
+    print("integrity fixture (truncated unauthorized ruling): excluded as prose")
+
+    truncated_authenticated_bundle = json.loads(
+        json.dumps(truncated_unauthorized_bundle)
+    )
+    truncated_authenticated_bundle["ordered_events"][1]["actor_id"] = 999
+    try:
+        validate_integrity_bundle(truncated_authenticated_bundle)
+    except ValidationError as error:
+        assert "invalid authenticated ruling" in str(error)
+        print(
+            "integrity fixture (truncated authenticated ruling): rejected: {}".format(
+                error
+            )
+        )
+    else:
+        raise AssertionError("truncated authenticated ruling did not fail closed")
+
+    malformed_discriminator_bundle = json.loads(
+        json.dumps(truncated_authenticated_bundle)
+    )
+    malformed_discriminator_bundle["ordered_events"][1]["body"] = (
+        unauthorized_ruling.replace("message: ruling\n", "message: ruling \n")
+    )
+    try:
+        validate_integrity_bundle(malformed_discriminator_bundle)
+    except ValidationError as error:
+        assert "invalid authenticated ruling" in str(error)
+        print(
+            "integrity fixture (malformed authenticated discriminator): "
+            "rejected: {}".format(error)
+        )
+    else:
+        raise AssertionError("malformed authenticated discriminator did not fail closed")
+
+    for malformed_message_line in (
+        "message:ruling\n",
+        "message=ruling\n",
+        "message.ruling\n",
+        "message_ruling\n",
+    ):
+        malformed_delimiter_bundle = json.loads(
+            json.dumps(truncated_authenticated_bundle)
+        )
+        malformed_delimiter_bundle["ordered_events"][1]["body"] = (
+            duplicate_body.replace("message: contribution\n", malformed_message_line)
+        )
+        try:
+            validate_integrity_bundle(malformed_delimiter_bundle)
+        except ValidationError as error:
+            assert "invalid authenticated ruling" in str(error)
+        else:
+            raise AssertionError(
+                "malformed authenticated delimiter did not fail closed: {}".format(
+                    malformed_message_line.rstrip()
+                )
+            )
+    print("integrity fixture (malformed authenticated delimiters): rejected")
+
+    missing_discriminator_bundle = json.loads(json.dumps(malformed_discriminator_bundle))
+    missing_discriminator_bundle["ordered_events"][1]["body"] = (
+        unauthorized_ruling.replace("message: ruling\n", "")
+    )
+    try:
+        validate_integrity_bundle(missing_discriminator_bundle)
+    except ValidationError as error:
+        assert "invalid authenticated ruling" in str(error)
+        print(
+            "integrity fixture (missing authenticated discriminator): rejected: {}".format(
+                error
+            )
+        )
+    else:
+        raise AssertionError("missing authenticated discriminator did not fail closed")
+
+    reused_forged_id = make_fixture(
+        "contribution", [("phase", "dreamer"), ("turn", "1")]
+    ).replace("fixture-contribution-0001", "fixture-ruling-0001")
+    forged_id_conflict_bundle = json.loads(json.dumps(malformed_unauthorized_bundle))
+    forged_id_conflict_bundle["ordered_events"].append(
+        {
+            "actor_id": 888,
+            "comment_id": 8,
+            "created_at": "2026-08-01T00:00:02Z",
+            "body": reused_forged_id,
+        }
+    )
+    try:
+        validate_integrity_bundle(forged_id_conflict_bundle)
+    except ValidationError as error:
+        assert "conflict:" in str(error)
+        print(
+            "integrity fixture (malformed unauthorized id reservation): {}".format(
+                error
+            )
+        )
+    else:
+        raise AssertionError("malformed unauthorized output did not reserve its id")
+
+    valid_forged_id_conflict_bundle = json.loads(json.dumps(unauthorized_bundle))
+    valid_forged_id_conflict_bundle["ordered_events"].append(
+        {
+            "actor_id": 888,
+            "comment_id": 8,
+            "created_at": "2026-08-01T00:00:02Z",
+            "body": reused_forged_id,
+        }
+    )
+    try:
+        validate_integrity_bundle(valid_forged_id_conflict_bundle)
+    except ValidationError as error:
+        assert "conflict:" in str(error)
+        print(
+            "integrity fixture (valid unauthorized id reservation): {}".format(error)
+        )
+    else:
+        raise AssertionError("valid unauthorized output did not reserve its id")
+
+    expiration_body = make_fixture(
+        "expiration",
+        [("claim", "implementation"), ("expired-at", "2026-08-01T12:00:00Z")],
+    )
+    unauthorized_expiration_bundle = {
+        "authority_policy": unauthorized_bundle["authority_policy"],
+        "ordered_events": [
+            {
+                "actor_id": 888,
+                "comment_id": 10,
+                "created_at": "2026-08-01T13:00:00Z",
+                "body": expiration_body,
+            }
+        ],
+    }
+    notices = validate_integrity_bundle(unauthorized_expiration_bundle)
+    assert notices == [
+        "excluded expiration-shaped comment 10 from unauthorized actor 888; treated as prose"
+    ]
+    print("integrity fixture (unauthorized expiration): excluded as prose")
+
+    surrogate_public_bundle = {
+        "authority_policy": unauthorized_bundle["authority_policy"],
+        "ordered_events": [
+            {
+                "actor_id": 101,
+                "comment_id": 13,
+                "created_at": "2026-08-01T00:00:00Z",
+                "body": "Ordinary prose with a lone surrogate: \ud800",
+            }
+        ],
+    }
+    notices = validate_integrity_bundle(surrogate_public_bundle)
+    assert len(notices) == 1 and "not valid UTF-8 scalar text" in notices[0]
+    print("integrity fixture (lone-surrogate public text): excluded")
+
+    surrogate_expiration_bundle = json.loads(
+        json.dumps(unauthorized_expiration_bundle)
+    )
+    surrogate_expiration_bundle["ordered_events"][0]["actor_id"] = 999
+    surrogate_expiration_bundle["ordered_events"][0]["body"] += "\ud800"
+    try:
+        validate_integrity_bundle(surrogate_expiration_bundle)
+    except ValidationError as error:
+        assert "invalid authenticated expiration" in str(error)
+        print(
+            "integrity fixture (lone-surrogate authenticated output): rejected: "
+            "{}".format(error)
+        )
+    else:
+        raise AssertionError("invalid authenticated UTF-8 scalar text was accepted")
+
+    duplicate_source_bundle = {
+        "authority_policy": unauthorized_bundle["authority_policy"],
+        "ordered_events": [
+            mismatch_bundle["ordered_events"][0],
+            {
+                "actor_id": 101,
+                "comment_id": 4,
+                "created_at": "2026-08-01T00:00:01Z",
+                "body": source_body,
+            },
+            {
+                "actor_id": 999,
+                "comment_id": 5,
+                "created_at": "2026-08-01T00:00:02Z",
+                "body": valid_ruling,
+            },
+        ],
+    }
+    notices = validate_integrity_bundle(duplicate_source_bundle)
+    assert len(notices) == 1 and notices[0].startswith("exact duplicate:")
+    print("integrity fixture (duplicate ruled source): ignored")
+
+    duplicate_ruling_retry_bundle = {
+        "authority_policy": unauthorized_bundle["authority_policy"],
+        "ordered_events": [
+            mismatch_bundle["ordered_events"][0],
+            {
+                "actor_id": 999,
+                "comment_id": 4,
+                "created_at": "2026-08-01T00:00:01Z",
+                "body": valid_ruling,
+            },
+            {
+                "actor_id": 999,
+                "comment_id": 5,
+                "created_at": "2026-08-01T00:00:02Z",
+                "body": valid_ruling,
+            },
+        ],
+    }
+    notices = validate_integrity_bundle(duplicate_ruling_retry_bundle)
+    assert len(notices) == 1 and notices[0].startswith("exact duplicate:")
+    print("integrity fixture (duplicate ruling retry): ignored")
+
+    preemptive_ruling_bundle = {
+        "authority_policy": unauthorized_bundle["authority_policy"],
+        "ordered_events": [
+            {
+                "actor_id": 999,
+                "comment_id": 2,
+                "created_at": "2026-08-01T00:00:00Z",
+                "body": valid_ruling,
+            },
+            {
+                "actor_id": 101,
+                "comment_id": 3,
+                "created_at": "2026-08-01T00:00:01Z",
+                "body": source_body,
+            },
+        ],
+    }
+    try:
+        validate_integrity_bundle(preemptive_ruling_bundle)
+    except ValidationError as error:
+        assert "appended after" in str(error)
+        print("integrity fixture (preemptive ruling): rejected: {}".format(error))
+    else:
+        raise AssertionError("a ruling before its source was accepted")
+
+    early_expiration_bundle = json.loads(json.dumps(unauthorized_expiration_bundle))
+    early_expiration_bundle["ordered_events"][0]["actor_id"] = 999
+    early_expiration_bundle["ordered_events"][0]["created_at"] = (
+        "2026-08-01T11:59:59Z"
+    )
+    try:
+        validate_integrity_bundle(early_expiration_bundle)
+    except ValidationError as error:
+        assert "at or after expired-at" in str(error)
+        print("integrity fixture (early expiration): rejected: {}".format(error))
+    else:
+        raise AssertionError("an expiration before expired-at was accepted")
+
+    unicode_integer = make_fixture(
+        "contribution", [("phase", "dreamer"), ("turn", "١")]
+    )
+    try:
+        parse_comment(unicode_integer)
+    except ValidationError as error:
+        assert "base-10 integer" in str(error)
+        print("integrity fixture (non-ASCII integer): rejected: {}".format(error))
+    else:
+        raise AssertionError("a non-ASCII integer was accepted")
+
+    overlong_integer = make_fixture(
+        "contribution", [("phase", "dreamer"), ("turn", "1" * 5000)]
+    )
+    try:
+        parse_comment(overlong_integer)
+    except ValidationError as error:
+        assert "base-10 integer" in str(error)
+        print("integrity fixture (overlong integer): rejected: {}".format(error))
+    else:
+        raise AssertionError("an overlong integer was accepted")
+
+    for oversized_artefact in (
+        "github:{}:pull:45:head:{}".format("1" * 21, "a" * 40),
+        "github:123:pull:{}:head:{}".format("1" * 21, "a" * 40),
+    ):
+        oversized_artefact_message = make_fixture(
+            "result",
+            [
+                ("claim", "implementation"),
+                ("result-id", "result-1"),
+                ("outcome", "completed"),
+                ("artefact", oversized_artefact),
+            ],
+        )
+        try:
+            parse_comment(oversized_artefact_message)
+        except ValidationError as error:
+            assert "immutable GitHub or generic reference" in str(error)
+        else:
+            raise AssertionError("an oversized GitHub artefact id was accepted")
+    print("integrity fixture (oversized GitHub artefact ids): rejected")
+
+    impossible_timestamp = make_fixture(
+        "expiration",
+        [("claim", "implementation"), ("expired-at", "2026-02-31T12:00:00Z")],
+    )
+    try:
+        parse_comment(impossible_timestamp)
+    except ValidationError as error:
+        assert "not a real UTC date" in str(error)
+        print("integrity fixture (impossible timestamp): rejected: {}".format(error))
+    else:
+        raise AssertionError("an impossible timestamp was accepted")
+
+    corrected_invalid_claim = invalid_claim.replace(
+        "claim: work\n", "claim: work\nexpires-at: 2026-08-02T00:00:00Z\n"
+    )
+    reserved_id_bundle = {
+        "authority_policy": unauthorized_bundle["authority_policy"],
+        "ordered_events": [
+            {
+                "actor_id": 101,
+                "comment_id": 11,
+                "created_at": "2026-08-01T00:00:00Z",
+                "body": invalid_claim,
+            },
+            {
+                "actor_id": 101,
+                "comment_id": 12,
+                "created_at": "2026-08-01T00:00:01Z",
+                "body": corrected_invalid_claim,
+            },
+        ],
+    }
+    try:
+        validate_integrity_bundle(reserved_id_bundle)
+    except ValidationError as error:
+        assert "conflict:" in str(error)
+        print("integrity fixture (invalid earliest id reservation): {}".format(error))
+    else:
+        raise AssertionError("an invalid earliest occurrence did not reserve its id")
+
+    repeated_id_invalid_claim = invalid_claim.replace(
+        "id: invalid-claim-0001\n",
+        "id: invalid-claim-0001\nid: invalid-claim-0001\n",
+    )
+    repeated_id_bundle = json.loads(json.dumps(reserved_id_bundle))
+    repeated_id_bundle["ordered_events"][0]["body"] = repeated_id_invalid_claim
+    try:
+        validate_integrity_bundle(repeated_id_bundle)
+    except ValidationError as error:
+        assert "conflict:" in str(error)
+        print(
+            "integrity fixture (repeated unambiguous invalid id): {}".format(error)
+        )
+    else:
+        raise AssertionError("a repeated unambiguous invalid id was not reserved")
+
+    ambiguous_id_claim = invalid_claim.replace(
+        "id: invalid-claim-0001\n",
+        "id: invalid-claim-0001\nid: other-invalid-0002\n",
+    )
+    ambiguous_id_bundle = {
+        "authority_policy": unauthorized_bundle["authority_policy"],
+        "ordered_events": [
+            {
+                "actor_id": 101,
+                "comment_id": 13,
+                "created_at": "2026-08-01T00:00:00Z",
+                "body": ambiguous_id_claim,
+            }
+        ],
+    }
+    notices = validate_integrity_bundle(ambiguous_id_bundle)
+    assert len(notices) == 1 and "no unambiguous message id reserved" in notices[0]
+    print("integrity fixture (ambiguous invalid ids): no id reserved")
+
+    ambiguous_surrogate_bundle = json.loads(json.dumps(ambiguous_id_bundle))
+    ambiguous_surrogate_bundle["ordered_events"][0]["body"] += "\ud800"
+    notices = validate_integrity_bundle(ambiguous_surrogate_bundle)
+    assert len(notices) == 1 and "no unambiguous message id reserved" in notices[0]
+    print("integrity fixture (ambiguous surrogate ids): no id reserved")
+
+    print(
+        "self-test: 14 valid families, 5 malformed fixtures, and 35 integrity "
+        "rules passed"
+    )
 
 
 def build_parser():
