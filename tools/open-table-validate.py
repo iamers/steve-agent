@@ -84,6 +84,9 @@ UNSUPPORTED_LINE_SEPARATOR_RE = re.compile(r"[\v\f\x1c-\x1e\x85\u2028\u2029]")
 OPENING_RE = re.compile(
     r"\A(?:[ \t]*\r?\n)* {0,3}```open-table[ \t]*\r?\n"
 )
+OPEN_TABLE_CANDIDATE_RE = re.compile(
+    r"\A\s*```open-table(?=[ \t\r\n]|\Z)"
+)
 CLOSING_RE = re.compile(r"^ {0,3}```[ \t]*(?:\r\n|\n)", re.MULTILINE)
 BLOCK_OPENING_RE = re.compile(
     r"^ {0,3}```open-table[ \t]*(?:\r\n|\n)", re.MULTILINE
@@ -266,6 +269,14 @@ def id_reservation_notice(candidate_id):
         "; recoverable message id reserved"
         if candidate_id is not None
         else "; no unambiguous message id reserved"
+    )
+
+
+def unauthorized_reducer_output_notice(shapes, comment_id, actor_id):
+    """Describe reducer-shaped prose excluded before protocol processing."""
+    return (
+        "excluded {}-shaped comment {} from unauthorized actor {}; "
+        "treated as prose".format(sorted(shapes)[0], comment_id, actor_id)
     )
 
 
@@ -571,7 +582,8 @@ def validate_integrity_bundle(bundle):
 
         reducer_output_shapes = identify_reducer_output_shapes(body)
         authenticated_open_table_candidate = (
-            actor_id in allowed_reducer_principals and bool(OPENING_RE.match(body))
+            actor_id in allowed_reducer_principals
+            and bool(OPEN_TABLE_CANDIDATE_RE.match(body))
         )
         unauthorized_reducer_shape = (
             bool(reducer_output_shapes)
@@ -593,6 +605,13 @@ def validate_integrity_bundle(bundle):
                         output_shape, comment_id
                     )
                 ) from error
+            if unauthorized_reducer_shape:
+                notices.append(
+                    unauthorized_reducer_output_notice(
+                        reducer_output_shapes, comment_id, actor_id
+                    )
+                )
+                continue
             candidate_id = recover_message_id(body)
             if candidate_id is not None:
                 key = (actor_id, candidate_id)
@@ -629,6 +648,13 @@ def validate_integrity_bundle(bundle):
                         output_shape, comment_id, error
                     )
                 ) from error
+            if unauthorized_reducer_shape:
+                notices.append(
+                    unauthorized_reducer_output_notice(
+                        reducer_output_shapes, comment_id, actor_id
+                    )
+                )
+                continue
             candidate_id = recover_message_id(body)
             if candidate_id is not None:
                 key = (actor_id, candidate_id)
@@ -652,6 +678,14 @@ def validate_integrity_bundle(bundle):
                         comment_id
                     )
                 )
+            continue
+
+        if unauthorized_reducer_shape:
+            notices.append(
+                unauthorized_reducer_output_notice(
+                    reducer_output_shapes, comment_id, actor_id
+                )
+            )
             continue
 
         key = (actor_id, header["id"])
@@ -689,14 +723,6 @@ def validate_integrity_bundle(bundle):
                 "excluded invalid open-table comment {}: {}{}".format(
                     comment_id, error, id_reservation_notice(header["id"])
                 )
-            )
-            continue
-
-        if unauthorized_reducer_shape:
-            message_shape = sorted(reducer_output_shapes)[0]
-            notices.append(
-                "excluded {}-shaped comment {} from unauthorized actor {}; "
-                "treated as prose".format(message_shape, comment_id, actor_id)
             )
             continue
 
@@ -1520,9 +1546,10 @@ def run_self_test():
         ],
     }
     notices = validate_fixture_bundle(malformed_unauthorized_bundle)
-    assert len(notices) == 1
-    assert notices[0].startswith("excluded invalid open-table comment 7")
-    assert "recoverable message id reserved" in notices[0]
+    assert notices == [
+        "excluded ruling-shaped comment 7 from unauthorized actor 888; "
+        "treated as prose"
+    ]
     print("integrity fixture (malformed unauthorized ruling): excluded as prose")
 
     truncated_ruling = unauthorized_ruling.rsplit("```", 1)[0]
@@ -1532,9 +1559,10 @@ def run_self_test():
     truncated_unauthorized_bundle["ordered_events"][1]["body"] = truncated_ruling
     refresh_fixture_receipt(truncated_unauthorized_bundle["ordered_events"][1])
     notices = validate_fixture_bundle(truncated_unauthorized_bundle)
-    assert len(notices) == 1
-    assert notices[0].startswith("excluded invalid open-table comment 7")
-    assert "recoverable message id reserved" in notices[0]
+    assert notices == [
+        "excluded ruling-shaped comment 7 from unauthorized actor 888; "
+        "treated as prose"
+    ]
     print("integrity fixture (truncated unauthorized ruling): excluded as prose")
 
     truncated_authenticated_bundle = json.loads(
@@ -1613,6 +1641,24 @@ def run_self_test():
     else:
         raise AssertionError("missing authenticated discriminator did not fail closed")
 
+    four_space_authenticated_bundle = json.loads(json.dumps(unauthorized_bundle))
+    four_space_authenticated_bundle["ordered_events"][1]["actor_id"] = 999
+    four_space_authenticated_bundle["ordered_events"][1]["body"] = (
+        unauthorized_ruling.replace("```open-table\n", "    ```open-table\n", 1)
+    )
+    refresh_fixture_receipt(four_space_authenticated_bundle["ordered_events"][1])
+    try:
+        validate_fixture_bundle(four_space_authenticated_bundle)
+    except ValidationError as error:
+        assert "invalid authenticated open-table" in str(error)
+        assert "fenced block" in str(error)
+        print(
+            "integrity fixture (four-space authenticated opening): rejected: "
+            "{}".format(error)
+        )
+    else:
+        raise AssertionError("four-space authenticated output did not fail closed")
+
     reused_forged_id = make_fixture(
         "contribution", [("phase", "dreamer"), ("turn", "1")]
     ).replace("fixture-contribution-0001", "fixture-ruling-0001")
@@ -1627,17 +1673,12 @@ def run_self_test():
             "body": reused_forged_id,
         }
     )
-    try:
-        validate_fixture_bundle(forged_id_conflict_bundle)
-    except ValidationError as error:
-        assert "conflict:" in str(error)
-        print(
-            "integrity fixture (malformed unauthorized id reservation): {}".format(
-                error
-            )
-        )
-    else:
-        raise AssertionError("malformed unauthorized output did not reserve its id")
+    notices = validate_fixture_bundle(forged_id_conflict_bundle)
+    assert notices == [
+        "excluded ruling-shaped comment 7 from unauthorized actor 888; "
+        "treated as prose"
+    ]
+    print("integrity fixture (malformed unauthorized id reuse): accepted")
 
     valid_forged_id_conflict_bundle = json.loads(json.dumps(unauthorized_bundle))
     valid_forged_id_conflict_bundle["ordered_events"].append(
@@ -1650,15 +1691,12 @@ def run_self_test():
             "body": reused_forged_id,
         }
     )
-    try:
-        validate_fixture_bundle(valid_forged_id_conflict_bundle)
-    except ValidationError as error:
-        assert "conflict:" in str(error)
-        print(
-            "integrity fixture (valid unauthorized id reservation): {}".format(error)
-        )
-    else:
-        raise AssertionError("valid unauthorized output did not reserve its id")
+    notices = validate_fixture_bundle(valid_forged_id_conflict_bundle)
+    assert notices == [
+        "excluded ruling-shaped comment 7 from unauthorized actor 888; "
+        "treated as prose"
+    ]
+    print("integrity fixture (valid unauthorized id reuse): accepted")
 
     expiration_body = make_fixture(
         "expiration",
@@ -1945,7 +1983,7 @@ def run_self_test():
     print("integrity fixture (ambiguous surrogate ids): no id reserved")
 
     print(
-        "self-test: 14 valid families, 19 malformed fixtures, and 52 integrity "
+        "self-test: 14 valid families, 19 malformed fixtures, and 53 integrity "
         "rules passed"
     )
 
