@@ -28,23 +28,26 @@ MESSAGE_FIELDS = {
     "contribution": {"phase", "turn"},
     "proposal": {"phase", "turn", "point"},
     "settled": {
-        "phase", "turn", "point", "proposal-id", "disposition", "terminal"
+        "phase", "turn", "point", "proposal-comment-id", "disposition", "terminal"
     },
-    "claim": {"claim", "expires-at"},
-    "renewal": {"claim", "expires-at"},
-    "release": {"claim"},
-    "handoff": {"claim", "to-actor-id", "expires-at"},
-    "cancellation": {"claim"},
-    "expiration": {"claim", "expired-at"},
-    "result": {"claim", "result-id", "outcome", "artefact"},
-    "review-request": {"claim", "review", "result-id", "artefact"},
-    "verdict": {"claim", "review", "result-id", "artefact", "verdict"},
+    "claim": {"expires-at"},
+    "renewal": {"claim-comment-id", "expires-at"},
+    "release": {"claim-comment-id"},
+    "handoff": {"claim-comment-id", "to-actor-id", "expires-at"},
+    "cancellation": {"claim-comment-id"},
+    "expiration": {"claim-comment-id", "expired-at"},
+    "result": {"claim-comment-id", "outcome", "artefact"},
+    "review-request": {"claim-comment-id", "result-comment-id", "artefact"},
+    "verdict": {
+        "claim-comment-id", "review-comment-id", "result-comment-id", "artefact",
+        "verdict"
+    },
     "ruling": {
         "target-actor-id", "message-id", "source-comment-id", "source-digest",
         "decision"
     },
 }
-TOKEN_FIELDS = {"phase", "point", "claim", "proposal-id", "result-id", "review"}
+TOKEN_FIELDS = {"phase", "point"}
 TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
@@ -409,7 +412,11 @@ def validate_header(header):
                 )
             parse_utc_timestamp(timestamp, field)
 
-    for field in ("target-actor-id", "to-actor-id", "source-comment-id"):
+    for field in (
+        "target-actor-id", "to-actor-id", "source-comment-id",
+        "proposal-comment-id", "claim-comment-id", "result-comment-id",
+        "review-comment-id"
+    ):
         if field in header:
             if not is_positive_ascii_integer(header[field]):
                 raise ValidationError(
@@ -847,42 +854,40 @@ def run_self_test():
             ("phase", "critic"),
             ("turn", "1"),
             ("point", "scope"),
-            ("proposal-id", "proposal-0001"),
+            ("proposal-comment-id", "41"),
             ("disposition", "accepted"),
             ("terminal", "true"),
         ],
-        "claim": [("claim", "implementation"), ("expires-at", "2026-08-01T12:00:00Z")],
+        "claim": [("expires-at", "2026-08-01T12:00:00Z")],
         "renewal": [
-            ("claim", "implementation"),
+            ("claim-comment-id", "51"),
             ("expires-at", "2026-08-02T12:00:00Z"),
         ],
-        "release": [("claim", "implementation")],
+        "release": [("claim-comment-id", "51")],
         "handoff": [
-            ("claim", "implementation"),
+            ("claim-comment-id", "51"),
             ("to-actor-id", "202"),
             ("expires-at", "2026-08-01T12:00:00Z"),
         ],
-        "cancellation": [("claim", "implementation")],
+        "cancellation": [("claim-comment-id", "51")],
         "expiration": [
-            ("claim", "implementation"),
+            ("claim-comment-id", "51"),
             ("expired-at", "2026-08-01T12:00:00Z"),
         ],
         "result": [
-            ("claim", "implementation"),
-            ("result-id", "result-1"),
+            ("claim-comment-id", "51"),
             ("outcome", "completed"),
             ("artefact", "github:123:pull:45:head:" + "a" * 40),
         ],
         "review-request": [
-            ("claim", "implementation"),
-            ("review", "review-1"),
-            ("result-id", "result-1"),
+            ("claim-comment-id", "51"),
+            ("result-comment-id", "61"),
             ("artefact", "github:123:pull:45:head:" + "a" * 40),
         ],
         "verdict": [
-            ("claim", "implementation"),
-            ("review", "review-1"),
-            ("result-id", "result-1"),
+            ("claim-comment-id", "51"),
+            ("review-comment-id", "71"),
+            ("result-comment-id", "61"),
             ("artefact", "github:123:pull:45:head:" + "a" * 40),
             ("verdict", "approved"),
         ],
@@ -904,8 +909,7 @@ def run_self_test():
     generic_artefact = make_fixture(
         "result",
         [
-            ("claim", "implementation"),
-            ("result-id", "result-1"),
+            ("claim-comment-id", "51"),
             ("outcome", "completed"),
             (
                 "artefact",
@@ -947,11 +951,15 @@ def run_self_test():
     malformed = {
         "missing prose": (
             "```open-table\nopen-table: 0\nmessage: release\n"
-            "id: malformed-0001\nclaim: work\n```\n"
+            "id: malformed-0001\nclaim-comment-id: 51\n```\n"
         ),
         "missing required field": (
             "```open-table\nopen-table: 0\nmessage: claim\n"
-            "id: malformed-0002\nclaim: work\n```\n\nClaiming work."
+            "id: malformed-0002\n```\n\nClaiming work."
+        ),
+        "participant-allocated claim reference": (
+            "```open-table\nopen-table: 0\nmessage: release\n"
+            "id: malformed-0010\nclaim: work\n```\n\nRelease."
         ),
         "unknown field": (
             "```open-table\nopen-table: 0\nmessage: contribution\n"
@@ -964,25 +972,24 @@ def run_self_test():
         ),
         "duplicate block with CRLF": (
             "```open-table\r\nopen-table: 0\r\nmessage: release\r\n"
-            "id: malformed-0005\r\nclaim: work\r\n```\r\n\r\nFirst block.\r\n"
+            "id: malformed-0005\r\nclaim-comment-id: 51\r\n```\r\n\r\nFirst block.\r\n"
             "```open-table\r\nopen-table: 0\r\nmessage: release\r\n"
-            "id: malformed-0006\r\nclaim: work\r\n```\r\n\r\nSecond block."
+            "id: malformed-0006\r\nclaim-comment-id: 51\r\n```\r\n\r\nSecond block."
         ),
         "four-space opening fence": (
             "    ```open-table\nopen-table: 0\nmessage: release\n"
-            "id: malformed-0007\nclaim: work\n```\n\nRelease."
+            "id: malformed-0007\nclaim-comment-id: 51\n```\n\nRelease."
         ),
         "indented duplicate block": (
             "```open-table\nopen-table: 0\nmessage: release\n"
-            "id: malformed-0008\nclaim: work\n```\n\nFirst block.\n"
+            "id: malformed-0008\nclaim-comment-id: 51\n```\n\nFirst block.\n"
             "   ```open-table\nopen-table: 0\nmessage: release\n"
-            "id: malformed-0009\nclaim: work\n   ```\n\nSecond block."
+            "id: malformed-0009\nclaim-comment-id: 51\n   ```\n\nSecond block."
         ),
         "generic artefact with backslash": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://example.com\\artifact#sha256=" + "a" * 64),
             ],
@@ -990,8 +997,7 @@ def run_self_test():
         "generic artefact with invalid percent escape": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://example.com/%GG#sha256=" + "a" * 64),
             ],
@@ -999,8 +1005,7 @@ def run_self_test():
         "generic artefact with bracket in path": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://example.com/a[b]#sha256=" + "a" * 64),
             ],
@@ -1008,8 +1013,7 @@ def run_self_test():
         "generic artefact with malformed IP literal": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://[not-ip]/a#sha256=" + "a" * 64),
             ],
@@ -1017,8 +1021,7 @@ def run_self_test():
         "generic artefact with duplicate at-sign": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://user@@example.com/a#sha256=" + "a" * 64),
             ],
@@ -1026,8 +1029,7 @@ def run_self_test():
         "generic artefact with nonnumeric port": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://example.com:no/a#sha256=" + "a" * 64),
             ],
@@ -1035,8 +1037,7 @@ def run_self_test():
         "generic artefact with raw tab": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://exam\tple.com/a#sha256=" + "a" * 64),
             ],
@@ -1044,8 +1045,7 @@ def run_self_test():
         "generic artefact with scoped IPv6": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://[fe80::1%eth0]/a#sha256=" + "a" * 64),
             ],
@@ -1053,8 +1053,7 @@ def run_self_test():
         "generic artefact with non-ASCII port": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://example.com:１２/a#sha256=" + "a" * 64),
             ],
@@ -1223,7 +1222,7 @@ def run_self_test():
         raise AssertionError("digest conflict was accepted as a duplicate")
 
     source_body = make_fixture(
-        "claim", [("claim", "implementation"), ("expires-at", "2026-08-01T12:00:00Z")]
+        "claim", [("expires-at", "2026-08-01T12:00:00Z")]
     )
     mismatch_ruling = make_fixture(
         "ruling",
@@ -1479,7 +1478,7 @@ def run_self_test():
 
     invalid_claim = (
         "```open-table\nopen-table: 0\nmessage: claim\n"
-        "id: invalid-claim-0001\nclaim: work\n```\n\nMissing expiry."
+        "id: invalid-claim-0001\n```\n\nMissing expiry."
     )
     public_input_bundle = {
         "authority_policy": unauthorized_bundle["authority_policy"],
@@ -1509,7 +1508,7 @@ def run_self_test():
 
     invalid_lease_body = make_fixture(
         "claim",
-        [("claim", "implementation"), ("expires-at", "2026-08-20T00:00:00Z")],
+        [("expires-at", "2026-08-20T00:00:00Z")],
     )
     invalid_lease_bundle = {
         "authority_policy": unauthorized_bundle["authority_policy"],
@@ -1700,7 +1699,7 @@ def run_self_test():
 
     expiration_body = make_fixture(
         "expiration",
-        [("claim", "implementation"), ("expired-at", "2026-08-01T12:00:00Z")],
+        [("claim-comment-id", "51"), ("expired-at", "2026-08-01T12:00:00Z")],
     )
     unauthorized_expiration_bundle = {
         "authority_policy": unauthorized_bundle["authority_policy"],
@@ -1873,6 +1872,18 @@ def run_self_test():
     else:
         raise AssertionError("an overlong integer was accepted")
 
+    for invalid_comment_reference in ("0", "١", "1" * 21):
+        invalid_reference_message = make_fixture(
+            "release", [("claim-comment-id", invalid_comment_reference)]
+        )
+        try:
+            parse_comment(invalid_reference_message)
+        except ValidationError as error:
+            assert "positive numeric GitHub id" in str(error)
+        else:
+            raise AssertionError("an invalid GitHub comment reference was accepted")
+    print("integrity fixture (invalid GitHub comment references): rejected")
+
     for oversized_artefact in (
         "github:{}:pull:45:head:{}".format("1" * 21, "a" * 40),
         "github:123:pull:{}:head:{}".format("1" * 21, "a" * 40),
@@ -1880,8 +1891,7 @@ def run_self_test():
         oversized_artefact_message = make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", oversized_artefact),
             ],
@@ -1896,7 +1906,7 @@ def run_self_test():
 
     impossible_timestamp = make_fixture(
         "expiration",
-        [("claim", "implementation"), ("expired-at", "2026-02-31T12:00:00Z")],
+        [("claim-comment-id", "51"), ("expired-at", "2026-02-31T12:00:00Z")],
     )
     try:
         parse_comment(impossible_timestamp)
@@ -1907,7 +1917,8 @@ def run_self_test():
         raise AssertionError("an impossible timestamp was accepted")
 
     corrected_invalid_claim = invalid_claim.replace(
-        "claim: work\n", "claim: work\nexpires-at: 2026-08-02T00:00:00Z\n"
+        "id: invalid-claim-0001\n",
+        "id: invalid-claim-0001\nexpires-at: 2026-08-02T00:00:00Z\n",
     )
     reserved_id_bundle = {
         "authority_policy": unauthorized_bundle["authority_policy"],
@@ -1983,7 +1994,7 @@ def run_self_test():
     print("integrity fixture (ambiguous surrogate ids): no id reserved")
 
     print(
-        "self-test: 14 valid families, 19 malformed fixtures, and 53 integrity "
+        "self-test: 14 valid families, 20 malformed fixtures, and 54 integrity "
         "rules passed"
     )
 

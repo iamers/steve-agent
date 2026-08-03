@@ -70,16 +70,23 @@ receipts is not reducer-conformant and cannot be retroactively upgraded by
 trusting its current comment bodies.
 
 2.3. Only an issuer matching a reducer principal allowed by the selected
-authority profile writes mutable projections or posts `ruling` messages. This
-repository has selected a GitHub Action for its first reducer deployment, but
-that reducer is not implemented in version 0 as currently shipped. Until it is,
-work claims remain advisory and this repository MUST NOT claim reducer
-conformance. When deployed, its authenticated issuer will be the Action's token
-and its principal will be the bot identity GitHub reports. The principal remains
-per-repository deployment configuration, not a global identity; another
-repository adopting this protocol selects its own. A GitHub App is the
-graduation path when a second repository adopts this protocol. The profile
-declares the principal, and replay verifies the actual author against it.
+authority profile writes mutable projections or posts `ruling` messages. A
+GitHub Action remains this repository's intended first reducer implementation,
+but no conforming deployment has been selected or implemented in version 0 as
+currently shipped. Before an Action deployment can claim reducer conformance, a
+separate accepted decision MUST define the durable, authenticated, non-circular
+GitHub-resident store for creation receipts and deletion evidence, its minimum
+permissions, retention, concurrent-write behavior, and fail-closed recovery.
+No such store is selected today. In particular, the mutable issue projection,
+workflow caches, and retention-bound Action artefacts are not replay sources.
+Until that decision and implementation exist, work claims remain advisory and
+this repository MUST NOT claim reducer conformance. A future Action deployment's
+authenticated issuer would be its token and its principal the bot identity
+GitHub reports. The principal remains per-repository deployment configuration,
+not a global identity; another repository adopting this protocol selects its
+own. A GitHub App is the graduation path when a second repository adopts this
+protocol. The profile declares the principal, and replay verifies the actual
+author against it.
 
 2.4. The total order of comment events is ascending trusted GitHub `created_at`,
 with the ascending numeric GitHub comment id as the tie-breaker. Issue
@@ -180,8 +187,7 @@ comment are not protocol messages.
 pull-request numbers use ASCII digits `[0-9]` and are base-10 integers greater
 than or equal to 1. Their canonical text has no leading zero and contains at
 most 20 digits. Timestamps use RFC 3339 UTC in the exact form
-`YYYY-MM-DDTHH:MM:SSZ`. Phase, point, claim, proposal, result, and review
-identifiers match
+`YYYY-MM-DDTHH:MM:SSZ`. Phase and point identifiers match
 `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Enumerated values are case-sensitive.
 
 3.7. The canonical digest is `sha256:` followed by the lowercase hexadecimal
@@ -190,16 +196,17 @@ returned in trusted GitHub context. Header and prose are both covered. A
 participant is not required to calculate this digest; the authenticated reducer
 calculates it when creating a ruling.
 
-3.8. The common `id` remains actor-scoped for idempotency, but identifiers used
-as cross-message references MUST be unambiguous within one session. The common
-`id` of every contextually valid `proposal` is unique across all proposal
-actors. An initial `claim` declares a session-global `claim`; a `result`
-declares a session-global `result-id`; and a `review-request` declares a
-session-global `review`. Later messages reuse those declared identifiers only
-as references. A later declaration that collides with an earlier contextually
-valid declaration is invalid, regardless of actor.
-The reducer enforces these namespaces after contextual validity is known;
-structurally valid but contextually invalid comments MUST NOT reserve them.
+3.8. The common `id` remains actor-scoped for idempotency. Cross-message
+references MUST instead use the trusted numeric GitHub comment id of the
+declaration being referenced. A declaration does not predict or allocate that
+id: GitHub assigns it when the comment is created, and a later participant can
+copy it from the declaration's permalink. A `settled` message references its
+proposal comment; every later claim operation references the initial claim
+comment; a review request references the result comment; and a verdict
+references both the result and review-request comments. The reducer verifies
+that each id names an earlier, contextually valid declaration of the required
+family. Human-readable labels belong in prose and never create a session-global
+namespace.
 
 ## 4. Message families
 
@@ -245,8 +252,8 @@ and rationale.
 requires:
 
 - `point`: the point identifier used by the proposal;
-- `proposal-id`: the session-global `id` of an earlier valid `proposal` for
-  that point;
+- `proposal-comment-id`: the trusted numeric GitHub comment id of an earlier
+  valid `proposal` for that point;
 - `disposition`: `accepted` or `rejected`;
 - `terminal`: `true` or `false`.
 
@@ -257,45 +264,47 @@ explains the disposition. `terminal: true` invokes section 8.
 `cancellation`, `expiration`, `result`, `review-request`, and `verdict`.
 
 4.7. `claim` requests exclusive ownership of the issue's work. It additionally
-requires:
-
-- `claim`: a stable claim identifier;
-- `expires-at`: the requested expiry time.
+requires `expires-at`, the requested expiry time. Its trusted numeric GitHub
+comment id is the canonical claim reference used by later work messages.
 
 It is a proposal, not ownership. Only an authenticated authority profile can
 award it.
 
 4.8. `renewal` requests a new expiry for an awarded claim. It additionally
-requires `claim` and `expires-at`.
+requires `claim-comment-id` and `expires-at`.
 
 4.9. `release` returns claimed work to the pool. It additionally requires
-`claim`, referring to the currently awarded claim.
+`claim-comment-id`, referring to the initial comment of the currently awarded
+claim.
 
 4.10. `handoff` transfers an awarded claim. It additionally requires:
 
-- `claim`: the currently awarded claim;
+- `claim-comment-id`: the initial comment of the currently awarded claim;
 - `to-actor-id`: the numeric GitHub user id receiving the work;
 - `expires-at`: the new expiry time.
 
 The handoff's ruling MUST be `authorized` only when both its author and recipient
 have repository write access at the time of the check. A handoff changes the
-claim holder but preserves the claim identifier.
+claim holder but preserves the claim comment reference.
 
-4.11. `cancellation` cancels an awarded claim. It additionally requires `claim`.
+4.11. `cancellation` cancels an awarded claim. It additionally requires
+`claim-comment-id`.
 
 4.12. `expiration` records that an awarded claim expired. It additionally
-requires `claim` and `expired-at`. It is authenticated reducer output, and its
-trusted GitHub event timestamp MUST be at or after `expired-at`. Expiration is
+requires `claim-comment-id` and `expired-at`. It is authenticated reducer output,
+and its trusted GitHub event timestamp MUST be at or after `expired-at`. Expiration is
 never inferred from the reducer's wall clock. Its actual author MUST match an
 allowed reducer principal. An expiration-shaped comment from any other actor is
 untrusted prose and has no protocol effect.
 
 4.13. `result` reports completion or failure. It additionally requires:
 
-- `claim`: the currently awarded claim;
-- `result-id`: a stable result identifier;
+- `claim-comment-id`: the initial comment of the currently awarded claim;
 - `outcome`: `completed` or `failed`.
 - `artefact`: a machine-readable immutable artefact reference.
+
+The result comment's trusted numeric GitHub comment id is its canonical result
+reference.
 
 For GitHub software work, `artefact` MUST have the form
 `github:<numeric-repository-id>:pull:<pull-request-number>:head:<full-head-sha>`.
@@ -309,16 +318,20 @@ immutable reference.
 4.14. `review-request` asks for review of a completed result. It additionally
 requires:
 
-- `claim`: the claim associated with the result;
-- `review`: a stable review identifier;
-- `result-id`: the referenced result; and
+- `claim-comment-id`: the initial claim comment referenced by the result;
+- `result-comment-id`: the trusted numeric GitHub comment id of the referenced
+  result; and
 - `artefact`: exactly the immutable artefact reference carried by that result.
+
+The review-request comment's trusted numeric GitHub comment id is its canonical
+review reference.
 
 4.15. `verdict` decides a review request. It additionally requires:
 
-- `claim`: the claim associated with the review;
-- `review`: the identifier of an earlier valid `review-request`;
-- `result-id`: the result referenced by that review request;
+- `claim-comment-id`: the initial claim comment referenced by the review;
+- `review-comment-id`: the trusted numeric GitHub comment id of an earlier valid
+  `review-request`;
+- `result-comment-id`: the result comment referenced by that review request;
 - `artefact`: exactly the immutable artefact reference carried by that result;
 - `verdict`: `approved` or `changes-requested`.
 
@@ -411,7 +424,7 @@ that ruling and MUST NOT consult current permissions.
 6.3. The earliest awardable claim wins. Claims encountered while an awarded
 claim is active receive a `rejected` ruling and never become effective later.
 Retrying after release, cancellation, or recorded expiration requires a new
-message id and claim identifier.
+message id; GitHub assigns the new claim comment its own canonical reference.
 
 6.4. Renewals, releases, handoffs, cancellations, and expirations are recorded
 events. An active claim ends only through a valid `release`, `cancellation`,
