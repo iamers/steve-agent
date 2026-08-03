@@ -42,7 +42,7 @@
       "name": "carrier.invalid_authority",
       "entry_point": "serialize_replay_carrier",
       "input": {"open_table": 0, "repository_id": 1001, "issue_number": 130, "as_of": "2026-08-03T00:00:00Z", "comments_complete_through": "2026-08-03T00:00:00Z", "timeline_complete_through": "2026-08-03T00:00:00Z", "authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001, 9001]}, "ordered_events": []},
-      "expected": {"code": "invalid_bundle", "rule": "1.6, 2.5"}
+      "expected": {"code": "invalid_bundle", "rule": "2.5"}
     },
     {
       "name": "carrier.incomplete_comments",
@@ -108,25 +108,25 @@
       "name": "decision.unknown_top_level",
       "entry_point": "serialize_decision_request",
       "input": {"open_table": 0, "replay": {"open_table": 0, "repository_id": 1001, "issue_number": 130, "as_of": "2026-08-03T00:00:00Z", "comments_complete_through": "2026-08-03T00:00:00Z", "timeline_complete_through": "2026-08-03T00:00:00Z", "authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"kind": "comment", "actor_id": 101, "comment_id": 501, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:5020d05340b562e6c9b80f4bb1167f9a953f29377cfe778194ebb5e8e5fdc375", "body": "Human comment."}]}, "source_comment_id": 501, "permission_observation": null, "profile_outcome": null, "projection": {}},
-      "expected": {"code": "invalid_bundle", "rule": "2.5, 9.1"}
+      "expected": {"code": "invalid_bundle", "rule": "2.5"}
     },
     {
       "name": "decision.source_missing",
       "entry_point": "serialize_decision_request",
       "input": {"open_table": 0, "replay": {"open_table": 0, "repository_id": 1001, "issue_number": 130, "as_of": "2026-08-03T00:00:00Z", "comments_complete_through": "2026-08-03T00:00:00Z", "timeline_complete_through": "2026-08-03T00:00:00Z", "authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"kind": "comment", "actor_id": 101, "comment_id": 501, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:5020d05340b562e6c9b80f4bb1167f9a953f29377cfe778194ebb5e8e5fdc375", "body": "Human comment."}]}, "source_comment_id": 999, "permission_observation": null, "profile_outcome": null},
-      "expected": {"code": "invalid_bundle", "rule": "2.5, 9.1"}
+      "expected": {"code": "invalid_bundle", "rule": "2.5"}
     },
     {
       "name": "decision.permission_binding_invalid",
       "entry_point": "serialize_decision_request",
       "input": {"open_table": 0, "replay": {"open_table": 0, "repository_id": 1001, "issue_number": 130, "as_of": "2026-08-03T00:00:00Z", "comments_complete_through": "2026-08-03T00:00:00Z", "timeline_complete_through": "2026-08-03T00:00:00Z", "authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"kind": "comment", "actor_id": 101, "comment_id": 501, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:5020d05340b562e6c9b80f4bb1167f9a953f29377cfe778194ebb5e8e5fdc375", "body": "Human comment."}]}, "source_comment_id": 501, "permission_observation": {"actor_id": 202, "observed_at": "2026-08-02T10:00:30Z", "allowed": true}, "profile_outcome": null},
-      "expected": {"code": "invalid_bundle", "rule": "1.4, 1.5, 2.5"}
+      "expected": {"code": "invalid_bundle", "rule": "2.5"}
     },
     {
       "name": "decision.profile_binding_invalid",
       "entry_point": "serialize_decision_request",
       "input": {"open_table": 0, "replay": {"open_table": 0, "repository_id": 1001, "issue_number": 130, "as_of": "2026-08-03T00:00:00Z", "comments_complete_through": "2026-08-03T00:00:00Z", "timeline_complete_through": "2026-08-03T00:00:00Z", "authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"kind": "comment", "actor_id": 101, "comment_id": 501, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:5020d05340b562e6c9b80f4bb1167f9a953f29377cfe778194ebb5e8e5fdc375", "body": "Human comment."}]}, "source_comment_id": 501, "permission_observation": null, "profile_outcome": {"profile": "deliberation-only", "decision": "awarded"}},
-      "expected": {"code": "invalid_bundle", "rule": "1.6, 2.5"}
+      "expected": {"code": "invalid_bundle", "rule": "2.5"}
     }
   ]
 }

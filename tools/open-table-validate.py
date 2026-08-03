@@ -17,14 +17,42 @@ from pathlib import Path
 
 from open_table_core import (
     MAX_PROTOCOL_INTEGER,
+    REASON_CATALOG,
     ValidationError,
     canonical_digest,
-    make_fixture,
+    make_diagnostic,
     parse_comment,
     serialize_decision_request,
     serialize_replay_carrier,
     validate_integrity_bundle,
+    validate_integrity_bundle_diagnostics,
+    validate_replay_integrity,
 )
+
+
+def make_fixture(message, fields):
+    """Build an inline A-regression fixture for one message family."""
+    lines = [
+        "```open-table",
+        "open-table: 0",
+        "message: {}".format(message),
+        "id: fixture-{}-0001".format(message),
+    ]
+    lines.extend("{}: {}".format(key, value) for key, value in fields)
+    lines.extend(["```", "", "Human-readable fixture for {}.".format(message)])
+    return "\n".join(lines)
+
+
+def assert_live_case_names(cases, label):
+    """Reject empty or duplicate external fixture case lists."""
+    if not isinstance(cases, list) or not cases:
+        raise AssertionError("{} fixture manifest must contain cases".format(label))
+    names = [case.get("name") for case in cases]
+    if any(not isinstance(name, str) or not name for name in names):
+        raise AssertionError("{} fixture names must be non-empty strings".format(label))
+    if len(names) != len(set(names)):
+        raise AssertionError("{} fixture names must be unique".format(label))
+    return names
 
 
 def run_carrier_fixture_test():
@@ -39,19 +67,14 @@ def run_carrier_fixture_test():
     if manifest["open_table"] != 0 or manifest["suite_version"] != 1:
         raise AssertionError("carrier fixture manifest version is unsupported")
     cases = manifest["cases"]
-    if not isinstance(cases, list) or not cases:
-        raise AssertionError("carrier fixture manifest must contain cases")
-    names = [case.get("name") for case in cases]
-    if any(not isinstance(name, str) or not name for name in names):
-        raise AssertionError("carrier fixture case names must be non-empty strings")
-    if len(names) != len(set(names)):
-        raise AssertionError("carrier fixture case names must be unique")
+    assert_live_case_names(cases, "carrier")
 
     entry_points = {
         "serialize_replay_carrier": serialize_replay_carrier,
         "serialize_decision_request": serialize_decision_request,
     }
     canonical_results = {}
+    observed = {}
     for case in cases:
         if set(case) != {"name", "entry_point", "input", "expected"}:
             raise AssertionError("carrier fixture case must use the closed case shape")
@@ -75,6 +98,7 @@ def run_carrier_fixture_test():
             assert diagnostic.severity == "fatal"
             assert diagnostic.code == expected["code"]
             assert diagnostic.rule == expected["rule"]
+            observed[case["name"]] = diagnostic.code
             continue
         if "canonical" in expected:
             assert set(expected) == {"canonical"}
@@ -86,7 +110,173 @@ def run_carrier_fixture_test():
             raise AssertionError("successful carrier case lacks canonical expectation")
         assert canonical.endswith("\n")
         canonical_results[case["name"]] = canonical
+    base = json.loads(json.dumps(cases[0]["input"]))
+    base["authority_policy"]["reducer_principals"] = [9002, 9001]
+    reordered = json.loads(json.dumps(base))
+    reordered["authority_policy"]["reducer_principals"] = [9001, 9002]
+    assert serialize_replay_carrier(base) == serialize_replay_carrier(reordered)
+    duplicate = json.loads(json.dumps(
+        next(case["input"] for case in cases if case["name"] == "decision.closed_request")
+    ))
+    second = json.loads(json.dumps(duplicate["replay"]["ordered_events"][0]))
+    second["actor_id"] = 202
+    second["created_at"] = "2026-08-02T10:01:00Z"
+    second["updated_at"] = "2026-08-02T10:01:00Z"
+    duplicate["replay"]["ordered_events"].append(second)
+    try:
+        serialize_decision_request(duplicate)
+    except ValidationError as error:
+        assert error.diagnostic.code == "invalid_event"
+    else:
+        raise AssertionError("duplicate replay comment ids must be rejected")
     print("carrier fixtures: {} replay/decision cases passed".format(len(cases)))
+    print("carrier hardening probes: principal order canonical; duplicate ids rejected")
+    return observed
+
+
+def run_integrity_fixture_test():
+    """Run external integrity cases through structured production entry points."""
+    fixture_path = (
+        Path(__file__).resolve().parents[1]
+        / "docs/specs/open-table-v0/fixtures/integrity.json"
+    )
+    manifest = json.loads(fixture_path.read_text(encoding="utf-8"))
+    if set(manifest) != {"open_table", "suite_version", "cases"}:
+        raise AssertionError("integrity fixture manifest must use the closed suite shape")
+    if manifest["open_table"] != 0 or manifest["suite_version"] != 1:
+        raise AssertionError("integrity fixture manifest version is unsupported")
+    cases = manifest["cases"]
+    names = assert_live_case_names(cases, "integrity")
+    expected_names = {
+        "integrity.valid_comment", "integrity.valid_bundle",
+        "integrity.non_protocol_comment", "integrity.invalid_envelope",
+        "integrity.invalid_field", "integrity.invalid_artefact",
+        "integrity.exact_duplicate", "integrity.message_id_conflict",
+        "integrity.unauthorized_reducer_output", "integrity.source_edited",
+        "integrity.source_deleted", "integrity.ruling_deleted",
+        "integrity.ruling_missing", "integrity.ruling_duplicate",
+        "integrity.ruling_binding_invalid", "integrity.ruling_decision_invalid",
+    }
+    assert set(names) == expected_names
+    entry_points = {
+        "parse_comment": parse_comment,
+        "validate_integrity_bundle_diagnostics": validate_integrity_bundle_diagnostics,
+        "validate_replay_integrity": validate_replay_integrity,
+    }
+    observed = {}
+    for case in cases:
+        if set(case) != {"name", "entry_point", "input", "expected"}:
+            raise AssertionError("integrity fixture case must use the closed case shape")
+        entry_point = entry_points.get(case["entry_point"])
+        if entry_point is None:
+            raise AssertionError(
+                "integrity fixture names unknown entry point: {}".format(
+                    case["entry_point"]
+                )
+            )
+        expected = case["expected"]
+        diagnostic = None
+        try:
+            result = entry_point(case["input"])
+        except ValidationError as error:
+            diagnostic = error.diagnostic
+            assert diagnostic is not None
+        else:
+            if expected == {"status": "success"}:
+                if case["entry_point"] != "parse_comment":
+                    assert result == []
+                continue
+            assert isinstance(result, list) and len(result) == 1
+            diagnostic = result[0]
+        assert set(expected) == {"severity", "code", "rule"}
+        assert diagnostic.severity == expected["severity"]
+        assert diagnostic.code == expected["code"]
+        assert diagnostic.rule == expected["rule"]
+        assert isinstance(diagnostic.comment_id, int)
+        assert isinstance(diagnostic.detail, str) and diagnostic.detail
+        observed[case["name"]] = diagnostic.code
+    print("integrity fixtures: {} structured cases passed".format(len(cases)))
+    return observed
+
+
+def run_reason_fixture_test(observed):
+    """Prove external/production catalog parity and phase-owned liveness."""
+    fixture_path = (
+        Path(__file__).resolve().parents[1]
+        / "docs/specs/open-table-v0/fixtures/reason-codes.json"
+    )
+    manifest = json.loads(fixture_path.read_text(encoding="utf-8"))
+    if set(manifest) != {"open_table", "suite_version", "reasons"}:
+        raise AssertionError("reason manifest must use the closed suite shape")
+    if manifest["open_table"] != 0 or manifest["suite_version"] != 1:
+        raise AssertionError("reason manifest version is unsupported")
+    reasons = manifest["reasons"]
+    assert isinstance(reasons, list) and reasons
+    codes = [reason.get("code") for reason in reasons]
+    assert len(codes) == len(set(codes))
+    external = {}
+    for reason in reasons:
+        assert set(reason) == {"code", "rule", "fixture", "owner"}
+        assert reason["owner"] in {"B1-live", "B2-deferred"}
+        external[reason["code"]] = {
+            "rule": reason["rule"],
+            "fixture": reason["fixture"],
+            "owner": reason["owner"],
+        }
+    assert external == REASON_CATALOG
+    assert len(external) == 42
+    live = {code: row for code, row in external.items() if row["owner"] == "B1-live"}
+    deferred = {
+        code: row for code, row in external.items() if row["owner"] == "B2-deferred"
+    }
+    assert len(live) == 20 and len(deferred) == 22
+    for code, row in live.items():
+        assert observed.get(row["fixture"]) == code
+    assert not (set(observed.values()) & set(deferred))
+    original = make_diagnostic(
+        "excluded", "invalid_field", "original detail", comment_id=7, field="turn"
+    ).to_dict()
+    revised = make_diagnostic(
+        "excluded", "invalid_field", "revised detail", comment_id=7, field="turn"
+    ).to_dict()
+    original.pop("detail")
+    revised.pop("detail")
+    assert original == revised
+    rejected_probes = 0
+    for invalid_cases in ([], [{"name": "duplicate"}, {"name": "duplicate"}]):
+        try:
+            assert_live_case_names(invalid_cases, "probe")
+        except AssertionError:
+            rejected_probes += 1
+    unknown = dict(external)
+    unknown["unknown_reason"] = {
+        "rule": "0", "fixture": "probe.unknown", "owner": "B1-live"
+    }
+    try:
+        assert unknown == REASON_CATALOG
+    except AssertionError:
+        rejected_probes += 1
+    assert rejected_probes == 3
+    print("reason fixtures: 42 catalog entries, 20 B1-live, 22 B2-deferred passed")
+    print("fixture liveness probes: zero cases, duplicate names, unknown code rejected")
+
+
+def run_external_cli_fixture_test():
+    """Exercise the four real external CLI files and their stable exit behavior."""
+    root = Path(__file__).resolve().parents[1]
+    fixture_root = root / "docs/specs/open-table-v0/fixtures"
+    commands = [
+        ([sys.executable, str(Path(__file__)), str(fixture_root / "valid-comment.md")], 0, "valid: "),
+        ([sys.executable, str(Path(__file__)), str(fixture_root / "invalid-comment.md")], 1, "invalid: "),
+        ([sys.executable, str(Path(__file__)), "--integrity-bundle", str(fixture_root / "valid-integrity-bundle.json")], 0, "valid integrity bundle: "),
+        ([sys.executable, str(Path(__file__)), "--integrity-bundle", str(fixture_root / "invalid-integrity-bundle.json")], 1, "invalid integrity bundle: "),
+    ]
+    for command, expected_exit, prefix in commands:
+        result = subprocess.run(command, cwd=root, capture_output=True, text=True)
+        assert result.returncode == expected_exit
+        output = result.stdout if expected_exit == 0 else result.stderr
+        assert output.startswith(prefix)
+    print("CLI fixtures: valid/invalid comment and integrity exits 0/1/0/1 passed")
 
 
 def run_self_test():
@@ -1241,7 +1431,10 @@ def run_self_test():
     assert len(notices) == 1 and "no unambiguous message id reserved" in notices[0]
     print("integrity fixture (ambiguous surrogate ids): no id reserved")
 
-    run_carrier_fixture_test()
+    observed = run_carrier_fixture_test()
+    observed.update(run_integrity_fixture_test())
+    run_reason_fixture_test(observed)
+    run_external_cli_fixture_test()
     print(
         "self-test: 14 valid families, 19 malformed fixtures, and 52 integrity "
         "rules passed"

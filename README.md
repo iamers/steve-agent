@@ -53,6 +53,27 @@ team wherever it chats. WhatsApp support is on the roadmap, not shipping today.
 This repository is developed by its own factory. Tasks raised in chat land as
 reviewed pull requests here, in the open.
 
+## Open Table v0 contract
+
+The accepted runtime-neutral protocol lives in
+[`docs/specs/open-table-v0.md`](docs/specs/open-table-v0.md). Its reusable
+standard-library core is `tools/open_table_core.py`; the compatible offline CLI
+remains `tools/open-table-validate.py`. The CLI self-test runs the external,
+versioned carrier, integrity, reason-code, comment, and bundle fixtures under
+`docs/specs/open-table-v0/fixtures/`.
+
+This contract validates envelopes, trusted integrity history, closed replay and
+decision carriers, canonical bytes, and stable diagnostics. It does not perform
+contextual reduction, permission lookup, claim arbitration, projection writes,
+GitHub mutations, or runtime integration, and it does not claim reducer
+conformance.
+
+Carrier serialization proves the closed structural shape and trusted bindings;
+call the core integrity entry point to evaluate edit, deletion, duplicate, and
+ruling history. Decision-request normalization intentionally does not require a
+ruling for its source because that source may be awaiting its first contextual
+decision in the separately gated reducer layer.
+
 ## Built on Hermes Agent
 
 Steve Agent is built on [Hermes Agent](https://github.com/nousresearch/hermes-agent)

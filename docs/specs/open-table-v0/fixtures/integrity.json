@@ -1,0 +1,102 @@
+{
+  "open_table": 0,
+  "suite_version": 1,
+  "cases": [
+    {
+      "name": "integrity.valid_comment",
+      "entry_point": "parse_comment",
+      "input": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution.",
+      "expected": {"status": "success"}
+    },
+    {
+      "name": "integrity.valid_bundle",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:8ed06b10243960607eec6eb228fca1474728214fe477011b33f81dff3d65cfde", "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution."}]},
+      "expected": {"status": "success"}
+    },
+    {
+      "name": "integrity.non_protocol_comment",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:b5cb2d62f271324ec54b02e1d8de97193616a5548ca4dc5abcb21c07c6aa4aaa", "body": "Ordinary prose."}]},
+      "expected": {"severity": "excluded", "code": "non_protocol_comment", "rule": "2.8, 7.5"}
+    },
+    {
+      "name": "integrity.invalid_envelope",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:a5be61298f99f1d29c76c219f3bc2c82232fbecc2e6c675fe11e7f5a18b3478d", "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: broken-0001\nphase: dreamer\nturn: 1\n"}]},
+      "expected": {"severity": "excluded", "code": "invalid_envelope", "rule": "3.1-3.5"}
+    },
+    {
+      "name": "integrity.invalid_field",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:7d46b1385827fdd1f4aa9ee38ec376f553dbf703419d8c83811bf54245d926de", "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\nruntime: forbidden\n```\n\nHuman-readable fixture for contribution."}]},
+      "expected": {"severity": "excluded", "code": "invalid_field", "rule": "3.3-3.6, 4"}
+    },
+    {
+      "name": "integrity.invalid_artefact",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:9193e4bbc8fcff0f2c60c0ec593e80dfa0074e3a300fcb07dbfd32deaa41cb33", "body": "```open-table\nopen-table: 0\nmessage: result\nid: fixture-result-0001\nclaim: claim-1\nresult-id: result-1\noutcome: completed\nartefact: mutable-reference\n```\n\nHuman-readable fixture for result."}]},
+      "expected": {"severity": "excluded", "code": "invalid_artefact", "rule": "4.13"}
+    },
+    {
+      "name": "integrity.exact_duplicate",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:8ed06b10243960607eec6eb228fca1474728214fe477011b33f81dff3d65cfde", "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution."}, {"actor_id": 101, "comment_id": 2, "created_at": "2026-08-02T10:01:00Z", "updated_at": "2026-08-02T10:01:00Z", "last_edited_at": null, "created_body_digest": "sha256:8ed06b10243960607eec6eb228fca1474728214fe477011b33f81dff3d65cfde", "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution."}]},
+      "expected": {"severity": "notice", "code": "exact_duplicate", "rule": "7.2"}
+    },
+    {
+      "name": "integrity.message_id_conflict",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:8ed06b10243960607eec6eb228fca1474728214fe477011b33f81dff3d65cfde", "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution."}, {"actor_id": 101, "comment_id": 2, "created_at": "2026-08-02T10:01:00Z", "updated_at": "2026-08-02T10:01:00Z", "last_edited_at": null, "created_body_digest": "sha256:be6953b91453415a6a35a61d4b3b92bce63cbb4f69c942ab8e5bb149872e78d2", "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nChanged prose."}]},
+      "expected": {"severity": "fatal", "code": "message_id_conflict", "rule": "7.2"}
+    },
+    {
+      "name": "integrity.unauthorized_reducer_output",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 202, "comment_id": 2, "created_at": "2026-08-02T10:01:00Z", "updated_at": "2026-08-02T10:01:00Z", "last_edited_at": null, "created_body_digest": "sha256:b053986c20902a76e3e163ad97a0f56c528b9f277410f6b081b76c8c78e2fa42", "body": "```open-table\nopen-table: 0\nmessage: ruling\nid: fixture-ruling-0001\ntarget-actor-id: 101\nmessage-id: fixture-claim-0001\nsource-comment-id: 1\nsource-digest: sha256:00fe3bf6cfbe099bcebdde1277d0ba5f49d2ada3967d36bdcf0a5583d343795e\ndecision: awarded\n```\n\nHuman-readable fixture for ruling."}]},
+      "expected": {"severity": "excluded", "code": "unauthorized_reducer_output", "rule": "2.3, 4.12, 4.16"}
+    },
+    {
+      "name": "integrity.source_edited",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": "2026-08-02T10:00:01Z", "created_body_digest": "sha256:8ed06b10243960607eec6eb228fca1474728214fe477011b33f81dff3d65cfde", "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution."}]},
+      "expected": {"severity": "fatal", "code": "source_edited", "rule": "2.2, 7.3"}
+    },
+    {
+      "name": "integrity.source_deleted",
+      "entry_point": "validate_replay_integrity",
+      "input": {"open_table": 0, "repository_id": 1001, "issue_number": 130, "as_of": "2026-08-03T00:00:00Z", "comments_complete_through": "2026-08-03T00:00:00Z", "timeline_complete_through": "2026-08-03T00:00:00Z", "authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"kind": "comment", "actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:8ed06b10243960607eec6eb228fca1474728214fe477011b33f81dff3d65cfde", "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution."}, {"kind": "comment_deletion", "event_id": "delete-0001", "created_at": "2026-08-02T11:00:00Z", "comment_id": 1}]},
+      "expected": {"severity": "fatal", "code": "source_deleted", "rule": "2.2, 7.3, 9.1"}
+    },
+    {
+      "name": "integrity.ruling_deleted",
+      "entry_point": "validate_replay_integrity",
+      "input": {"open_table": 0, "repository_id": 1001, "issue_number": 130, "as_of": "2026-08-03T00:00:00Z", "comments_complete_through": "2026-08-03T00:00:00Z", "timeline_complete_through": "2026-08-03T00:00:00Z", "authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"kind": "comment", "actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:00fe3bf6cfbe099bcebdde1277d0ba5f49d2ada3967d36bdcf0a5583d343795e", "body": "```open-table\nopen-table: 0\nmessage: claim\nid: fixture-claim-0001\nclaim: claim-1\nexpires-at: 2026-08-02T12:00:00Z\n```\n\nHuman-readable fixture for claim."}, {"kind": "comment", "actor_id": 9001, "comment_id": 2, "created_at": "2026-08-02T10:01:00Z", "updated_at": "2026-08-02T10:01:00Z", "last_edited_at": null, "created_body_digest": "sha256:b053986c20902a76e3e163ad97a0f56c528b9f277410f6b081b76c8c78e2fa42", "body": "```open-table\nopen-table: 0\nmessage: ruling\nid: fixture-ruling-0001\ntarget-actor-id: 101\nmessage-id: fixture-claim-0001\nsource-comment-id: 1\nsource-digest: sha256:00fe3bf6cfbe099bcebdde1277d0ba5f49d2ada3967d36bdcf0a5583d343795e\ndecision: awarded\n```\n\nHuman-readable fixture for ruling."}, {"kind": "comment_deletion", "event_id": "delete-0002", "created_at": "2026-08-02T11:00:00Z", "comment_id": 2}]},
+      "expected": {"severity": "fatal", "code": "ruling_deleted", "rule": "7.3, 9.1"}
+    },
+    {
+      "name": "integrity.ruling_missing",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:00fe3bf6cfbe099bcebdde1277d0ba5f49d2ada3967d36bdcf0a5583d343795e", "body": "```open-table\nopen-table: 0\nmessage: claim\nid: fixture-claim-0001\nclaim: claim-1\nexpires-at: 2026-08-02T12:00:00Z\n```\n\nHuman-readable fixture for claim."}]},
+      "expected": {"severity": "fatal", "code": "ruling_missing", "rule": "4.16, 9.1"}
+    },
+    {
+      "name": "integrity.ruling_duplicate",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:00fe3bf6cfbe099bcebdde1277d0ba5f49d2ada3967d36bdcf0a5583d343795e", "body": "```open-table\nopen-table: 0\nmessage: claim\nid: fixture-claim-0001\nclaim: claim-1\nexpires-at: 2026-08-02T12:00:00Z\n```\n\nHuman-readable fixture for claim."}, {"actor_id": 9001, "comment_id": 2, "created_at": "2026-08-02T10:01:00Z", "updated_at": "2026-08-02T10:01:00Z", "last_edited_at": null, "created_body_digest": "sha256:b053986c20902a76e3e163ad97a0f56c528b9f277410f6b081b76c8c78e2fa42", "body": "```open-table\nopen-table: 0\nmessage: ruling\nid: fixture-ruling-0001\ntarget-actor-id: 101\nmessage-id: fixture-claim-0001\nsource-comment-id: 1\nsource-digest: sha256:00fe3bf6cfbe099bcebdde1277d0ba5f49d2ada3967d36bdcf0a5583d343795e\ndecision: awarded\n```\n\nHuman-readable fixture for ruling."}, {"actor_id": 9001, "comment_id": 3, "created_at": "2026-08-02T10:02:00Z", "updated_at": "2026-08-02T10:02:00Z", "last_edited_at": null, "created_body_digest": "sha256:a4c5ce26f490ba5febed1b76cbafdfc90aa91c85f04ae70c4aef542e8002954c", "body": "```open-table\nopen-table: 0\nmessage: ruling\nid: fixture-ruling-0002\ntarget-actor-id: 101\nmessage-id: fixture-claim-0001\nsource-comment-id: 1\nsource-digest: sha256:00fe3bf6cfbe099bcebdde1277d0ba5f49d2ada3967d36bdcf0a5583d343795e\ndecision: awarded\n```\n\nHuman-readable fixture for ruling."}]},
+      "expected": {"severity": "fatal", "code": "ruling_duplicate", "rule": "4.16, 9.1"}
+    },
+    {
+      "name": "integrity.ruling_binding_invalid",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:00fe3bf6cfbe099bcebdde1277d0ba5f49d2ada3967d36bdcf0a5583d343795e", "body": "```open-table\nopen-table: 0\nmessage: claim\nid: fixture-claim-0001\nclaim: claim-1\nexpires-at: 2026-08-02T12:00:00Z\n```\n\nHuman-readable fixture for claim."}, {"actor_id": 9001, "comment_id": 2, "created_at": "2026-08-02T10:01:00Z", "updated_at": "2026-08-02T10:01:00Z", "last_edited_at": null, "created_body_digest": "sha256:019abba95daf76838961dd250b7e5117d47c24f75a161937c5892c0fb6e7947b", "body": "```open-table\nopen-table: 0\nmessage: ruling\nid: fixture-ruling-0001\ntarget-actor-id: 101\nmessage-id: fixture-claim-0001\nsource-comment-id: 1\nsource-digest: sha256:0000000000000000000000000000000000000000000000000000000000000000\ndecision: awarded\n```\n\nHuman-readable fixture for ruling."}]},
+      "expected": {"severity": "fatal", "code": "ruling_binding_invalid", "rule": "4.16, 7.3"}
+    },
+    {
+      "name": "integrity.ruling_decision_invalid",
+      "entry_point": "validate_integrity_bundle_diagnostics",
+      "input": {"authority_policy": {"profile": "open-table/ordered-claims", "reducer_principals": [9001]}, "ordered_events": [{"actor_id": 101, "comment_id": 1, "created_at": "2026-08-02T10:00:00Z", "updated_at": "2026-08-02T10:00:00Z", "last_edited_at": null, "created_body_digest": "sha256:00fe3bf6cfbe099bcebdde1277d0ba5f49d2ada3967d36bdcf0a5583d343795e", "body": "```open-table\nopen-table: 0\nmessage: claim\nid: fixture-claim-0001\nclaim: claim-1\nexpires-at: 2026-08-02T12:00:00Z\n```\n\nHuman-readable fixture for claim."}, {"actor_id": 9001, "comment_id": 2, "created_at": "2026-08-02T10:01:00Z", "updated_at": "2026-08-02T10:01:00Z", "last_edited_at": null, "created_body_digest": "sha256:52dcb08ad24c49e7ad8d09cd96bd39248d83b90113ec0a6f3f579b93b9a2f6c8", "body": "```open-table\nopen-table: 0\nmessage: ruling\nid: fixture-ruling-0001\ntarget-actor-id: 101\nmessage-id: fixture-claim-0001\nsource-comment-id: 1\nsource-digest: sha256:00fe3bf6cfbe099bcebdde1277d0ba5f49d2ada3967d36bdcf0a5583d343795e\ndecision: authorized\n```\n\nHuman-readable fixture for ruling."}]},
+      "expected": {"severity": "fatal", "code": "ruling_decision_invalid", "rule": "4.17"}
+    }
+  ]
+}
