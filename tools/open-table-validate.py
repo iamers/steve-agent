@@ -55,7 +55,8 @@ def run_integrity_fixture_test():
     names = assert_live_case_names(cases, "integrity")
     expected_names = {
         "integrity.valid_comment", "integrity.valid_bundle",
-        "integrity.invalid_bundle", "integrity.event_order_invalid",
+        "integrity.invalid_bundle", "integrity.malformed_bundle_json",
+        "integrity.event_order_invalid",
         "integrity.non_protocol_comment", "integrity.invalid_envelope",
         "integrity.invalid_field", "integrity.invalid_artefact",
         "integrity.exact_duplicate", "integrity.message_id_conflict",
@@ -66,6 +67,7 @@ def run_integrity_fixture_test():
     assert set(names) == expected_names
     entry_points = {
         "parse_comment": parse_comment,
+        "parse_integrity_bundle_json": parse_integrity_bundle_json,
         "validate_integrity_bundle_diagnostics": validate_integrity_bundle_diagnostics,
     }
     observed = {}

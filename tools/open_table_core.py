@@ -251,7 +251,16 @@ def reject_duplicate_json_members(pairs):
 
 def parse_integrity_bundle_json(raw):
     """Decode one integrity bundle while preserving the closed JSON contract."""
-    return json.loads(raw, object_pairs_hook=reject_duplicate_json_members)
+    try:
+        return json.loads(raw, object_pairs_hook=reject_duplicate_json_members)
+    except json.JSONDecodeError as error:
+        fail_validation(
+            "invalid_bundle",
+            "integrity bundle is not valid JSON: {} at line {} column {}".format(
+                error.msg, error.lineno, error.colno
+            ),
+            field="bundle",
+        )
 
 
 def is_positive_ascii_integer(value):

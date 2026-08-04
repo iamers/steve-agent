@@ -56,6 +56,16 @@
       }
     },
     {
+      "name": "integrity.malformed_bundle_json",
+      "entry_point": "parse_integrity_bundle_json",
+      "input": "{\"authority_policy\":",
+      "expected": {
+        "severity": "fatal",
+        "code": "invalid_bundle",
+        "rule": "2.8"
+      }
+    },
+    {
       "name": "integrity.event_order_invalid",
       "entry_point": "validate_integrity_bundle_diagnostics",
       "input": {
