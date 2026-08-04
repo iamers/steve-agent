@@ -435,19 +435,9 @@ deletion, and has an empty bypass list.
 | R6 | **Shared LLM plan rate limit** | If the provider plan is shared or rate-limited, frequent board runs can collide. **Mitigation**: monitor; a dedicated key/plan before increasing worker concurrency. |
 | R7 | **Durability of the private design/journal** | The journal and private design live in `.local/` (gitignored), not versioned elsewhere. **Mitigation**: node backup plus distilling the public installation guide from the journal's seeds (this document is already the first public distillate). |
 
-## 11. Minimal glossary
+## 11. Glossary
 
-| Term | Meaning |
-|---|---|
-| Kanban board / dispatcher / worker | A durable work queue (SQLite) shared across Hermes profiles; the dispatcher (embedded in the gateway) does claim/spawn/heartbeat/reclaim; the worker is the profile that runs the task. |
-| Completion contract | The completion contract of a `--goal` task: outcome plus `verify:` with a real command; "done" judged on evidence (re-run by the reviewer), not on self-assertion. |
-| Review tier | The risk class of a file (`blast > propagation > safe`) in `.steve/review-policy.yaml`; a PR's tier is the max of its files; it determines the sign-off and human signature required. |
-| Brief compiler / gate | `tools/pr-brief.py`: derives the tier from the touched files and produces the review brief; the deterministic gate on every PR. |
-| main-guard | Smoke checks 8-10: no worker or reviewer bot push/merge to `main`, every merge has an approved review from a different account, and any merge performed by the merge App carries both the approval label and an approved review. |
-| Worktree workspace | The Kanban workspace `worktree:<path>`: a git worktree with a dedicated branch, `main` never touched. |
-| `channel_prompts` | Hermes config: a flat dictionary `{chat_id/thread_id: prompt}` that injects a per-topic system prompt. |
-| Injector | An MTProto user-account (`tools/e2e/injector.py`) that simulates a real human in the group for e2e tests. |
-| Blueprint / drift | `instance/` = the versioned canonical copy of an instance's config; drift = live vs repo divergence, detected by `drift-check.sh` (flags, does not restore). |
+The vocabulary of this project is defined in [GLOSSARY.md](GLOSSARY.md).
 
 ---
 

@@ -74,6 +74,8 @@ per-path tier list.
 Some in-repo prose is still Italian (the current contributor community) and is
 migrating to English over time. New contributions should be English.
 
+Terms used across the project are defined in [docs/GLOSSARY.md](docs/GLOSSARY.md).
+
 ## Local checks before pushing
 
 Run these before you push a branch:

@@ -38,6 +38,7 @@ to a public `docs/` directory.
 - **Prose content** (design docs, inline comments): currently Italian, reflecting the contributor community; long-term target is English, no hard deadline.
 - **User-facing strings** (README, CONTRIBUTING, LICENSE, error messages): English.
 - **Agent personalities** (SOUL.md and analogs): any language.
+- **Vocabulary**: defined once in [docs/GLOSSARY.md](docs/GLOSSARY.md). Use those terms; add a term there rather than coining one here.
 
 ## Working on this repo today
 

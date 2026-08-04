@@ -40,6 +40,7 @@ assistance via git worktrees.
 - **Commits**: Conventional Commits — `feat:`, `fix:`, `docs:`, `ci:`,
   `refactor:`, `test:`, `chore:`. Keep the subject line imperative and under
   72 characters.
+- **Vocabulary**: defined once in [docs/GLOSSARY.md](docs/GLOSSARY.md). Use those terms; add a term there rather than coining one here.
 
 ## Process rules (minimal)
 
