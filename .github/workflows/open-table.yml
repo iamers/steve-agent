@@ -1,0 +1,40 @@
+# Open Table deliberation-only reducer.
+# Protocol decisions live in tools/open-table-reduce.py, not in this workflow.
+name: Open Table reducer
+
+on:
+  issue_comment:
+    types: [created, edited, deleted]
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+
+concurrency:
+  group: open-table-${{ github.repository_id }}-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  reduce:
+    if: contains(github.event.issue.labels.*.name, 'open-table/session')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      REDUCER_PRINCIPAL: "41898282"
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - name: Load reducer from the trusted default-branch revision
+        run: |
+          curl -fsSLo /tmp/open-table-reduce.py \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open-table-reduce.py"
+          curl -fsSLo /tmp/open-table-validate.py \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open-table-validate.py"
+      - name: Reduce the session
+        run: >-
+          python3 /tmp/open-table-reduce.py --github
+          --repository "$GITHUB_REPOSITORY"
+          --issue "$ISSUE_NUMBER"
+          --principal "$REDUCER_PRINCIPAL"
