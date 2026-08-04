@@ -48,8 +48,8 @@ conforming deployment is selected or implemented in the version 0 artifacts
 currently shipped. Conformance first requires a separate accepted decision for
 durable GitHub-resident creation receipts and deletion evidence, including the
 store's permissions and failure recovery. A future Action implementation's
-issuer would be its token and its principal the bot identity GitHub reports,
-selected per repository; see
+issuer would be its token and its principal the bot account's positive numeric
+comment-author user id from trusted GitHub metadata, selected per repository; see
 `adr-20260802-open-table-conformance-and-reducer.md`.
 
 Participant identity is the numeric GitHub user id; the login is display only.

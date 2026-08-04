@@ -36,10 +36,11 @@ mutable issue projection, workflow caches, and retention-bound Action artefacts
 are not replay sources. A protected Git-backed ledger is a candidate, but its
 need for `contents: write` and its failure/concurrency model require explicit
 review rather than being implied by this ADR. A future Action implementation's
-authenticated issuer will be its token and its principal the bot identity
-GitHub reports. The principal is per-repository deployment configuration;
-another repository selects its own. A GitHub App is the graduation path when a
-second repository adopts the protocol.
+authenticated issuer will be its token and its principal the bot account's
+positive numeric comment-author user id from trusted GitHub metadata. The
+principal is per-repository deployment configuration; another repository
+selects its own. A GitHub App is the graduation path when a second repository
+adopts the protocol.
 
 The adapter compatibility matrix is maintained by this project, one row per
 upstream release, evaluated on the same pass that evaluates the pin. An adapter

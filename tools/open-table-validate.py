@@ -117,6 +117,21 @@ def canonical_digest(body):
     return "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
+def reject_duplicate_json_members(pairs):
+    """Build one JSON object while rejecting ambiguous duplicate names."""
+    result = {}
+    for name, value in pairs:
+        if name in result:
+            raise ValidationError("duplicate JSON object member: {}".format(name))
+        result[name] = value
+    return result
+
+
+def parse_integrity_bundle_json(raw):
+    """Decode an integrity bundle without JSON's duplicate-member ambiguity."""
+    return json.loads(raw, object_pairs_hook=reject_duplicate_json_members)
+
+
 def is_positive_ascii_integer(value):
     """Return whether value is the protocol's canonical positive integer text."""
     return bool(POSITIVE_ASCII_INTEGER_RE.fullmatch(value))
@@ -1451,6 +1466,32 @@ def run_self_test():
     assert validate_fixture_bundle(empty_bundle) == []
     print("integrity fixture (empty event stream): accepted")
 
+    duplicate_json_members = {
+        "top-level": (
+            '{"authority_policy":{},"authority_policy":{},"ordered_events":[]}'
+        ),
+        "authority-policy": (
+            '{"authority_policy":{"profile":"deliberation-only",'
+            '"profile":"deliberation-only","reducer_principals":[999]},'
+            '"ordered_events":[]}'
+        ),
+        "event": (
+            '{"authority_policy":{"profile":"deliberation-only",'
+            '"reducer_principals":[999]},"ordered_events":['
+            '{"actor_id":1,"actor_id":2}]}'
+        ),
+    }
+    for level, raw_bundle in duplicate_json_members.items():
+        try:
+            parse_integrity_bundle_json(raw_bundle)
+        except ValidationError as error:
+            assert "duplicate JSON object member" in str(error)
+        else:
+            raise AssertionError(
+                "duplicate JSON member at {} level was accepted".format(level)
+            )
+    print("integrity fixture (duplicate JSON object members): rejected")
+
     oversized_bundle_values = {}
     oversized_principal_bundle = json.loads(json.dumps(empty_bundle))
     oversized_principal_bundle["authority_policy"]["reducer_principals"] = [
@@ -1994,7 +2035,7 @@ def run_self_test():
     print("integrity fixture (ambiguous surrogate ids): no id reserved")
 
     print(
-        "self-test: 14 valid families, 20 malformed fixtures, and 54 integrity "
+        "self-test: 14 valid families, 20 malformed fixtures, and 55 integrity "
         "rules passed"
     )
 
@@ -2029,7 +2070,9 @@ def main(argv=None):
             print("error: --integrity-bundle does not accept a comment path", file=sys.stderr)
             return 2
         try:
-            bundle = json.loads(Path(args.integrity_bundle).read_text(encoding="utf-8"))
+            bundle = parse_integrity_bundle_json(
+                Path(args.integrity_bundle).read_text(encoding="utf-8")
+            )
             notices = validate_integrity_bundle(bundle)
         except (OSError, json.JSONDecodeError) as error:
             print("error: cannot read integrity bundle: {}".format(error), file=sys.stderr)

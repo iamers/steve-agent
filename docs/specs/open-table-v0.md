@@ -29,9 +29,13 @@ mutable current permissions. Open Table defines no enrollment mechanism.
 
 1.6. Each session selects exactly one authority profile:
 `deliberation-only`, `open-table/ordered-claims`, or `steve/kanban`. The profile
-MUST declare one or more reducer principals from trusted GitHub metadata: a
-numeric actor id or the App or bot identity as GitHub reports it, never a field
-from comment payload. Without a selected, authenticated authority profile,
+MUST declare one or more reducer principals from trusted GitHub metadata. Each
+principal is the positive numeric GitHub user id attached to the author of a
+reducer-authored issue comment in trusted context. When an App installation
+authors that comment, the principal is its bot account's comment-author user id,
+not the App id or installation id. Logins and names are display-only metadata,
+and no field from comment payload grants reducer authority. Without a selected,
+authenticated authority profile,
 deliberation remains valid and work claims are advisory; no exclusive award can
 be asserted. Under `steve/kanban`, a claim MAY request the Kanban lease, but
 Open Table MUST NOT create a second ownership store.
@@ -81,12 +85,13 @@ No such store is selected today. In particular, the mutable issue projection,
 workflow caches, and retention-bound Action artefacts are not replay sources.
 Until that decision and implementation exist, work claims remain advisory and
 this repository MUST NOT claim reducer conformance. A future Action deployment's
-authenticated issuer would be its token and its principal the bot identity
-GitHub reports. The principal remains per-repository deployment configuration,
-not a global identity; another repository adopting this protocol selects its
-own. A GitHub App is the graduation path when a second repository adopts this
-protocol. The profile declares the principal, and replay verifies the actual
-author against it.
+authenticated issuer would be its token and its principal the bot account's
+positive numeric comment-author user id from trusted GitHub metadata. The
+principal remains per-repository deployment configuration, not a global
+identity; another repository adopting this protocol selects its own. A GitHub
+App is the graduation path when a second repository adopts this protocol. The
+profile declares the principal, and replay verifies the actual author against
+it.
 
 2.4. The total order of comment events is ascending trusted GitHub `created_at`,
 with the ascending numeric GitHub comment id as the tie-breaker. Issue
@@ -141,6 +146,25 @@ that begins an `open-table` block but fails strict envelope, UTF-8 scalar, or
 event-local validation is also fatal; malformed participant input is instead
 excluded deterministically as section 7.5 requires. Exact retries are identified
 before event-local checks and remain inert under section 7.2.
+
+The integrity-bundle serialization is a closed JSON schema in version 0. Its
+top-level object MUST contain exactly `authority_policy` and `ordered_events`.
+`authority_policy` MUST contain exactly `profile` and `reducer_principals`.
+`profile` is one authority-profile string named in section 1.6.
+`reducer_principals` is a non-empty array of unique positive JSON integers, each
+at most 20 decimal digits and identifying one reducer principal as section 1.6
+defines it. Every numeric id token MUST match `[1-9][0-9]{0,19}` and be decoded
+losslessly; fractional or exponent forms and runtimes that coerce the value
+through binary floating point are not conforming. JSON strings, booleans, zero,
+and negative values are not actor ids.
+`ordered_events` is an array whose elements MUST each contain exactly
+`actor_id`, `comment_id`, `created_at`, `updated_at`, `last_edited_at`,
+`created_body_digest`, and `body`. `actor_id` and `comment_id` are positive JSON
+integers of at most 20 decimal digits; `created_at` and `updated_at` are strings
+in the exact timestamp form from section 3.6; `last_edited_at` is JSON null;
+`created_body_digest` is a canonical digest from section 3.7; and `body` is a
+JSON string. Object member names MUST be unique before any value is interpreted.
+Duplicate, missing, or additional keys at any of these three levels are invalid.
 
 ## 3. Comment envelope
 
