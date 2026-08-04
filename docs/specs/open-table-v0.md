@@ -29,9 +29,13 @@ mutable current permissions. Open Table defines no enrollment mechanism.
 
 1.6. Each session selects exactly one authority profile:
 `deliberation-only`, `open-table/ordered-claims`, or `steve/kanban`. The profile
-MUST declare one or more reducer principals from trusted GitHub metadata: a
-numeric actor id or the App or bot identity as GitHub reports it, never a field
-from comment payload. Without a selected, authenticated authority profile,
+MUST declare one or more reducer principals from trusted GitHub metadata. Each
+principal is the positive numeric GitHub user id attached to the author of a
+reducer-authored issue comment in trusted context. When an App installation
+authors that comment, the principal is its bot account's comment-author user id,
+not the App id or installation id. Logins and names are display-only metadata,
+and no field from comment payload grants reducer authority. Without a selected,
+authenticated authority profile,
 deliberation remains valid and work claims are advisory; no exclusive award can
 be asserted. Under `steve/kanban`, a claim MAY request the Kanban lease, but
 Open Table MUST NOT create a second ownership store.
@@ -42,7 +46,12 @@ never required to compute a canonical digest, validate a replay bundle, or
 implement replay. Reducer conformance requires everything else this document
 requires. The two roles carry very different burdens, and collapsing them would
 place the reducer's cost on every participant, contradicting the razor in
-section 1.
+section 1. This repository currently ships a reference envelope and integrity
+validator, not a reducer-conformant implementation.
+A deployment MAY operate while explicitly declaring its unmet reducer
+guarantees, but this creates no additional conformance tier: it MUST NOT
+represent itself or any session it processes as reducer-conformant until every
+reducer requirement is satisfied.
 
 1.8. The key words MUST, MUST NOT, REQUIRED, SHOULD, SHOULD NOT, and MAY are to
 be interpreted as normative requirements.
@@ -57,15 +66,34 @@ the protocol header.
 append-only. This is a protocol convention, not a GitHub guarantee: comments
 can be edited or deleted. Participants MUST correct a message by posting a new
 message that references the invalidated one, never by silently editing it.
-Participants MUST NOT write Open Table projections.
+Participants MUST NOT write Open Table projections. A replay adapter MUST
+capture an authenticated GitHub comment-creation event receipt containing the
+original complete-body canonical digest, plus trusted `created_at`, `updated_at`,
+and GitHub GraphQL `lastEditedAt` metadata. It also MUST capture a complete issue
+timeline capable of exposing deletions. Replay MUST match the current body to
+the creation-receipt digest; `lastEditedAt` MUST be null and `updated_at` MUST
+equal `created_at`. Any edit or deletion makes the affected protocol history
+unreplayable and MUST fail closed. A session without authenticated creation
+receipts is not reducer-conformant and cannot be retroactively upgraded by
+trusting its current comment bodies.
 
 2.3. Only an issuer matching a reducer principal allowed by the selected
-authority profile writes mutable projections or posts `ruling` messages. For
-this repository, the reducer is a GitHub Action: its authenticated issuer is the
-Action's token, and its principal is the bot identity GitHub reports. The
+authority profile writes mutable projections or posts `ruling` messages. A
+GitHub Action remains this repository's intended first reducer implementation,
+but no conforming deployment has been selected or implemented in version 0 as
+currently shipped. Before an Action deployment can claim reducer conformance, a
+separate accepted decision MUST define the durable, authenticated, non-circular
+GitHub-resident store for creation receipts and deletion evidence, its minimum
+permissions, retention, concurrent-write behavior, and fail-closed recovery.
+No such store is selected today. In particular, the mutable issue projection,
+workflow caches, and retention-bound Action artefacts are not replay sources.
+Until that decision and implementation exist, work claims remain advisory and
+this repository MUST NOT claim reducer conformance. A future Action deployment's
+authenticated issuer would be its token and its principal the bot account's
+positive numeric comment-author user id from trusted GitHub metadata. The
 principal remains per-repository deployment configuration, not a global
 identity; another repository adopting this protocol selects its own. A GitHub
-App is the graduation path when a second repository adopts the protocol. The
+App is the graduation path when a second repository adopts this protocol. The
 profile declares the principal, and replay verifies the actual author against
 it.
 
@@ -79,12 +107,18 @@ the declared event order.
 
     projection = reduce(ordered_events, trusted_context, authority_policy, as_of)
 
-`ordered_events` contains the declared GitHub events. `trusted_context` contains
-authenticated GitHub metadata, including each event's actual author, and
-recorded rulings. `authority_policy` is the selected profile and its allowed
-reducer principals. `as_of` is an explicit trusted timestamp. Historical
-validity uses trusted GitHub event timestamps and MUST NOT use the reducer's
-current clock. Two reducers given the same replay bundle and `as_of` MUST agree.
+`ordered_events` contains the complete declared GitHub issue timeline, including
+comment-deletion evidence when GitHub exposes it. `trusted_context` contains
+authenticated GitHub metadata, including each event's actual author,
+authenticated creation-receipt body digest, `created_at`, `updated_at`,
+`lastEditedAt`, and recorded rulings. `authority_policy` is the selected profile
+and its allowed reducer principals. `as_of` is an explicit trusted timestamp.
+Historical validity uses trusted GitHub event timestamps and MUST NOT use the
+reducer's current clock. Two reducers given the same replay bundle and `as_of`
+MUST agree.
+The deployment adapter, not participant content, MUST authenticate and bind
+`trusted_context` and `authority_policy` to the numeric repository and issue
+identifying the session.
 
 2.6. Session configuration is a protocol event with trusted metadata. It MUST
 NOT be privileged input hidden in the mutable issue body. Reducer projections
@@ -92,10 +126,49 @@ are caches: when a projection and replay disagree, the reducer MUST rebuild the
 projection from the replay bundle.
 
 2.7. An adapter profile MAY declare a supported runtime pin internally when its
-safety properties were verified against a specific source. When it does, this
-project maintains the compatibility matrix, one row per upstream release,
-evaluated when an official release appears. The pin does not move by chasing an
-unreleased branch.
+safety properties were verified against a specific source. When it does, that
+declaration creates the obligation for this project to create and maintain the
+compatibility matrix, one row per upstream release, evaluated when an official
+release appears. No Open Table adapter currently declares such a pin. The pin
+does not move by chasing an unreleased branch.
+
+2.8. `tools/open-table-validate.py --integrity-bundle` validates only the
+comment-event integrity slice supplied to it: envelope structure, trusted event
+ordering, numeric identity, canonical digests, reducer-output principals,
+duplicates, conflicts, ruling bindings, null trusted `last_edited_at`, trusted
+`created_at`/`updated_at` equality, authenticated `created_body_digest` equality,
+and event-local timestamps. Its input is not the complete replay bundle from
+section 2.5: it intentionally has no
+`trusted_context`, deletion timeline, or `as_of` field and performs no
+contextual reduction, permission lookup, claim arbitration, result/review
+correlation, or projection write. The deployment adapter MUST supply a complete
+trusted comment inventory; this slice cannot prove completeness by itself. A
+green integrity check therefore MUST NOT be represented as reducer conformance.
+Within this integrity slice, any creation-receipt digest mismatch or other edit
+signal is fatal. Any first-occurrence comment from an allowed reducer principal
+that begins an `open-table` block but fails strict envelope, UTF-8 scalar, or
+event-local validation is also fatal; malformed participant input is instead
+excluded deterministically as section 7.5 requires. Exact retries are identified
+before event-local checks and remain inert under section 7.2.
+
+The integrity-bundle serialization is a closed JSON schema in version 0. Its
+top-level object MUST contain exactly `authority_policy` and `ordered_events`.
+`authority_policy` MUST contain exactly `profile` and `reducer_principals`.
+`profile` is one authority-profile string named in section 1.6.
+`reducer_principals` is a non-empty array of unique positive JSON integers, each
+at most 20 decimal digits and identifying one reducer principal as section 1.6
+defines it. Every numeric id token MUST match `[1-9][0-9]{0,19}` and be decoded
+losslessly; fractional or exponent forms and runtimes that coerce the value
+through binary floating point are not conforming. JSON strings, booleans, zero,
+and negative values are not actor ids.
+`ordered_events` is an array whose elements MUST each contain exactly
+`actor_id`, `comment_id`, `created_at`, `updated_at`, `last_edited_at`,
+`created_body_digest`, and `body`. `actor_id` and `comment_id` are positive JSON
+integers of at most 20 decimal digits; `created_at` and `updated_at` are strings
+in the exact timestamp form from section 3.6; `last_edited_at` is JSON null;
+`created_body_digest` is a canonical digest from section 3.7; and `body` is a
+JSON string. Object member names MUST be unique before any value is interpreted.
+Duplicate, missing, or additional keys at any of these three levels are invalid.
 
 ## 3. Comment envelope
 
@@ -114,13 +187,18 @@ Human-readable prose explaining the contribution.
 ````
 
 3.2. The `open-table` fenced block MUST be the first non-whitespace content in
-the comment. It MUST use backticks, carry the exact info string `open-table`,
-and contain only header lines. The comment MUST contain exactly one such block.
+the comment. Its opening and closing fences MAY be indented by zero to three
+ASCII spaces, matching Markdown fenced-code indentation, but MUST NOT use tabs
+or four or more spaces. It MUST use backticks, carry the exact info string
+`open-table`, and contain only header lines. The comment MUST contain exactly
+one such block under the same indentation grammar.
 
 3.3. Each header line MUST be `key: value`. Keys MUST contain only lowercase
 ASCII letters and hyphens. A key MUST occur once. Values MUST be single-line,
 MUST have no leading or trailing whitespace, and MUST be non-empty. Unknown
-keys make the message invalid.
+keys make the message invalid. Physical lines use LF or CRLF only. Bare carriage
+returns and Unicode line-separator characters such as U+0085 and U+2028 are
+invalid and MUST NOT be interpreted as header line endings.
 
 3.4. The closing fence MUST be followed by non-whitespace free prose. The prose
 is for people and MAY use any Markdown. A header-only comment and a prose-only
@@ -134,9 +212,10 @@ comment are not protocol messages.
 
 3.6. Boolean values are the lowercase literals `true` and `false`. `turn`,
 `sequence`, `turn-limit`, actor ids, numeric comment ids, repository ids, and
-pull-request numbers are base-10 integers greater than or equal to 1. Timestamps
-use RFC 3339 UTC in the exact form `YYYY-MM-DDTHH:MM:SSZ`. Phase, point, claim,
-proposal, result, and review identifiers match
+pull-request numbers use ASCII digits `[0-9]` and are base-10 integers greater
+than or equal to 1. Their canonical text has no leading zero and contains at
+most 20 digits. Timestamps use RFC 3339 UTC in the exact form
+`YYYY-MM-DDTHH:MM:SSZ`. Phase and point identifiers match
 `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Enumerated values are case-sensitive.
 
 3.7. The canonical digest is `sha256:` followed by the lowercase hexadecimal
@@ -144,6 +223,18 @@ SHA-256 digest of the UTF-8 encoding of the complete comment body exactly as
 returned in trusted GitHub context. Header and prose are both covered. A
 participant is not required to calculate this digest; the authenticated reducer
 calculates it when creating a ruling.
+
+3.8. The common `id` remains actor-scoped for idempotency. Cross-message
+references MUST instead use the trusted numeric GitHub comment id of the
+declaration being referenced. A declaration does not predict or allocate that
+id: GitHub assigns it when the comment is created, and a later participant can
+copy it from the declaration's permalink. A `settled` message references its
+proposal comment; every later claim operation references the initial claim
+comment; a review request references the result comment; and a verdict
+references both the result and review-request comments. The reducer verifies
+that each id names an earlier, contextually valid declaration of the required
+family. Human-readable labels belong in prose and never create a session-global
+namespace.
 
 ## 4. Message families
 
@@ -158,14 +249,21 @@ calculates it when creating a ruling.
 - `turn-limit`: the maximum turn number in the phase.
 
 A session uses either one `configuration` message per phase or no configuration
-messages. Each configuration is a protocol event with trusted metadata and MUST
-precede every deliberation message. Configuration MUST NOT be inferred from the
-mutable issue body. Sequence values MUST be unique and contiguous from 1, phase
-identifiers MUST be unique, and every configuration in one session MUST select
-the same authority profile. The phase with `sequence: 1` is initial. Each
-configuration requires an `authorized` ruling. This grammar is the only source
-of phase names, order, expected actors, turn limits, and authority profile;
-reducers MUST NOT derive those values from free prose.
+messages. Configuration-free mode is limited to participant-conformance,
+advisory `deliberation-only` messages: it has no authoritative rulings,
+termination, work award, or reducer projection. A reducer-conformant session
+MUST include configuration messages and derive its authority profile from them;
+the top-level replay `authority_policy` MUST match that declared profile. Each
+configuration is a protocol event with trusted metadata and MUST precede every
+deliberation message. Configuration MUST NOT be inferred from the mutable issue
+body. Sequence values MUST be unique and contiguous from 1, phase identifiers
+MUST be unique, and every configuration in one session MUST select the same
+authority profile. The phase with `sequence: 1` is initial. Each configuration
+requires an `authorized` ruling. This grammar is the only source of phase names,
+order, expected actors, turn limits, and authority profile; reducers MUST NOT
+derive those values from free prose. The reference integrity slice MAY validate
+a partial comment-event set without configuration, but that does not make the
+set a reducer-conformant replay bundle under section 2.5.
 
 4.2. The deliberation family contains `contribution`, `proposal`, and `settled`.
 All deliberation messages require `phase` and `turn` in addition to the common
@@ -182,7 +280,8 @@ and rationale.
 requires:
 
 - `point`: the point identifier used by the proposal;
-- `proposal-id`: the `id` of an earlier valid `proposal` for that point;
+- `proposal-comment-id`: the trusted numeric GitHub comment id of an earlier
+  valid `proposal` for that point;
 - `disposition`: `accepted` or `rejected`;
 - `terminal`: `true` or `false`.
 
@@ -193,69 +292,82 @@ explains the disposition. `terminal: true` invokes section 8.
 `cancellation`, `expiration`, `result`, `review-request`, and `verdict`.
 
 4.7. `claim` requests exclusive ownership of the issue's work. It additionally
-requires:
-
-- `claim`: a stable claim identifier;
-- `expires-at`: the requested expiry time.
+requires `expires-at`, the requested expiry time. Its trusted numeric GitHub
+comment id is the canonical claim reference used by later work messages.
 
 It is a proposal, not ownership. Only an authenticated authority profile can
 award it.
 
 4.8. `renewal` requests a new expiry for an awarded claim. It additionally
-requires `claim` and `expires-at`.
+requires `claim-comment-id` and `expires-at`.
 
 4.9. `release` returns claimed work to the pool. It additionally requires
-`claim`, referring to the currently awarded claim.
+`claim-comment-id`, referring to the initial comment of the currently awarded
+claim.
 
 4.10. `handoff` transfers an awarded claim. It additionally requires:
 
-- `claim`: the currently awarded claim;
+- `claim-comment-id`: the initial comment of the currently awarded claim;
 - `to-actor-id`: the numeric GitHub user id receiving the work;
 - `expires-at`: the new expiry time.
 
 The handoff's ruling MUST be `authorized` only when both its author and recipient
 have repository write access at the time of the check. A handoff changes the
-claim holder but preserves the claim identifier.
+claim holder but preserves the claim comment reference.
 
-4.11. `cancellation` cancels an awarded claim. It additionally requires `claim`.
+4.11. `cancellation` cancels an awarded claim. It additionally requires
+`claim-comment-id`.
 
 4.12. `expiration` records that an awarded claim expired. It additionally
-requires `claim` and `expired-at`. It is authenticated reducer output, and its
-trusted GitHub event timestamp MUST be at or after `expired-at`. Expiration is
-never inferred from the reducer's wall clock.
+requires `claim-comment-id` and `expired-at`. It is authenticated reducer output,
+and its trusted GitHub event timestamp MUST be at or after `expired-at`. Expiration is
+never inferred from the reducer's wall clock. Its actual author MUST match an
+allowed reducer principal. An expiration-shaped comment from any other actor is
+untrusted prose and has no protocol effect.
 
 4.13. `result` reports completion or failure. It additionally requires:
 
-- `claim`: the currently awarded claim;
-- `result-id`: a stable result identifier;
+- `claim-comment-id`: the initial comment of the currently awarded claim;
 - `outcome`: `completed` or `failed`.
 - `artefact`: a machine-readable immutable artefact reference.
+
+The result comment's trusted numeric GitHub comment id is its canonical result
+reference.
 
 For GitHub software work, `artefact` MUST have the form
 `github:<numeric-repository-id>:pull:<pull-request-number>:head:<full-head-sha>`.
 A generic authority profile MAY instead use an absolute artefact URI followed
-by `#sha256=<lowercase-hex-digest>`. The prose describes the result; it is not
-the immutable reference.
+by `#sha256=<lowercase-hex-digest>`. The URI MUST use the RFC 3986 ASCII
+serialization: non-ASCII octets are percent-encoded, each percent escape is two
+hexadecimal digits, and characters excluded by RFC 3986 (including backslash
+and controls) are invalid. The prose describes the result; it is not the
+immutable reference.
 
 4.14. `review-request` asks for review of a completed result. It additionally
 requires:
 
-- `claim`: the claim associated with the result;
-- `review`: a stable review identifier;
-- `result-id`: the referenced result; and
+- `claim-comment-id`: the initial claim comment referenced by the result;
+- `result-comment-id`: the trusted numeric GitHub comment id of the referenced
+  result; and
 - `artefact`: exactly the immutable artefact reference carried by that result.
+
+The review-request comment's trusted numeric GitHub comment id is its canonical
+review reference.
 
 4.15. `verdict` decides a review request. It additionally requires:
 
-- `claim`: the claim associated with the review;
-- `review`: the identifier of an earlier valid `review-request`;
-- `result-id`: the result referenced by that review request;
+- `claim-comment-id`: the initial claim comment referenced by the review;
+- `review-comment-id`: the trusted numeric GitHub comment id of an earlier valid
+  `review-request`;
+- `result-comment-id`: the result comment referenced by that review request;
 - `artefact`: exactly the immutable artefact reference carried by that result;
 - `verdict`: `approved` or `changes-requested`.
 
-The verdict actor id MUST differ from the actor id of the referenced `result`.
-If the artefact changes, the earlier verdict remains attached to the old result
-and a new result, review request, and verdict correlation is REQUIRED.
+The verdict actor id MUST differ from the actor id of the referenced `result`
+and MUST have repository write access recorded in trusted context at the
+verdict's ordered position. If the artefact changes, the earlier verdict remains
+attached to the old result and a new result, review request, and verdict
+correlation is REQUIRED.
 
 4.16. `ruling` records one authenticated decision. It requires:
 
@@ -282,7 +394,17 @@ MUST use its recorded decision and MUST NOT consult current permissions.
 `release`, `renewal`, `handoff`, `cancellation`, and `result` MUST be authored by
 the current claim holder. A `review-request` MUST be authored by the actor of the
 referenced completed `result`. A `verdict` MAY be authored by any other actor
-with an `authorized` ruling.
+with repository write access recorded at its ordered position. `configuration`
+and `settled` MUST be authored by an actor with repository write access recorded
+at their ordered position. A `claim` is ruled `awarded` or `rejected` by the
+predicate in section 6.2. Every other family named in this paragraph is ruled
+`authorized` exactly when its stated actor, reference, state, and permission
+predicates all hold, and `unauthorized` otherwise. The base profiles MUST NOT
+use `awarded` or `rejected` for those families, nor `authorized` or
+`unauthorized` for a claim. `invalidated` is reserved for adapter-defined
+trusted-context invalidation before any other ruling exists; it MUST be the sole
+ruling for its source. An edit after a ruling is not repairable by a second
+ruling and fails closed under section 7.
 
 ## 5. Deliberation turns and phases
 
@@ -330,7 +452,7 @@ that ruling and MUST NOT consult current permissions.
 6.3. The earliest awardable claim wins. Claims encountered while an awarded
 claim is active receive a `rejected` ruling and never become effective later.
 Retrying after release, cancellation, or recorded expiration requires a new
-message id and claim identifier.
+message id; GitHub assigns the new claim comment its own canonical reference.
 
 6.4. Renewals, releases, handoffs, cancellations, and expirations are recorded
 events. An active claim ends only through a valid `release`, `cancellation`,
@@ -340,10 +462,11 @@ under the recipient. Renewal and handoff expiry MUST be later than the source
 comment's trusted `created_at` and no more than seven days later.
 
 6.5. Under `deliberation-only`, claims remain advisory and the reducer MUST NOT
-emit an exclusive award. Under `steve/kanban`, a claim requests the existing
-Kanban lease and the GitHub ruling records that authority's outcome; the reducer
-MUST NOT maintain competing ownership state. Adapter compatibility for this
-mapping follows section 2.7.
+emit an exclusive award; a claim ruling under this profile MUST be `rejected`
+unless the sole reserved `invalidated` decision applies. Under `steve/kanban`, a
+claim requests the existing Kanban lease and the GitHub ruling records that
+authority's outcome; the reducer MUST NOT maintain competing ownership state.
+Adapter compatibility for this mapping follows section 2.7.
 
 6.6. A `result` makes the work state `completed` or `failed`. A new claim is
 valid after `failed`. A new claim after `completed` is invalid unless a later
@@ -363,10 +486,14 @@ occurrence reserves the key; it cannot be repaired by reposting and requires a
 new id.
 
 7.3. Every ruling binds to the numeric source comment id and canonical digest of
-the complete message. If an edited source no longer matches, replay MUST fail
-closed or consume an explicit `invalidated` ruling. A deleted or missing source
-or ruling makes dependent state unreplayable and MUST fail closed. A correction
-is a new message referencing the invalidated source.
+the complete message. The current canonical body digest MUST equal the digest in
+the authenticated GitHub creation-event receipt. Trusted `updated_at` MUST equal
+`created_at`, and trusted GitHub GraphQL `lastEditedAt` MUST be null. Any
+violation means the comment was edited and replay MUST fail closed. The creation
+receipt comparison, not timestamp equality, detects an edit within timestamp
+display precision. A deleted or missing source or ruling makes dependent state
+unreplayable and MUST fail closed. A correction is a new message with a new id;
+it does not rewrite the invalidated history.
 
 7.4. Structural and integrity validation can be performed offline when supplied
 with trusted context. Contextual reduction, including permissions, references,

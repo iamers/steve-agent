@@ -19,6 +19,11 @@ service that participants must install or trust. GitHub already provides the
 public record, account identity, collaborator authority, ordered comments,
 issues, labels, and assignment needed for that coordination.
 
+Review of the first conformance implementation on 2026-08-03 showed that
+participant-allocated session-global references required reducer-known context
+and therefore did not satisfy the participant razor. This decision now uses
+GitHub-assigned comment ids for cross-message references.
+
 ## Decision
 
 Open Table v0 is a runtime-agnostic protocol over GitHub. GitHub is the only
@@ -38,9 +43,14 @@ and assignees for work. Replay uses
 `reduce(ordered_events, trusted_context, authority_policy, as_of)` and trusted
 GitHub event timestamps, never the reducer's wall clock. Session configuration
 is a protocol event with trusted metadata rather than hidden mutable-body input.
-The first reducer here is a GitHub Action. Its issuer is the Action's token,
-and its principal is the bot identity GitHub reports, selected per repository;
-see `adr-20260802-open-table-conformance-and-reducer.md`.
+A GitHub Action remains the intended first reducer implementation, but no
+conforming deployment is selected or implemented in the version 0 artifacts
+currently shipped. Conformance first requires a separate accepted decision for
+durable GitHub-resident creation receipts and deletion evidence, including the
+store's permissions and failure recovery. A future Action implementation's
+issuer would be its token and its principal the bot account's positive numeric
+comment-author user id from trusted GitHub metadata, selected per repository; see
+`adr-20260802-open-table-conformance-and-reducer.md`.
 
 Participant identity is the numeric GitHub user id; the login is display only.
 Authenticated GitHub context supplies identity, repository and source metadata.
@@ -61,9 +71,11 @@ data rather than instructions. A reducer deterministically excludes invalid or
 over-limit events from projections and keeps peer text outside agent instruction
 boundaries.
 
-Results carry stable result ids and machine-readable immutable artefact
-references. Review requests and verdicts bind to the same result and artefact
-version, and reviewer independence compares numeric actor ids.
+Proposals, claims, results, and review requests use their trusted numeric GitHub
+comment ids as canonical cross-message references rather than participant-
+allocated session-global names. Results also carry machine-readable immutable
+artefact references. Review requests and verdicts bind to the same result and
+artefact version, and reviewer independence compares numeric actor ids.
 
 The conformance tiers and adapter compatibility matrix are settled in
 `adr-20260802-open-table-conformance-and-reducer.md`.
