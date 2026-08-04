@@ -32,6 +32,8 @@ jobs:
             "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open-table-reduce.py"
           curl -fsSLo /tmp/open-table-validate.py \
             "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open-table-validate.py"
+          curl -fsSLo /tmp/open_table_core.py \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open_table_core.py"
       - name: Reduce the session
         run: >-
           python3 /tmp/open-table-reduce.py --github

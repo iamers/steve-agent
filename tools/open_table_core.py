@@ -1,5 +1,16 @@
 #!/usr/bin/env python3
-"""Reusable runtime-neutral Open Table v0 parsing and integrity core."""
+"""Reusable runtime-neutral Open Table v0 parsing and integrity core.
+
+The names in ``__all__`` are the supported import surface.
+``validate_integrity_bundle_diagnostics`` returns nonfatal diagnostics and raises
+``ValidationError`` for fatal outcomes; when present, ``ValidationError.diagnostic``
+carries the same stable code, rule, severity, and location fields. Human-readable
+``detail`` text is not contractual.
+
+The caller supplies already-authenticated GitHub metadata and complete replay
+inputs. This module validates those inputs but does not authenticate or gather
+them, establish completeness, reduce contextual state, or perform I/O.
+"""
 
 import datetime
 import hashlib
@@ -7,6 +18,21 @@ import ipaddress
 import json
 import re
 from dataclasses import dataclass
+
+
+__all__ = (
+    "Diagnostic",
+    "MAX_PROTOCOL_INTEGER",
+    "REASON_CATALOG",
+    "ValidationError",
+    "canonical_digest",
+    "make_diagnostic",
+    "parse_comment",
+    "parse_integrity_bundle_json",
+    "render_diagnostics",
+    "validate_integrity_bundle",
+    "validate_integrity_bundle_diagnostics",
+)
 
 
 COMMON_FIELDS = {"open-table", "message", "id"}
@@ -398,7 +424,7 @@ def unauthorized_reducer_output_diagnostic(shapes, comment_id, actor_id):
 
 
 def legal_ruling_decisions(source_message, authority_profile):
-    """Return event-local decisions allowed by sections 2.8 and 4.17.
+    """Return event-local decisions allowed by sections 4.16, 4.17, 6.2, and 6.5.
 
     This preserves the final-A integrity check. It does not decide whether a
     legal ruling matches contextual state, which belongs to reduction.

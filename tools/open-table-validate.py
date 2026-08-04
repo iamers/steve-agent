@@ -147,8 +147,8 @@ def run_reason_fixture_test(observed):
             assert_live_case_names(invalid_cases, "probe")
         except AssertionError:
             rejected_probes += 1
-    unknown = dict(external)
-    unknown["unknown_reason"] = {"rule": "0", "fixture": "probe.unknown"}
+    unknown = dict(external_rules)
+    unknown["unknown_reason"] = {"rule": "0"}
     try:
         assert unknown == REASON_CATALOG
     except AssertionError:
@@ -156,6 +156,34 @@ def run_reason_fixture_test(observed):
     assert rejected_probes == 3
     print("reason fixtures: 14 live catalog entries passed")
     print("fixture liveness probes: zero cases, duplicate names, unknown code rejected")
+
+
+def run_core_import_contract_test():
+    """Verify the documented public core surface in a fresh interpreter."""
+    expected = {
+        "Diagnostic", "MAX_PROTOCOL_INTEGER", "REASON_CATALOG",
+        "ValidationError", "canonical_digest", "make_diagnostic",
+        "parse_comment", "parse_integrity_bundle_json", "render_diagnostics",
+        "validate_integrity_bundle", "validate_integrity_bundle_diagnostics",
+    }
+    code = (
+        "import open_table_core as core; "
+        "expected = {!r}; "
+        "assert set(core.__all__) == expected; "
+        "assert all(hasattr(core, name) for name in expected); "
+        "assert core.canonical_digest('fixture').startswith('sha256:')"
+    ).format(expected)
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=str(Path(__file__).resolve().parent),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not result.stdout and not result.stderr
+    print("core public API: fresh import and direct call passed")
 
 
 def run_external_cli_fixture_test():
@@ -1384,6 +1412,7 @@ def run_self_test():
 
     observed = run_integrity_fixture_test()
     run_reason_fixture_test(observed)
+    run_core_import_contract_test()
     run_external_cli_fixture_test()
 
     print(

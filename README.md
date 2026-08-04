@@ -64,10 +64,24 @@ versioned integrity, reason-code, comment, and bundle fixtures under
 
 This contract validates envelopes and the closed integrity bundle, including
 canonical body digests, immutable artefacts, duplicate/conflict behavior,
-authenticated reducer output, ruling bindings, and stable diagnostics. It does
-not gather GitHub evidence, detect deletions that GitHub no longer exposes,
-perform contextual reduction, write projections, mutate GitHub, or integrate a
-runtime, and it does not claim reducer conformance.
+reducer-principal checks over caller-supplied trusted metadata, ruling bindings,
+and stable diagnostics. Its supported Python API is the module's `__all__`
+surface; fatal validation raises `ValidationError` with a structured diagnostic,
+while the structured integrity entry point returns nonfatal diagnostics on
+success. Human-readable detail text is not contractual.
+
+The core does not authenticate or gather GitHub evidence, prove input
+completeness, detect deletions that GitHub no longer exposes, perform contextual
+reduction, write projections, mutate GitHub, or integrate a runtime, and it does
+not claim reducer conformance.
+
+The separate interim `deliberation-only` reducer is
+`tools/open-table-reduce.py`, with its GitHub Action in
+`.github/workflows/open-table.yml`. It uses the validator's single-comment mode,
+implements contextual reduction outside this core, and explicitly remains
+non-conformant because it has no authenticated creation receipts or deletion
+evidence. The accepted deployment boundary is recorded in
+`docs/decisions/adr-20260804-open-table-reducer-is-deliberation-only-and-not-conformant.md`.
 
 ## Built on Hermes Agent
 
