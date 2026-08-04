@@ -988,6 +988,13 @@ def run_self_test():
 
     configured = fixture_bundle()
     configured["ordered_events"] = []
+    configured_prefix = "Configured preface bytes.\n\n"
+    configured_suffix = "\n\nConfigured suffix bytes."
+    configured_prose = "Distinctive configured participant prose."
+    configured["issue"]["body"] = (
+        configured_prefix + START_MARKER + "\nStale projection bytes.\n"
+        + END_MARKER + configured_suffix
+    )
     configured_bodies = [
         "\n".join([
             "```open-table", "open-table: 0", "message: configuration",
@@ -998,7 +1005,12 @@ def run_self_test():
         "\n".join([
             "```open-table", "open-table: 0", "message: proposal",
             "id: configured-proposal-0001", "phase: initial", "turn: 1",
-            "point: decision", "```", "", "Proposal.",
+            "point: decision", "```", "", configured_prose,
+        ]),
+        "\n".join([
+            "```open-table", "open-table: 0", "message: claim",
+            "id: configured-claim-0001", "expires-at: 2026-08-05T00:00:00Z",
+            "```", "", "Configured advisory claim.",
         ]),
         "\n".join([
             "```open-table", "open-table: 0", "message: settled",
@@ -1027,15 +1039,37 @@ def run_self_test():
         write["body"] for write in configured_plan["writes"]
         if write["operation"] == "post_comment"
     ]
-    assert len(configured_comments) == 2
-    assert all("decision: authorized" in body for body in configured_comments)
-    assert all("permission: write" in body for body in configured_comments)
+    configured_authorized = [
+        write["body"] for write in configured_plan["writes"]
+        if write.get("source_comment_id") in {301, 304}
+    ]
+    claim_rulings = [
+        write["body"] for write in configured_plan["writes"]
+        if write.get("source_comment_id") == 303
+    ]
+    assert len(configured_comments) == 3
+    assert len(configured_authorized) == 2
+    assert all("decision: authorized" in body for body in configured_authorized)
+    assert all("permission: write" in body for body in configured_authorized)
+    assert len(claim_rulings) == 1
+    assert "decision: rejected" in claim_rulings[0]
+    assert "claims are advisory" in claim_rulings[0]
+    print("configured advisory claim ruling: rejected and recorded as advisory")
     configured_projection = [
         write["body"] for write in configured_plan["writes"]
         if write["operation"] == "update_issue_body"
     ][0]
     assert "Session status: `terminated`" in configured_projection
     assert "`decision`: `accepted`" in configured_projection
+    assert (
+        any(configured_prose in event["body"] for event in configured["ordered_events"])
+        and configured_prose not in configured_projection
+    )
+    print("configured projection participant prose exclusion: ok")
+    projection_prefix, _, after_start = configured_projection.partition(START_MARKER)
+    _, _, projection_suffix = after_start.partition(END_MARKER)
+    assert projection_prefix == configured_prefix and projection_suffix == configured_suffix
+    print("configured projection marker preservation: exact surrounding bytes retained")
     print("configuration and settlement write-access rulings: recorded and authorized")
 
     no_configuration = json.loads(json.dumps(configured))
@@ -1046,7 +1080,7 @@ def run_self_test():
     print("configuration-free settlement: no ruling, termination, or projection")
 
     ruled_bundle = json.loads(json.dumps(configured))
-    for offset, ruling in enumerate(configured_comments, 4):
+    for offset, ruling in enumerate(configured_comments, 5):
         timestamp = "2026-08-04T00:10:0{}Z".format(offset)
         ruled_bundle["ordered_events"].append({
             "actor_id": 41898282,
@@ -1067,7 +1101,7 @@ def run_self_test():
     missing_bundle = json.loads(json.dumps(ruled_bundle))
     missing_bundle["ordered_events"] = [
         event for event in missing_bundle["ordered_events"]
-        if event["comment_id"] != 303
+        if event["comment_id"] != 304
     ]
     missing = reduce_session(missing_bundle, as_of)
     assert missing["unreplayable"] and "deleted or missing" in missing["reason"]
