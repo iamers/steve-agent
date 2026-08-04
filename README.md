@@ -59,20 +59,15 @@ The accepted runtime-neutral protocol lives in
 [`docs/specs/open-table-v0.md`](docs/specs/open-table-v0.md). Its reusable
 standard-library core is `tools/open_table_core.py`; the compatible offline CLI
 remains `tools/open-table-validate.py`. The CLI self-test runs the external,
-versioned carrier, integrity, reason-code, comment, and bundle fixtures under
+versioned integrity, reason-code, comment, and bundle fixtures under
 `docs/specs/open-table-v0/fixtures/`.
 
-This contract validates envelopes, trusted integrity history, closed replay and
-decision carriers, canonical bytes, and stable diagnostics. It does not perform
-contextual reduction, permission lookup, claim arbitration, projection writes,
-GitHub mutations, or runtime integration, and it does not claim reducer
-conformance.
-
-Carrier serialization proves the closed structural shape and trusted bindings;
-call the core integrity entry point to evaluate edit, deletion, duplicate, and
-ruling history. Decision-request normalization intentionally does not require a
-ruling for its source because that source may be awaiting its first contextual
-decision in the separately gated reducer layer.
+This contract validates envelopes and the closed integrity bundle, including
+canonical body digests, immutable artefacts, duplicate/conflict behavior,
+authenticated reducer output, ruling bindings, and stable diagnostics. It does
+not gather GitHub evidence, detect deletions that GitHub no longer exposes,
+perform contextual reduction, write projections, mutate GitHub, or integrate a
+runtime, and it does not claim reducer conformance.
 
 ## Built on Hermes Agent
 

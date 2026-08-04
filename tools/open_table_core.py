@@ -17,26 +17,28 @@ MESSAGE_FIELDS = {
     "contribution": {"phase", "turn"},
     "proposal": {"phase", "turn", "point"},
     "settled": {
-        "phase", "turn", "point", "proposal-id", "disposition", "terminal"
+        "phase", "turn", "point", "proposal-comment-id", "disposition", "terminal"
     },
-    "claim": {"claim", "expires-at"},
-    "renewal": {"claim", "expires-at"},
-    "release": {"claim"},
-    "handoff": {"claim", "to-actor-id", "expires-at"},
-    "cancellation": {"claim"},
-    "expiration": {"claim", "expired-at"},
-    "result": {"claim", "result-id", "outcome", "artefact"},
-    "review-request": {"claim", "review", "result-id", "artefact"},
-    "verdict": {"claim", "review", "result-id", "artefact", "verdict"},
+    "claim": {"expires-at"},
+    "renewal": {"claim-comment-id", "expires-at"},
+    "release": {"claim-comment-id"},
+    "handoff": {"claim-comment-id", "to-actor-id", "expires-at"},
+    "cancellation": {"claim-comment-id"},
+    "expiration": {"claim-comment-id", "expired-at"},
+    "result": {"claim-comment-id", "outcome", "artefact"},
+    "review-request": {"claim-comment-id", "result-comment-id", "artefact"},
+    "verdict": {
+        "claim-comment-id", "review-comment-id", "result-comment-id", "artefact",
+        "verdict"
+    },
     "ruling": {
         "target-actor-id", "message-id", "source-comment-id", "source-digest",
         "decision"
     },
 }
-TOKEN_FIELDS = {"phase", "point", "claim", "proposal-id", "result-id", "review"}
+TOKEN_FIELDS = {"phase", "point"}
 TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
-LOGIN_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$")
 KEY_RE = re.compile(r"^[a-z]+(?:-[a-z]+)*$")
 POSITIVE_ASCII_INTEGER_RE = re.compile(r"^[1-9][0-9]{0,19}$")
 MAX_PROTOCOL_INTEGER = 10 ** 20 - 1
@@ -73,6 +75,9 @@ UNSUPPORTED_LINE_SEPARATOR_RE = re.compile(r"[\v\f\x1c-\x1e\x85\u2028\u2029]")
 OPENING_RE = re.compile(
     r"\A(?:[ \t]*\r?\n)* {0,3}```open-table[ \t]*\r?\n"
 )
+OPEN_TABLE_CANDIDATE_RE = re.compile(
+    r"\A\s*```open-table(?=[ \t\r\n]|\Z)"
+)
 CLOSING_RE = re.compile(r"^ {0,3}```[ \t]*(?:\r\n|\n)", re.MULTILINE)
 BLOCK_OPENING_RE = re.compile(
     r"^ {0,3}```open-table[ \t]*(?:\r\n|\n)", re.MULTILINE
@@ -95,66 +100,21 @@ AUTHORITY_PROFILES = {
 RULING_DECISIONS = {
     "authorized", "unauthorized", "awarded", "rejected", "invalidated"
 }
-REPLAY_CARRIER_FIELDS = {
-    "open_table", "repository_id", "issue_number", "as_of",
-    "comments_complete_through", "timeline_complete_through",
-    "authority_policy", "ordered_events",
-}
-COMMENT_EVENT_FIELDS = {
-    "kind", "actor_id", "comment_id", "created_at", "updated_at",
-    "last_edited_at", "created_body_digest", "body",
-}
-ISSUE_STATE_EVENT_FIELDS = {"kind", "event_id", "created_at", "state"}
-COMMENT_DELETION_EVENT_FIELDS = {
-    "kind", "event_id", "created_at", "comment_id"
-}
-DECISION_REQUEST_FIELDS = {
-    "open_table", "replay", "source_comment_id", "permission_observation",
-    "profile_outcome",
-}
 REASON_CATALOG = {
-    "unsupported_version": {"rule": "11.1", "fixture": "carrier.unsupported_version", "owner": "B1-live"},
-    "invalid_bundle": {"rule": "2.5", "fixture": "carrier.unknown_top_level", "owner": "B1-live"},
-    "incomplete_trusted_context": {"rule": "2.2, 2.5", "fixture": "carrier.incomplete_comments", "owner": "B1-live"},
-    "invalid_as_of": {"rule": "2.5", "fixture": "carrier.invalid_as_of", "owner": "B1-live"},
-    "invalid_event": {"rule": "2.4, 2.5", "fixture": "carrier.invalid_event_union", "owner": "B1-live"},
-    "event_order_invalid": {"rule": "2.4", "fixture": "carrier.event_order_invalid", "owner": "B1-live"},
-    "source_edited": {"rule": "2.2, 7.3", "fixture": "integrity.source_edited", "owner": "B1-live"},
-    "source_deleted": {"rule": "2.2, 7.3, 9.1", "fixture": "integrity.source_deleted", "owner": "B1-live"},
-    "ruling_deleted": {"rule": "7.3, 9.1", "fixture": "integrity.ruling_deleted", "owner": "B1-live"},
-    "non_protocol_comment": {"rule": "2.8, 7.5", "fixture": "integrity.non_protocol_comment", "owner": "B1-live"},
-    "invalid_envelope": {"rule": "3.1-3.5", "fixture": "integrity.invalid_envelope", "owner": "B1-live"},
-    "invalid_field": {"rule": "3.3-3.6, 4", "fixture": "integrity.invalid_field", "owner": "B1-live"},
-    "invalid_artefact": {"rule": "4.13", "fixture": "integrity.invalid_artefact", "owner": "B1-live"},
-    "exact_duplicate": {"rule": "7.2", "fixture": "integrity.exact_duplicate", "owner": "B1-live"},
-    "message_id_conflict": {"rule": "7.2", "fixture": "integrity.message_id_conflict", "owner": "B1-live"},
-    "unauthorized_reducer_output": {"rule": "2.3, 4.12, 4.16", "fixture": "integrity.unauthorized_reducer_output", "owner": "B1-live"},
-    "ruling_missing": {"rule": "4.16, 9.1", "fixture": "integrity.ruling_missing", "owner": "B1-live"},
-    "ruling_duplicate": {"rule": "4.16, 9.1", "fixture": "integrity.ruling_duplicate", "owner": "B1-live"},
-    "ruling_binding_invalid": {"rule": "4.16, 7.3", "fixture": "integrity.ruling_binding_invalid", "owner": "B1-live"},
-    "ruling_decision_invalid": {"rule": "4.17", "fixture": "integrity.ruling_decision_invalid", "owner": "B1-live"},
-    "ruling_decision_mismatch": {"rule": "4.17, 9.1", "fixture": "context.ruling_decision_mismatch", "owner": "B2-deferred"},
-    "authority_profile_mismatch": {"rule": "1.6, 4.1", "fixture": "context.authority_profile_mismatch", "owner": "B2-deferred"},
-    "configuration_invalid": {"rule": "4.1", "fixture": "context.configuration_invalid", "owner": "B2-deferred"},
-    "phase_invalid": {"rule": "5.2, 5.4", "fixture": "context.phase_invalid", "owner": "B2-deferred"},
-    "phase_closed": {"rule": "5.3", "fixture": "context.phase_closed", "owner": "B2-deferred"},
-    "turn_invalid": {"rule": "5.2", "fixture": "context.turn_invalid", "owner": "B2-deferred"},
-    "turn_closed": {"rule": "5.3", "fixture": "context.turn_closed", "owner": "B2-deferred"},
-    "unexpected_actor": {"rule": "5.4", "fixture": "context.unexpected_actor", "owner": "B2-deferred"},
-    "turn_limit_exceeded": {"rule": "5.4", "fixture": "context.turn_limit_exceeded", "owner": "B2-deferred"},
-    "identifier_conflict": {"rule": "3.8", "fixture": "context.identifier_conflict", "owner": "B2-deferred"},
-    "reference_missing": {"rule": "3.8, 4.5", "fixture": "context.reference_missing", "owner": "B2-deferred"},
-    "session_terminated": {"rule": "8.1-8.3", "fixture": "context.session_terminated", "owner": "B2-deferred"},
-    "issue_closed": {"rule": "2.4, 6.2", "fixture": "work.issue_closed", "owner": "B2-deferred"},
-    "permission_denied": {"rule": "1.5, 4.17", "fixture": "work.permission_denied", "owner": "B2-deferred"},
-    "claim_unavailable": {"rule": "6.2-6.3", "fixture": "work.claim_unavailable", "owner": "B2-deferred"},
-    "claim_not_current": {"rule": "4.8-4.12, 6.4", "fixture": "work.claim_not_current", "owner": "B2-deferred"},
-    "claim_actor_mismatch": {"rule": "4.17", "fixture": "work.claim_actor_mismatch", "owner": "B2-deferred"},
-    "expiry_invalid": {"rule": "6.2, 6.4", "fixture": "work.expiry_invalid", "owner": "B2-deferred"},
-    "work_state_invalid": {"rule": "6.4, 6.6", "fixture": "work.work_state_invalid", "owner": "B2-deferred"},
-    "artefact_mismatch": {"rule": "4.13-4.15", "fixture": "work.artefact_mismatch", "owner": "B2-deferred"},
-    "reviewer_not_independent": {"rule": "4.15", "fixture": "work.reviewer_not_independent", "owner": "B2-deferred"},
-    "profile_extension_required": {"rule": "1.6, 6.5", "fixture": "work.profile_extension_required", "owner": "B2-deferred"},
+    "invalid_bundle": {"rule": "2.8"},
+    "event_order_invalid": {"rule": "2.4"},
+    "source_edited": {"rule": "2.2, 7.3"},
+    "non_protocol_comment": {"rule": "2.8, 7.5"},
+    "invalid_envelope": {"rule": "3.1-3.5"},
+    "invalid_field": {"rule": "3.3-3.6, 4"},
+    "invalid_artefact": {"rule": "4.13"},
+    "exact_duplicate": {"rule": "7.2"},
+    "message_id_conflict": {"rule": "7.2"},
+    "unauthorized_reducer_output": {"rule": "2.3, 4.12, 4.16"},
+    "ruling_missing": {"rule": "4.16, 9.1"},
+    "ruling_duplicate": {"rule": "4.16, 9.1"},
+    "ruling_binding_invalid": {"rule": "4.16, 7.3"},
+    "ruling_decision_invalid": {"rule": "4.17"},
 }
 
 
@@ -244,390 +204,28 @@ def fail_invalid_field(detail, **location):
     fail_validation("invalid_field", detail, **location)
 
 
-def canonical_json_bytes(value):
-    """Serialize one normalized value as deterministic UTF-8 JSON plus LF."""
-    try:
-        text = json.dumps(
-            value,
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-        return (text + "\n").encode("utf-8")
-    except (TypeError, ValueError, UnicodeEncodeError) as error:
-        fail_validation(
-            "invalid_bundle",
-            "value cannot be represented as canonical UTF-8 JSON: {}".format(error),
-        )
-
-
-def normalize_carrier_timestamp(value, field, code="invalid_bundle"):
-    """Return one exact real UTC carrier timestamp and its parsed value."""
-    if not isinstance(value, str) or not TIMESTAMP_RE.fullmatch(value):
-        fail_validation(
-            code,
-            "{} must use the exact RFC 3339 UTC form".format(field),
-            field=field,
-        )
-    try:
-        parsed = datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
-    except ValueError as error:
-        fail_validation(
-            code,
-            "{} is not a real UTC date and time".format(field),
-            field=field,
-        )
-    return value, parsed
-
-
-def normalize_replay_event(event, index, as_of_value):
-    """Validate and copy one closed replay-carrier event fact."""
-    field = "ordered_events"
-    if not isinstance(event, dict):
-        fail_validation(
-            "invalid_event",
-            "ordered event {} must be an object".format(index), field=field
-        )
-    kind = event.get("kind")
-    if not isinstance(kind, str):
-        fail_validation(
-            "invalid_event",
-            "ordered event {} kind must be text".format(index), field=field
-        )
-    expected_fields = {
-        "comment": COMMENT_EVENT_FIELDS,
-        "issue_state": ISSUE_STATE_EVENT_FIELDS,
-        "comment_deletion": COMMENT_DELETION_EVENT_FIELDS,
-    }.get(kind)
-    if expected_fields is None or set(event) != expected_fields:
-        fail_validation(
-            "invalid_event",
-            "ordered event {} must use one closed event shape".format(index),
-            field=field,
-        )
-
-    created_at, created = normalize_carrier_timestamp(
-        event["created_at"], "created_at", "invalid_event"
-    )
-    if created > as_of_value:
-        fail_validation(
-            "invalid_event",
-            "ordered event {} occurs after as_of".format(index), field=field
-        )
-
-    if kind == "comment":
-        for name in ("actor_id", "comment_id"):
-            if not is_positive_protocol_integer(event[name]):
-                fail_validation(
-                    "invalid_event",
-                    "comment {} must be a positive protocol integer".format(name),
-                    field=name,
-                )
-        updated_at, _ = normalize_carrier_timestamp(
-            event["updated_at"], "updated_at", "invalid_event"
-        )
-        last_edited_at = event["last_edited_at"]
-        if last_edited_at is not None:
-            last_edited_at, _ = normalize_carrier_timestamp(
-                last_edited_at, "last_edited_at", "invalid_event"
-            )
-        if not isinstance(event["created_body_digest"], str) or not DIGEST_RE.fullmatch(
-            event["created_body_digest"]
-        ):
-            fail_validation(
-                "invalid_event",
-                "created_body_digest must be a canonical sha256 digest",
-                field="created_body_digest",
-            )
-        if not isinstance(event["body"], str):
-            fail_validation(
-                "invalid_event", "comment body must be text", field="body"
-            )
-        try:
-            event["body"].encode("utf-8")
-        except UnicodeEncodeError:
-            fail_validation(
-                "invalid_event", "comment body must be UTF-8 scalar text",
-                field="body",
-            )
-        normalized = {
-            "kind": kind,
-            "actor_id": event["actor_id"],
-            "comment_id": event["comment_id"],
-            "created_at": created_at,
-            "updated_at": updated_at,
-            "last_edited_at": last_edited_at,
-            "created_body_digest": event["created_body_digest"],
-            "body": event["body"],
-        }
-    else:
-        event_id = event["event_id"]
-        if not isinstance(event_id, str) or not TOKEN_RE.fullmatch(event_id):
-            fail_validation(
-                "invalid_event",
-                "event_id must be a bounded ASCII token", field="event_id"
-            )
-        normalized = {
-            "kind": kind,
-            "event_id": event_id,
-            "created_at": created_at,
-        }
-        if kind == "issue_state":
-            if not isinstance(event["state"], str) or event["state"] not in {
-                "open", "closed"
-            }:
-                fail_validation(
-                    "invalid_event",
-                    "issue state must be open or closed", field="state"
-                )
-            normalized["state"] = event["state"]
-        else:
-            if not is_positive_protocol_integer(event["comment_id"]):
-                fail_validation(
-                    "invalid_event",
-                    "deleted comment_id must be a positive protocol integer",
-                    field="comment_id",
-                )
-            normalized["comment_id"] = event["comment_id"]
-    return normalized, created
-
-
-def normalize_replay_carrier(carrier):
-    """Validate and copy the closed structural replay carrier."""
-    if not isinstance(carrier, dict) or set(carrier) != REPLAY_CARRIER_FIELDS:
-        fail_validation(
-            "invalid_bundle",
-            "replay carrier must contain exactly the approved top-level fields"
-        )
-    if carrier["open_table"] != 0 or isinstance(carrier["open_table"], bool):
-        fail_validation(
-            "unsupported_version",
-            "replay carrier open_table must be the integer 0", field="open_table"
-        )
-    for name in ("repository_id", "issue_number"):
-        if not is_positive_protocol_integer(carrier[name]):
-            fail_validation(
-                "invalid_bundle",
-                "{} must be a positive protocol integer".format(name), field=name
-            )
-
-    as_of, as_of_value = normalize_carrier_timestamp(
-        carrier["as_of"], "as_of", "invalid_as_of"
-    )
-    horizons = {}
-    for name in ("comments_complete_through", "timeline_complete_through"):
-        value, parsed = normalize_carrier_timestamp(carrier[name], name)
-        if parsed < as_of_value:
-            fail_validation(
-                "incomplete_trusted_context",
-                "{} must be at or after as_of".format(name), field=name
-            )
-        horizons[name] = value
-
-    policy = carrier["authority_policy"]
-    if not isinstance(policy, dict) or set(policy) != {
-        "profile", "reducer_principals"
-    }:
-        fail_validation(
-            "invalid_bundle",
-            "authority_policy must contain only profile and reducer_principals",
-            field="authority_policy",
-        )
-    if (
-        not isinstance(policy["profile"], str)
-        or policy["profile"] not in AUTHORITY_PROFILES
-    ):
-        fail_validation(
-            "invalid_bundle",
-            "authority profile is not supported", field="authority_policy"
-        )
-    principals = policy["reducer_principals"]
-    if (
-        not isinstance(principals, list)
-        or not principals
-        or any(not is_positive_protocol_integer(value) for value in principals)
-        or len(principals) != len(set(principals))
-    ):
-        fail_validation(
-            "invalid_bundle",
-            "reducer_principals must be non-empty unique positive integers",
-            field="authority_policy",
-        )
-
-    events = carrier["ordered_events"]
-    if not isinstance(events, list):
-        fail_validation(
-            "invalid_bundle", "ordered_events must be a list",
-            field="ordered_events",
-        )
-    normalized_events = []
-    previous_created = None
-    previous_comment_key = None
-    seen_comment_ids = set()
-    seen_event_ids = set()
-    for index, event in enumerate(events, 1):
-        normalized, created = normalize_replay_event(event, index, as_of_value)
-        if previous_created is not None and created < previous_created:
-            fail_validation(
-                "event_order_invalid",
-                "ordered event {} precedes the prior event timestamp".format(index),
-                field="ordered_events",
-            )
-        previous_created = created
-        if normalized["kind"] == "comment":
-            if normalized["comment_id"] in seen_comment_ids:
-                fail_validation(
-                    "invalid_event",
-                    "comment_id must identify one unique comment fact",
-                    comment_id=normalized["comment_id"],
-                    field="comment_id",
-                )
-            seen_comment_ids.add(normalized["comment_id"])
-            comment_key = (created, normalized["comment_id"])
-            if previous_comment_key is not None and comment_key < previous_comment_key:
-                fail_validation(
-                    "event_order_invalid",
-                    "comment events are not in created_at/comment_id order",
-                    comment_id=normalized["comment_id"],
-                )
-            previous_comment_key = comment_key
-        else:
-            if normalized["event_id"] in seen_event_ids:
-                fail_validation(
-                    "invalid_event",
-                    "event_id must identify one unique timeline fact",
-                    field="event_id",
-                )
-            seen_event_ids.add(normalized["event_id"])
-        normalized_events.append(normalized)
-
-    return {
-        "open_table": 0,
-        "repository_id": carrier["repository_id"],
-        "issue_number": carrier["issue_number"],
-        "as_of": as_of,
-        "comments_complete_through": horizons["comments_complete_through"],
-        "timeline_complete_through": horizons["timeline_complete_through"],
-        "authority_policy": {
-            "profile": policy["profile"],
-            "reducer_principals": sorted(principals),
-        },
-        "ordered_events": normalized_events,
-    }
-
-
-def serialize_replay_carrier(carrier):
-    """Return canonical bytes for one structurally valid replay carrier."""
-    return canonical_json_bytes(normalize_replay_carrier(carrier))
-
-
-def normalize_decision_request(request):
-    """Validate decision structure and bindings without contextual reduction."""
-    if not isinstance(request, dict) or set(request) != DECISION_REQUEST_FIELDS:
-        fail_validation(
-            "invalid_bundle",
-            "decision request must contain exactly the approved fields"
-        )
-    if request["open_table"] != 0 or isinstance(request["open_table"], bool):
-        fail_validation(
-            "unsupported_version",
-            "decision request open_table must be the integer 0", field="open_table"
-        )
-    replay = normalize_replay_carrier(request["replay"])
-    source_comment_id = request["source_comment_id"]
-    if not is_positive_protocol_integer(source_comment_id):
-        fail_validation(
-            "invalid_bundle",
-            "source_comment_id must be a positive protocol integer",
-            field="source_comment_id",
-        )
-    source = next(
-        (
-            event for event in replay["ordered_events"]
-            if event["kind"] == "comment"
-            and event["comment_id"] == source_comment_id
-        ),
-        None,
-    )
-    if source is None:
-        fail_validation(
-            "invalid_bundle",
-            "source_comment_id must name a replay comment",
-            field="source_comment_id",
-        )
-
-    permission = request["permission_observation"]
-    if permission is not None:
-        if not isinstance(permission, dict) or set(permission) != {
-            "actor_id", "observed_at", "allowed"
-        }:
-            fail_validation(
-                "invalid_bundle",
-                "permission_observation must use the closed approved shape",
-                field="permission_observation",
-            )
-        observed_at, _ = normalize_carrier_timestamp(
-            permission["observed_at"], "observed_at", "invalid_bundle"
-        )
-        if (
-            not is_positive_protocol_integer(permission["actor_id"])
-            or permission["actor_id"] != source["actor_id"]
-            or isinstance(permission["allowed"], bool) is False
-            or observed_at > replay["as_of"]
-        ):
-            fail_validation(
-                "invalid_bundle",
-                "permission observation must bind the source actor before as_of",
-                field="permission_observation",
-            )
-        permission = {
-            "actor_id": permission["actor_id"],
-            "observed_at": observed_at,
-            "allowed": permission["allowed"],
-        }
-
-    outcome = request["profile_outcome"]
-    if outcome is not None:
-        if not isinstance(outcome, dict) or set(outcome) != {"profile", "decision"}:
-            fail_validation(
-                "invalid_bundle",
-                "profile_outcome must use the closed approved shape",
-                field="profile_outcome",
-            )
-        if (
-            not isinstance(outcome["profile"], str)
-            or outcome["profile"] != replay["authority_policy"]["profile"]
-            or not isinstance(outcome["decision"], str)
-            or outcome["decision"] not in RULING_DECISIONS
-        ):
-            fail_validation(
-                "invalid_bundle",
-                "profile outcome must bind the authority profile and a ruling decision",
-                field="profile_outcome",
-            )
-        outcome = {
-            "profile": outcome["profile"],
-            "decision": outcome["decision"],
-        }
-
-    return {
-        "open_table": 0,
-        "replay": replay,
-        "source_comment_id": source_comment_id,
-        "permission_observation": permission,
-        "profile_outcome": outcome,
-    }
-
-
-def serialize_decision_request(request):
-    """Return canonical bytes for one structurally bound B1 decision request."""
-    return canonical_json_bytes(normalize_decision_request(request))
-
-
 def canonical_digest(body):
     """Return the canonical digest of one complete GitHub comment body."""
     return "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def reject_duplicate_json_members(pairs):
+    """Reject duplicate JSON object member names before interpretation."""
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            fail_validation(
+                "invalid_bundle",
+                "duplicate JSON object member: {}".format(key),
+                field=key,
+            )
+        result[key] = value
+    return result
+
+
+def parse_integrity_bundle_json(raw):
+    """Decode one integrity bundle while preserving the closed JSON contract."""
+    return json.loads(raw, object_pairs_hook=reject_duplicate_json_members)
 
 
 def is_positive_ascii_integer(value):
@@ -788,6 +386,34 @@ def id_reservation_notice(candidate_id):
     )
 
 
+def unauthorized_reducer_output_diagnostic(shapes, comment_id, actor_id):
+    """Return the stable exclusion for reducer-shaped prose by another actor."""
+    return make_diagnostic(
+        "excluded",
+        "unauthorized_reducer_output",
+        "excluded {}-shaped comment {} from unauthorized actor {}; treated as "
+        "prose".format(sorted(shapes)[0], comment_id, actor_id),
+        comment_id=comment_id,
+    )
+
+
+def legal_ruling_decisions(source_message, authority_profile):
+    """Return event-local decisions allowed by sections 2.8 and 4.17.
+
+    This preserves the final-A integrity check. It does not decide whether a
+    legal ruling matches contextual state, which belongs to reduction.
+    """
+    if source_message == "claim":
+        decisions = (
+            {"rejected"}
+            if authority_profile == "deliberation-only"
+            else {"awarded", "rejected"}
+        )
+    else:
+        decisions = {"authorized", "unauthorized"}
+    return decisions | {"invalidated"}
+
+
 def parse_utc_timestamp(value, field):
     """Parse one already shape-checked protocol timestamp."""
     try:
@@ -927,7 +553,11 @@ def validate_header(header):
                 )
             parse_utc_timestamp(timestamp, field)
 
-    for field in ("target-actor-id", "to-actor-id", "source-comment-id"):
+    for field in (
+        "target-actor-id", "to-actor-id", "source-comment-id",
+        "proposal-comment-id", "claim-comment-id", "result-comment-id",
+        "review-comment-id"
+    ):
         if field in header:
             if not is_positive_ascii_integer(header[field]):
                 fail_invalid_field(
@@ -983,12 +613,17 @@ def validate_header(header):
 
 
 def validate_integrity_bundle_diagnostics(bundle):
-    """Validate trusted event integrity and return structured notices."""
+    """Validate supplied trusted events and existing rulings.
+
+    This integrity slice does not gather or authenticate GitHub evidence, choose
+    rulings, reduce contextual state, or mutate a projection.
+    """
     required_bundle_fields = {"authority_policy", "ordered_events"}
     if not isinstance(bundle, dict) or set(bundle) != required_bundle_fields:
         fail_validation(
             "invalid_bundle",
-            "integrity bundle must contain only authority_policy and ordered_events"
+            "integrity bundle must contain only authority_policy and ordered_events",
+            field="bundle",
         )
     authority_policy = bundle["authority_policy"]
     if not isinstance(authority_policy, dict) or set(authority_policy) != {
@@ -1137,7 +772,7 @@ def validate_integrity_bundle_diagnostics(bundle):
 
         reducer_output_shapes = identify_reducer_output_shapes(body)
         authenticated_open_table_candidate = (
-            actor_id in allowed_reducer_principals and bool(OPENING_RE.match(body))
+            actor_id in allowed_reducer_principals and bool(OPEN_TABLE_CANDIDATE_RE.match(body))
         )
         unauthorized_reducer_shape = (
             bool(reducer_output_shapes)
@@ -1160,6 +795,11 @@ def validate_integrity_bundle_diagnostics(bundle):
                         output_shape, comment_id
                     ), comment_id=comment_id
                 )
+            if unauthorized_reducer_shape:
+                notices.append(unauthorized_reducer_output_diagnostic(
+                    reducer_output_shapes, comment_id, actor_id
+                ))
+                continue
             candidate_id = recover_message_id(body)
             if candidate_id is not None:
                 key = (actor_id, candidate_id)
@@ -1206,6 +846,11 @@ def validate_integrity_bundle_diagnostics(bundle):
                         error, "fatal", detail, comment_id, "invalid_envelope"
                     ),
                 ) from error
+            if unauthorized_reducer_shape:
+                notices.append(unauthorized_reducer_output_diagnostic(
+                    reducer_output_shapes, comment_id, actor_id
+                ))
+                continue
             candidate_id = recover_message_id(body)
             if candidate_id is not None:
                 key = (actor_id, candidate_id)
@@ -1234,6 +879,12 @@ def validate_integrity_bundle_diagnostics(bundle):
                     ), comment_id=comment_id
                     )
                 )
+            continue
+
+        if unauthorized_reducer_shape:
+            notices.append(unauthorized_reducer_output_diagnostic(
+                reducer_output_shapes, comment_id, actor_id
+            ))
             continue
 
         key = (actor_id, header["id"])
@@ -1281,17 +932,6 @@ def validate_integrity_bundle_diagnostics(bundle):
             notices.append(contextualize_diagnostic(
                 error, "excluded", detail, comment_id, "invalid_field"
             ))
-            continue
-
-        if unauthorized_reducer_shape:
-            message_shape = sorted(reducer_output_shapes)[0]
-            notices.append(make_diagnostic(
-                "excluded", "unauthorized_reducer_output",
-                "excluded {}-shaped comment {} from unauthorized actor {}; "
-                "treated as prose".format(message_shape, comment_id, actor_id),
-                comment_id=comment_id,
-                )
-            )
             continue
 
         record = {
@@ -1368,15 +1008,9 @@ def validate_integrity_bundle_diagnostics(bundle):
                 ), comment_id=record["comment_id"],
                 related_comment_id=source_comment_id,
             )
-        if source_message == "claim":
-            allowed_decisions = (
-                {"rejected"}
-                if authority_policy["profile"] == "deliberation-only"
-                else {"awarded", "rejected"}
-            )
-        else:
-            allowed_decisions = {"authorized", "unauthorized"}
-        allowed_decisions.add("invalidated")
+        allowed_decisions = legal_ruling_decisions(
+            source_message, authority_policy["profile"]
+        )
         if header["decision"] not in allowed_decisions:
             fail_validation(
                 "ruling_decision_invalid",
@@ -1410,48 +1044,3 @@ def validate_integrity_bundle(bundle):
 def render_diagnostics(diagnostics):
     """Render non-contractual detail text for compatible human-facing output."""
     return [diagnostic.detail for diagnostic in diagnostics]
-
-
-def validate_replay_integrity(carrier):
-    """Validate replay-carrier comment/deletion integrity without context."""
-    replay = normalize_replay_carrier(carrier)
-    comments = {
-        event["comment_id"]: event
-        for event in replay["ordered_events"]
-        if event["kind"] == "comment"
-    }
-    for event in replay["ordered_events"]:
-        if event["kind"] != "comment_deletion":
-            continue
-        deleted = comments.get(event["comment_id"])
-        if deleted is None:
-            continue
-        try:
-            header, _ = parse_comment(deleted["body"])
-        except ValidationError:
-            continue
-        if header["message"] == "ruling":
-            fail_validation(
-                "ruling_deleted",
-                "ruling comment {} was deleted; fail closed".format(
-                    deleted["comment_id"]
-                ),
-                comment_id=deleted["comment_id"],
-            )
-        fail_validation(
-            "source_deleted",
-            "protocol source comment {} was deleted; fail closed".format(
-                deleted["comment_id"]
-            ),
-            comment_id=deleted["comment_id"],
-        )
-
-    integrity_bundle = {
-        "authority_policy": replay["authority_policy"],
-        "ordered_events": [
-            {key: value for key, value in event.items() if key != "kind"}
-            for event in replay["ordered_events"]
-            if event["kind"] == "comment"
-        ],
-    }
-    return validate_integrity_bundle_diagnostics(integrity_bundle)

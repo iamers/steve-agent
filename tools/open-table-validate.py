@@ -22,25 +22,10 @@ from open_table_core import (
     canonical_digest,
     make_diagnostic,
     parse_comment,
-    serialize_decision_request,
-    serialize_replay_carrier,
+    parse_integrity_bundle_json,
     validate_integrity_bundle,
     validate_integrity_bundle_diagnostics,
-    validate_replay_integrity,
 )
-
-
-def make_fixture(message, fields):
-    """Build an inline A-regression fixture for one message family."""
-    lines = [
-        "```open-table",
-        "open-table: 0",
-        "message: {}".format(message),
-        "id: fixture-{}-0001".format(message),
-    ]
-    lines.extend("{}: {}".format(key, value) for key, value in fields)
-    lines.extend(["```", "", "Human-readable fixture for {}.".format(message)])
-    return "\n".join(lines)
 
 
 def assert_live_case_names(cases, label):
@@ -55,92 +40,13 @@ def assert_live_case_names(cases, label):
     return names
 
 
-def run_carrier_fixture_test():
-    """Run the versioned external carrier cases through production entry points."""
-    fixture_path = (
-        Path(__file__).resolve().parents[1]
-        / "docs/specs/open-table-v0/fixtures/carrier.json"
-    )
-    manifest = json.loads(fixture_path.read_text(encoding="utf-8"))
-    if set(manifest) != {"open_table", "suite_version", "cases"}:
-        raise AssertionError("carrier fixture manifest must use the closed suite shape")
-    if manifest["open_table"] != 0 or manifest["suite_version"] != 1:
-        raise AssertionError("carrier fixture manifest version is unsupported")
-    cases = manifest["cases"]
-    assert_live_case_names(cases, "carrier")
-
-    entry_points = {
-        "serialize_replay_carrier": serialize_replay_carrier,
-        "serialize_decision_request": serialize_decision_request,
-    }
-    canonical_results = {}
-    observed = {}
-    for case in cases:
-        if set(case) != {"name", "entry_point", "input", "expected"}:
-            raise AssertionError("carrier fixture case must use the closed case shape")
-        entry_point = entry_points.get(case["entry_point"])
-        if entry_point is None:
-            raise AssertionError(
-                "carrier fixture names unknown entry point: {}".format(
-                    case["entry_point"]
-                )
-            )
-        expected = case["expected"]
-        try:
-            canonical = entry_point(case["input"]).decode("utf-8")
-        except ValidationError as error:
-            if set(expected) != {"code", "rule"}:
-                raise AssertionError(
-                    "unexpected carrier failure for {}: {}".format(case["name"], error)
-                ) from error
-            diagnostic = error.diagnostic
-            assert diagnostic is not None
-            assert diagnostic.severity == "fatal"
-            assert diagnostic.code == expected["code"]
-            assert diagnostic.rule == expected["rule"]
-            observed[case["name"]] = diagnostic.code
-            continue
-        if "canonical" in expected:
-            assert set(expected) == {"canonical"}
-            assert canonical == expected["canonical"]
-        elif "same_as" in expected:
-            assert set(expected) == {"same_as"}
-            assert canonical == canonical_results[expected["same_as"]]
-        else:
-            raise AssertionError("successful carrier case lacks canonical expectation")
-        assert canonical.endswith("\n")
-        canonical_results[case["name"]] = canonical
-    base = json.loads(json.dumps(cases[0]["input"]))
-    base["authority_policy"]["reducer_principals"] = [9002, 9001]
-    reordered = json.loads(json.dumps(base))
-    reordered["authority_policy"]["reducer_principals"] = [9001, 9002]
-    assert serialize_replay_carrier(base) == serialize_replay_carrier(reordered)
-    duplicate = json.loads(json.dumps(
-        next(case["input"] for case in cases if case["name"] == "decision.closed_request")
-    ))
-    second = json.loads(json.dumps(duplicate["replay"]["ordered_events"][0]))
-    second["actor_id"] = 202
-    second["created_at"] = "2026-08-02T10:01:00Z"
-    second["updated_at"] = "2026-08-02T10:01:00Z"
-    duplicate["replay"]["ordered_events"].append(second)
-    try:
-        serialize_decision_request(duplicate)
-    except ValidationError as error:
-        assert error.diagnostic.code == "invalid_event"
-    else:
-        raise AssertionError("duplicate replay comment ids must be rejected")
-    print("carrier fixtures: {} replay/decision cases passed".format(len(cases)))
-    print("carrier hardening probes: principal order canonical; duplicate ids rejected")
-    return observed
-
-
 def run_integrity_fixture_test():
     """Run external integrity cases through structured production entry points."""
     fixture_path = (
         Path(__file__).resolve().parents[1]
         / "docs/specs/open-table-v0/fixtures/integrity.json"
     )
-    manifest = json.loads(fixture_path.read_text(encoding="utf-8"))
+    manifest = parse_integrity_bundle_json(fixture_path.read_text(encoding="utf-8"))
     if set(manifest) != {"open_table", "suite_version", "cases"}:
         raise AssertionError("integrity fixture manifest must use the closed suite shape")
     if manifest["open_table"] != 0 or manifest["suite_version"] != 1:
@@ -149,11 +55,11 @@ def run_integrity_fixture_test():
     names = assert_live_case_names(cases, "integrity")
     expected_names = {
         "integrity.valid_comment", "integrity.valid_bundle",
+        "integrity.invalid_bundle", "integrity.event_order_invalid",
         "integrity.non_protocol_comment", "integrity.invalid_envelope",
         "integrity.invalid_field", "integrity.invalid_artefact",
         "integrity.exact_duplicate", "integrity.message_id_conflict",
         "integrity.unauthorized_reducer_output", "integrity.source_edited",
-        "integrity.source_deleted", "integrity.ruling_deleted",
         "integrity.ruling_missing", "integrity.ruling_duplicate",
         "integrity.ruling_binding_invalid", "integrity.ruling_decision_invalid",
     }
@@ -161,7 +67,6 @@ def run_integrity_fixture_test():
     entry_points = {
         "parse_comment": parse_comment,
         "validate_integrity_bundle_diagnostics": validate_integrity_bundle_diagnostics,
-        "validate_replay_integrity": validate_replay_integrity,
     }
     observed = {}
     for case in cases:
@@ -192,7 +97,7 @@ def run_integrity_fixture_test():
         assert diagnostic.severity == expected["severity"]
         assert diagnostic.code == expected["code"]
         assert diagnostic.rule == expected["rule"]
-        assert isinstance(diagnostic.comment_id, int)
+        assert diagnostic.comment_id is not None or diagnostic.field is not None
         assert isinstance(diagnostic.detail, str) and diagnostic.detail
         observed[case["name"]] = diagnostic.code
     print("integrity fixtures: {} structured cases passed".format(len(cases)))
@@ -200,12 +105,12 @@ def run_integrity_fixture_test():
 
 
 def run_reason_fixture_test(observed):
-    """Prove external/production catalog parity and phase-owned liveness."""
+    """Prove external/production catalog parity and live coverage."""
     fixture_path = (
         Path(__file__).resolve().parents[1]
         / "docs/specs/open-table-v0/fixtures/reason-codes.json"
     )
-    manifest = json.loads(fixture_path.read_text(encoding="utf-8"))
+    manifest = parse_integrity_bundle_json(fixture_path.read_text(encoding="utf-8"))
     if set(manifest) != {"open_table", "suite_version", "reasons"}:
         raise AssertionError("reason manifest must use the closed suite shape")
     if manifest["open_table"] != 0 or manifest["suite_version"] != 1:
@@ -215,24 +120,18 @@ def run_reason_fixture_test(observed):
     codes = [reason.get("code") for reason in reasons]
     assert len(codes) == len(set(codes))
     external = {}
+    external_rules = {}
     for reason in reasons:
-        assert set(reason) == {"code", "rule", "fixture", "owner"}
-        assert reason["owner"] in {"B1-live", "B2-deferred"}
+        assert set(reason) == {"code", "rule", "fixture"}
         external[reason["code"]] = {
             "rule": reason["rule"],
             "fixture": reason["fixture"],
-            "owner": reason["owner"],
         }
-    assert external == REASON_CATALOG
-    assert len(external) == 42
-    live = {code: row for code, row in external.items() if row["owner"] == "B1-live"}
-    deferred = {
-        code: row for code, row in external.items() if row["owner"] == "B2-deferred"
-    }
-    assert len(live) == 20 and len(deferred) == 22
-    for code, row in live.items():
+        external_rules[reason["code"]] = {"rule": reason["rule"]}
+    assert external_rules == REASON_CATALOG
+    assert len(external) == 14
+    for code, row in external.items():
         assert observed.get(row["fixture"]) == code
-    assert not (set(observed.values()) & set(deferred))
     original = make_diagnostic(
         "excluded", "invalid_field", "original detail", comment_id=7, field="turn"
     ).to_dict()
@@ -249,20 +148,18 @@ def run_reason_fixture_test(observed):
         except AssertionError:
             rejected_probes += 1
     unknown = dict(external)
-    unknown["unknown_reason"] = {
-        "rule": "0", "fixture": "probe.unknown", "owner": "B1-live"
-    }
+    unknown["unknown_reason"] = {"rule": "0", "fixture": "probe.unknown"}
     try:
         assert unknown == REASON_CATALOG
     except AssertionError:
         rejected_probes += 1
     assert rejected_probes == 3
-    print("reason fixtures: 42 catalog entries, 20 B1-live, 22 B2-deferred passed")
+    print("reason fixtures: 14 live catalog entries passed")
     print("fixture liveness probes: zero cases, duplicate names, unknown code rejected")
 
 
 def run_external_cli_fixture_test():
-    """Exercise the four real external CLI files and their stable exit behavior."""
+    """Exercise the four real external CLI files and stable exits."""
     root = Path(__file__).resolve().parents[1]
     fixture_root = root / "docs/specs/open-table-v0/fixtures"
     commands = [
@@ -277,6 +174,18 @@ def run_external_cli_fixture_test():
         output = result.stdout if expected_exit == 0 else result.stderr
         assert output.startswith(prefix)
     print("CLI fixtures: valid/invalid comment and integrity exits 0/1/0/1 passed")
+
+def make_fixture(message, fields):
+    """Build a self-test comment from a message name and its specific fields."""
+    lines = [
+        "```open-table",
+        "open-table: 0",
+        "message: {}".format(message),
+        "id: fixture-{}-0001".format(message),
+    ]
+    lines.extend("{}: {}".format(key, value) for key, value in fields)
+    lines.extend(["```", "", "Human-readable fixture for {}.".format(message)])
+    return "\n".join(lines)
 
 
 def run_self_test():
@@ -308,42 +217,40 @@ def run_self_test():
             ("phase", "critic"),
             ("turn", "1"),
             ("point", "scope"),
-            ("proposal-id", "proposal-0001"),
+            ("proposal-comment-id", "41"),
             ("disposition", "accepted"),
             ("terminal", "true"),
         ],
-        "claim": [("claim", "implementation"), ("expires-at", "2026-08-01T12:00:00Z")],
+        "claim": [("expires-at", "2026-08-01T12:00:00Z")],
         "renewal": [
-            ("claim", "implementation"),
+            ("claim-comment-id", "51"),
             ("expires-at", "2026-08-02T12:00:00Z"),
         ],
-        "release": [("claim", "implementation")],
+        "release": [("claim-comment-id", "51")],
         "handoff": [
-            ("claim", "implementation"),
+            ("claim-comment-id", "51"),
             ("to-actor-id", "202"),
             ("expires-at", "2026-08-01T12:00:00Z"),
         ],
-        "cancellation": [("claim", "implementation")],
+        "cancellation": [("claim-comment-id", "51")],
         "expiration": [
-            ("claim", "implementation"),
+            ("claim-comment-id", "51"),
             ("expired-at", "2026-08-01T12:00:00Z"),
         ],
         "result": [
-            ("claim", "implementation"),
-            ("result-id", "result-1"),
+            ("claim-comment-id", "51"),
             ("outcome", "completed"),
             ("artefact", "github:123:pull:45:head:" + "a" * 40),
         ],
         "review-request": [
-            ("claim", "implementation"),
-            ("review", "review-1"),
-            ("result-id", "result-1"),
+            ("claim-comment-id", "51"),
+            ("result-comment-id", "61"),
             ("artefact", "github:123:pull:45:head:" + "a" * 40),
         ],
         "verdict": [
-            ("claim", "implementation"),
-            ("review", "review-1"),
-            ("result-id", "result-1"),
+            ("claim-comment-id", "51"),
+            ("review-comment-id", "71"),
+            ("result-comment-id", "61"),
             ("artefact", "github:123:pull:45:head:" + "a" * 40),
             ("verdict", "approved"),
         ],
@@ -365,8 +272,7 @@ def run_self_test():
     generic_artefact = make_fixture(
         "result",
         [
-            ("claim", "implementation"),
-            ("result-id", "result-1"),
+            ("claim-comment-id", "51"),
             ("outcome", "completed"),
             (
                 "artefact",
@@ -408,11 +314,15 @@ def run_self_test():
     malformed = {
         "missing prose": (
             "```open-table\nopen-table: 0\nmessage: release\n"
-            "id: malformed-0001\nclaim: work\n```\n"
+            "id: malformed-0001\nclaim-comment-id: 51\n```\n"
         ),
         "missing required field": (
             "```open-table\nopen-table: 0\nmessage: claim\n"
-            "id: malformed-0002\nclaim: work\n```\n\nClaiming work."
+            "id: malformed-0002\n```\n\nClaiming work."
+        ),
+        "participant-allocated claim reference": (
+            "```open-table\nopen-table: 0\nmessage: release\n"
+            "id: malformed-0010\nclaim: work\n```\n\nRelease."
         ),
         "unknown field": (
             "```open-table\nopen-table: 0\nmessage: contribution\n"
@@ -425,25 +335,24 @@ def run_self_test():
         ),
         "duplicate block with CRLF": (
             "```open-table\r\nopen-table: 0\r\nmessage: release\r\n"
-            "id: malformed-0005\r\nclaim: work\r\n```\r\n\r\nFirst block.\r\n"
+            "id: malformed-0005\r\nclaim-comment-id: 51\r\n```\r\n\r\nFirst block.\r\n"
             "```open-table\r\nopen-table: 0\r\nmessage: release\r\n"
-            "id: malformed-0006\r\nclaim: work\r\n```\r\n\r\nSecond block."
+            "id: malformed-0006\r\nclaim-comment-id: 51\r\n```\r\n\r\nSecond block."
         ),
         "four-space opening fence": (
             "    ```open-table\nopen-table: 0\nmessage: release\n"
-            "id: malformed-0007\nclaim: work\n```\n\nRelease."
+            "id: malformed-0007\nclaim-comment-id: 51\n```\n\nRelease."
         ),
         "indented duplicate block": (
             "```open-table\nopen-table: 0\nmessage: release\n"
-            "id: malformed-0008\nclaim: work\n```\n\nFirst block.\n"
+            "id: malformed-0008\nclaim-comment-id: 51\n```\n\nFirst block.\n"
             "   ```open-table\nopen-table: 0\nmessage: release\n"
-            "id: malformed-0009\nclaim: work\n   ```\n\nSecond block."
+            "id: malformed-0009\nclaim-comment-id: 51\n   ```\n\nSecond block."
         ),
         "generic artefact with backslash": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://example.com\\artifact#sha256=" + "a" * 64),
             ],
@@ -451,8 +360,7 @@ def run_self_test():
         "generic artefact with invalid percent escape": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://example.com/%GG#sha256=" + "a" * 64),
             ],
@@ -460,8 +368,7 @@ def run_self_test():
         "generic artefact with bracket in path": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://example.com/a[b]#sha256=" + "a" * 64),
             ],
@@ -469,8 +376,7 @@ def run_self_test():
         "generic artefact with malformed IP literal": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://[not-ip]/a#sha256=" + "a" * 64),
             ],
@@ -478,8 +384,7 @@ def run_self_test():
         "generic artefact with duplicate at-sign": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://user@@example.com/a#sha256=" + "a" * 64),
             ],
@@ -487,8 +392,7 @@ def run_self_test():
         "generic artefact with nonnumeric port": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://example.com:no/a#sha256=" + "a" * 64),
             ],
@@ -496,8 +400,7 @@ def run_self_test():
         "generic artefact with raw tab": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://exam\tple.com/a#sha256=" + "a" * 64),
             ],
@@ -505,8 +408,7 @@ def run_self_test():
         "generic artefact with scoped IPv6": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://[fe80::1%eth0]/a#sha256=" + "a" * 64),
             ],
@@ -514,8 +416,7 @@ def run_self_test():
         "generic artefact with non-ASCII port": make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", "https://example.com:１２/a#sha256=" + "a" * 64),
             ],
@@ -684,7 +585,7 @@ def run_self_test():
         raise AssertionError("digest conflict was accepted as a duplicate")
 
     source_body = make_fixture(
-        "claim", [("claim", "implementation"), ("expires-at", "2026-08-01T12:00:00Z")]
+        "claim", [("expires-at", "2026-08-01T12:00:00Z")]
     )
     mismatch_ruling = make_fixture(
         "ruling",
@@ -913,6 +814,32 @@ def run_self_test():
     assert validate_fixture_bundle(empty_bundle) == []
     print("integrity fixture (empty event stream): accepted")
 
+    duplicate_json_members = {
+        "top-level": (
+            '{"authority_policy":{},"authority_policy":{},"ordered_events":[]}'
+        ),
+        "authority-policy": (
+            '{"authority_policy":{"profile":"deliberation-only",'
+            '"profile":"deliberation-only","reducer_principals":[999]},'
+            '"ordered_events":[]}'
+        ),
+        "event": (
+            '{"authority_policy":{"profile":"deliberation-only",'
+            '"reducer_principals":[999]},"ordered_events":['
+            '{"actor_id":1,"actor_id":2}]}'
+        ),
+    }
+    for level, raw_bundle in duplicate_json_members.items():
+        try:
+            parse_integrity_bundle_json(raw_bundle)
+        except ValidationError as error:
+            assert "duplicate JSON object member" in str(error)
+        else:
+            raise AssertionError(
+                "duplicate JSON member at {} level was accepted".format(level)
+            )
+    print("integrity fixture (duplicate JSON object members): rejected")
+
     oversized_bundle_values = {}
     oversized_principal_bundle = json.loads(json.dumps(empty_bundle))
     oversized_principal_bundle["authority_policy"]["reducer_principals"] = [
@@ -940,7 +867,7 @@ def run_self_test():
 
     invalid_claim = (
         "```open-table\nopen-table: 0\nmessage: claim\n"
-        "id: invalid-claim-0001\nclaim: work\n```\n\nMissing expiry."
+        "id: invalid-claim-0001\n```\n\nMissing expiry."
     )
     public_input_bundle = {
         "authority_policy": unauthorized_bundle["authority_policy"],
@@ -970,7 +897,7 @@ def run_self_test():
 
     invalid_lease_body = make_fixture(
         "claim",
-        [("claim", "implementation"), ("expires-at", "2026-08-20T00:00:00Z")],
+        [("expires-at", "2026-08-20T00:00:00Z")],
     )
     invalid_lease_bundle = {
         "authority_policy": unauthorized_bundle["authority_policy"],
@@ -1007,9 +934,10 @@ def run_self_test():
         ],
     }
     notices = validate_fixture_bundle(malformed_unauthorized_bundle)
-    assert len(notices) == 1
-    assert notices[0].startswith("excluded invalid open-table comment 7")
-    assert "recoverable message id reserved" in notices[0]
+    assert notices == [
+        "excluded ruling-shaped comment 7 from unauthorized actor 888; "
+        "treated as prose"
+    ]
     print("integrity fixture (malformed unauthorized ruling): excluded as prose")
 
     truncated_ruling = unauthorized_ruling.rsplit("```", 1)[0]
@@ -1019,9 +947,10 @@ def run_self_test():
     truncated_unauthorized_bundle["ordered_events"][1]["body"] = truncated_ruling
     refresh_fixture_receipt(truncated_unauthorized_bundle["ordered_events"][1])
     notices = validate_fixture_bundle(truncated_unauthorized_bundle)
-    assert len(notices) == 1
-    assert notices[0].startswith("excluded invalid open-table comment 7")
-    assert "recoverable message id reserved" in notices[0]
+    assert notices == [
+        "excluded ruling-shaped comment 7 from unauthorized actor 888; "
+        "treated as prose"
+    ]
     print("integrity fixture (truncated unauthorized ruling): excluded as prose")
 
     truncated_authenticated_bundle = json.loads(
@@ -1100,6 +1029,24 @@ def run_self_test():
     else:
         raise AssertionError("missing authenticated discriminator did not fail closed")
 
+    four_space_authenticated_bundle = json.loads(json.dumps(unauthorized_bundle))
+    four_space_authenticated_bundle["ordered_events"][1]["actor_id"] = 999
+    four_space_authenticated_bundle["ordered_events"][1]["body"] = (
+        unauthorized_ruling.replace("```open-table\n", "    ```open-table\n", 1)
+    )
+    refresh_fixture_receipt(four_space_authenticated_bundle["ordered_events"][1])
+    try:
+        validate_fixture_bundle(four_space_authenticated_bundle)
+    except ValidationError as error:
+        assert "invalid authenticated open-table" in str(error)
+        assert "fenced block" in str(error)
+        print(
+            "integrity fixture (four-space authenticated opening): rejected: "
+            "{}".format(error)
+        )
+    else:
+        raise AssertionError("four-space authenticated output did not fail closed")
+
     reused_forged_id = make_fixture(
         "contribution", [("phase", "dreamer"), ("turn", "1")]
     ).replace("fixture-contribution-0001", "fixture-ruling-0001")
@@ -1114,17 +1061,12 @@ def run_self_test():
             "body": reused_forged_id,
         }
     )
-    try:
-        validate_fixture_bundle(forged_id_conflict_bundle)
-    except ValidationError as error:
-        assert "conflict:" in str(error)
-        print(
-            "integrity fixture (malformed unauthorized id reservation): {}".format(
-                error
-            )
-        )
-    else:
-        raise AssertionError("malformed unauthorized output did not reserve its id")
+    notices = validate_fixture_bundle(forged_id_conflict_bundle)
+    assert notices == [
+        "excluded ruling-shaped comment 7 from unauthorized actor 888; "
+        "treated as prose"
+    ]
+    print("integrity fixture (malformed unauthorized id reuse): accepted")
 
     valid_forged_id_conflict_bundle = json.loads(json.dumps(unauthorized_bundle))
     valid_forged_id_conflict_bundle["ordered_events"].append(
@@ -1137,19 +1079,16 @@ def run_self_test():
             "body": reused_forged_id,
         }
     )
-    try:
-        validate_fixture_bundle(valid_forged_id_conflict_bundle)
-    except ValidationError as error:
-        assert "conflict:" in str(error)
-        print(
-            "integrity fixture (valid unauthorized id reservation): {}".format(error)
-        )
-    else:
-        raise AssertionError("valid unauthorized output did not reserve its id")
+    notices = validate_fixture_bundle(valid_forged_id_conflict_bundle)
+    assert notices == [
+        "excluded ruling-shaped comment 7 from unauthorized actor 888; "
+        "treated as prose"
+    ]
+    print("integrity fixture (valid unauthorized id reuse): accepted")
 
     expiration_body = make_fixture(
         "expiration",
-        [("claim", "implementation"), ("expired-at", "2026-08-01T12:00:00Z")],
+        [("claim-comment-id", "51"), ("expired-at", "2026-08-01T12:00:00Z")],
     )
     unauthorized_expiration_bundle = {
         "authority_policy": unauthorized_bundle["authority_policy"],
@@ -1322,6 +1261,18 @@ def run_self_test():
     else:
         raise AssertionError("an overlong integer was accepted")
 
+    for invalid_comment_reference in ("0", "١", "1" * 21):
+        invalid_reference_message = make_fixture(
+            "release", [("claim-comment-id", invalid_comment_reference)]
+        )
+        try:
+            parse_comment(invalid_reference_message)
+        except ValidationError as error:
+            assert "positive numeric GitHub id" in str(error)
+        else:
+            raise AssertionError("an invalid GitHub comment reference was accepted")
+    print("integrity fixture (invalid GitHub comment references): rejected")
+
     for oversized_artefact in (
         "github:{}:pull:45:head:{}".format("1" * 21, "a" * 40),
         "github:123:pull:{}:head:{}".format("1" * 21, "a" * 40),
@@ -1329,8 +1280,7 @@ def run_self_test():
         oversized_artefact_message = make_fixture(
             "result",
             [
-                ("claim", "implementation"),
-                ("result-id", "result-1"),
+                ("claim-comment-id", "51"),
                 ("outcome", "completed"),
                 ("artefact", oversized_artefact),
             ],
@@ -1345,7 +1295,7 @@ def run_self_test():
 
     impossible_timestamp = make_fixture(
         "expiration",
-        [("claim", "implementation"), ("expired-at", "2026-02-31T12:00:00Z")],
+        [("claim-comment-id", "51"), ("expired-at", "2026-02-31T12:00:00Z")],
     )
     try:
         parse_comment(impossible_timestamp)
@@ -1356,7 +1306,8 @@ def run_self_test():
         raise AssertionError("an impossible timestamp was accepted")
 
     corrected_invalid_claim = invalid_claim.replace(
-        "claim: work\n", "claim: work\nexpires-at: 2026-08-02T00:00:00Z\n"
+        "id: invalid-claim-0001\n",
+        "id: invalid-claim-0001\nexpires-at: 2026-08-02T00:00:00Z\n",
     )
     reserved_id_bundle = {
         "authority_policy": unauthorized_bundle["authority_policy"],
@@ -1431,12 +1382,12 @@ def run_self_test():
     assert len(notices) == 1 and "no unambiguous message id reserved" in notices[0]
     print("integrity fixture (ambiguous surrogate ids): no id reserved")
 
-    observed = run_carrier_fixture_test()
-    observed.update(run_integrity_fixture_test())
+    observed = run_integrity_fixture_test()
     run_reason_fixture_test(observed)
     run_external_cli_fixture_test()
+
     print(
-        "self-test: 14 valid families, 19 malformed fixtures, and 52 integrity "
+        "self-test: 14 valid families, 20 malformed fixtures, and 55 integrity "
         "rules passed"
     )
 
@@ -1471,7 +1422,9 @@ def main(argv=None):
             print("error: --integrity-bundle does not accept a comment path", file=sys.stderr)
             return 2
         try:
-            bundle = json.loads(Path(args.integrity_bundle).read_text(encoding="utf-8"))
+            bundle = parse_integrity_bundle_json(
+                Path(args.integrity_bundle).read_text(encoding="utf-8")
+            )
             notices = validate_integrity_bundle(bundle)
         except (OSError, json.JSONDecodeError) as error:
             print("error: cannot read integrity bundle: {}".format(error), file=sys.stderr)

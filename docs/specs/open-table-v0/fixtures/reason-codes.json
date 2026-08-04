@@ -2,47 +2,75 @@
   "open_table": 0,
   "suite_version": 1,
   "reasons": [
-    {"code": "unsupported_version", "rule": "11.1", "fixture": "carrier.unsupported_version", "owner": "B1-live"},
-    {"code": "invalid_bundle", "rule": "2.5", "fixture": "carrier.unknown_top_level", "owner": "B1-live"},
-    {"code": "incomplete_trusted_context", "rule": "2.2, 2.5", "fixture": "carrier.incomplete_comments", "owner": "B1-live"},
-    {"code": "invalid_as_of", "rule": "2.5", "fixture": "carrier.invalid_as_of", "owner": "B1-live"},
-    {"code": "invalid_event", "rule": "2.4, 2.5", "fixture": "carrier.invalid_event_union", "owner": "B1-live"},
-    {"code": "event_order_invalid", "rule": "2.4", "fixture": "carrier.event_order_invalid", "owner": "B1-live"},
-    {"code": "source_edited", "rule": "2.2, 7.3", "fixture": "integrity.source_edited", "owner": "B1-live"},
-    {"code": "source_deleted", "rule": "2.2, 7.3, 9.1", "fixture": "integrity.source_deleted", "owner": "B1-live"},
-    {"code": "ruling_deleted", "rule": "7.3, 9.1", "fixture": "integrity.ruling_deleted", "owner": "B1-live"},
-    {"code": "non_protocol_comment", "rule": "2.8, 7.5", "fixture": "integrity.non_protocol_comment", "owner": "B1-live"},
-    {"code": "invalid_envelope", "rule": "3.1-3.5", "fixture": "integrity.invalid_envelope", "owner": "B1-live"},
-    {"code": "invalid_field", "rule": "3.3-3.6, 4", "fixture": "integrity.invalid_field", "owner": "B1-live"},
-    {"code": "invalid_artefact", "rule": "4.13", "fixture": "integrity.invalid_artefact", "owner": "B1-live"},
-    {"code": "exact_duplicate", "rule": "7.2", "fixture": "integrity.exact_duplicate", "owner": "B1-live"},
-    {"code": "message_id_conflict", "rule": "7.2", "fixture": "integrity.message_id_conflict", "owner": "B1-live"},
-    {"code": "unauthorized_reducer_output", "rule": "2.3, 4.12, 4.16", "fixture": "integrity.unauthorized_reducer_output", "owner": "B1-live"},
-    {"code": "ruling_missing", "rule": "4.16, 9.1", "fixture": "integrity.ruling_missing", "owner": "B1-live"},
-    {"code": "ruling_duplicate", "rule": "4.16, 9.1", "fixture": "integrity.ruling_duplicate", "owner": "B1-live"},
-    {"code": "ruling_binding_invalid", "rule": "4.16, 7.3", "fixture": "integrity.ruling_binding_invalid", "owner": "B1-live"},
-    {"code": "ruling_decision_invalid", "rule": "4.17", "fixture": "integrity.ruling_decision_invalid", "owner": "B1-live"},
-    {"code": "ruling_decision_mismatch", "rule": "4.17, 9.1", "fixture": "context.ruling_decision_mismatch", "owner": "B2-deferred"},
-    {"code": "authority_profile_mismatch", "rule": "1.6, 4.1", "fixture": "context.authority_profile_mismatch", "owner": "B2-deferred"},
-    {"code": "configuration_invalid", "rule": "4.1", "fixture": "context.configuration_invalid", "owner": "B2-deferred"},
-    {"code": "phase_invalid", "rule": "5.2, 5.4", "fixture": "context.phase_invalid", "owner": "B2-deferred"},
-    {"code": "phase_closed", "rule": "5.3", "fixture": "context.phase_closed", "owner": "B2-deferred"},
-    {"code": "turn_invalid", "rule": "5.2", "fixture": "context.turn_invalid", "owner": "B2-deferred"},
-    {"code": "turn_closed", "rule": "5.3", "fixture": "context.turn_closed", "owner": "B2-deferred"},
-    {"code": "unexpected_actor", "rule": "5.4", "fixture": "context.unexpected_actor", "owner": "B2-deferred"},
-    {"code": "turn_limit_exceeded", "rule": "5.4", "fixture": "context.turn_limit_exceeded", "owner": "B2-deferred"},
-    {"code": "identifier_conflict", "rule": "3.8", "fixture": "context.identifier_conflict", "owner": "B2-deferred"},
-    {"code": "reference_missing", "rule": "3.8, 4.5", "fixture": "context.reference_missing", "owner": "B2-deferred"},
-    {"code": "session_terminated", "rule": "8.1-8.3", "fixture": "context.session_terminated", "owner": "B2-deferred"},
-    {"code": "issue_closed", "rule": "2.4, 6.2", "fixture": "work.issue_closed", "owner": "B2-deferred"},
-    {"code": "permission_denied", "rule": "1.5, 4.17", "fixture": "work.permission_denied", "owner": "B2-deferred"},
-    {"code": "claim_unavailable", "rule": "6.2-6.3", "fixture": "work.claim_unavailable", "owner": "B2-deferred"},
-    {"code": "claim_not_current", "rule": "4.8-4.12, 6.4", "fixture": "work.claim_not_current", "owner": "B2-deferred"},
-    {"code": "claim_actor_mismatch", "rule": "4.17", "fixture": "work.claim_actor_mismatch", "owner": "B2-deferred"},
-    {"code": "expiry_invalid", "rule": "6.2, 6.4", "fixture": "work.expiry_invalid", "owner": "B2-deferred"},
-    {"code": "work_state_invalid", "rule": "6.4, 6.6", "fixture": "work.work_state_invalid", "owner": "B2-deferred"},
-    {"code": "artefact_mismatch", "rule": "4.13-4.15", "fixture": "work.artefact_mismatch", "owner": "B2-deferred"},
-    {"code": "reviewer_not_independent", "rule": "4.15", "fixture": "work.reviewer_not_independent", "owner": "B2-deferred"},
-    {"code": "profile_extension_required", "rule": "1.6, 6.5", "fixture": "work.profile_extension_required", "owner": "B2-deferred"}
+    {
+      "code": "invalid_bundle",
+      "rule": "2.8",
+      "fixture": "integrity.invalid_bundle"
+    },
+    {
+      "code": "event_order_invalid",
+      "rule": "2.4",
+      "fixture": "integrity.event_order_invalid"
+    },
+    {
+      "code": "source_edited",
+      "rule": "2.2, 7.3",
+      "fixture": "integrity.source_edited"
+    },
+    {
+      "code": "non_protocol_comment",
+      "rule": "2.8, 7.5",
+      "fixture": "integrity.non_protocol_comment"
+    },
+    {
+      "code": "invalid_envelope",
+      "rule": "3.1-3.5",
+      "fixture": "integrity.invalid_envelope"
+    },
+    {
+      "code": "invalid_field",
+      "rule": "3.3-3.6, 4",
+      "fixture": "integrity.invalid_field"
+    },
+    {
+      "code": "invalid_artefact",
+      "rule": "4.13",
+      "fixture": "integrity.invalid_artefact"
+    },
+    {
+      "code": "exact_duplicate",
+      "rule": "7.2",
+      "fixture": "integrity.exact_duplicate"
+    },
+    {
+      "code": "message_id_conflict",
+      "rule": "7.2",
+      "fixture": "integrity.message_id_conflict"
+    },
+    {
+      "code": "unauthorized_reducer_output",
+      "rule": "2.3, 4.12, 4.16",
+      "fixture": "integrity.unauthorized_reducer_output"
+    },
+    {
+      "code": "ruling_missing",
+      "rule": "4.16, 9.1",
+      "fixture": "integrity.ruling_missing"
+    },
+    {
+      "code": "ruling_duplicate",
+      "rule": "4.16, 9.1",
+      "fixture": "integrity.ruling_duplicate"
+    },
+    {
+      "code": "ruling_binding_invalid",
+      "rule": "4.16, 7.3",
+      "fixture": "integrity.ruling_binding_invalid"
+    },
+    {
+      "code": "ruling_decision_invalid",
+      "rule": "4.17",
+      "fixture": "integrity.ruling_decision_invalid"
+    }
   ]
 }
