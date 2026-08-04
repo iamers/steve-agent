@@ -37,6 +37,7 @@ END_MARKER = "<!-- open-table:end -->"
 PROFILE = "deliberation-only"
 VALIDATOR = Path(__file__).with_name("open-table-validate.py")
 TIMESTAMP_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 OPEN_TABLE_RE = re.compile(r"\A(?:[ \t]*\r?\n)* {0,3}```open-table[ \t]*\r?\n")
 CLOSING_RE = re.compile(r"^ {0,3}```[ \t]*(?:\r\n|\n)", re.MULTILINE)
 RULING_REQUIRED = {
@@ -98,6 +99,21 @@ def extract_header(body):
 
 def is_open_table_candidate(body):
     return isinstance(body, str) and OPEN_TABLE_RE.match(body) is not None
+
+
+def recover_message_id(body):
+    """Return one unambiguous valid id value from a malformed leading block."""
+    opening = OPEN_TABLE_RE.match(body)
+    if opening is None:
+        return None
+    closing = CLOSING_RE.search(body, opening.end())
+    header_end = closing.start() if closing else len(body)
+    candidates = {
+        line[4:]
+        for line in body[opening.end():header_end].replace("\r\n", "\n").split("\n")
+        if line.startswith("id: ") and ID_RE.fullmatch(line[4:])
+    }
+    return next(iter(candidates)) if len(candidates) == 1 else None
 
 
 def is_write_permission(permission):
@@ -307,6 +323,20 @@ def normalize_events(bundle):
                         event["comment_id"], error
                     )
                 ) from error
+            candidate_id = recover_message_id(body)
+            if candidate_id is not None:
+                key = (event["actor_id"], candidate_id)
+                try:
+                    invalid_digest = canonical_digest(body)
+                except UnicodeEncodeError:
+                    invalid_digest = None
+                if key in seen_keys and (
+                    invalid_digest is None or seen_keys[key] != invalid_digest
+                ):
+                    raise ReductionError(
+                        "actor {} reused message id {} with a different digest".format(*key)
+                    )
+                seen_keys.setdefault(key, invalid_digest)
             notices.append({
                 "comment_id": event["comment_id"],
                 "permalink": permalink(event),
@@ -576,6 +606,10 @@ def decision_for(record, records, rulings, configuration, configurations_valid):
             ),
         )
     if message == "settled":
+        if configuration is None:
+            return "unauthorized", (
+                "Configuration-free mode has no authoritative settlement rulings."
+            )
         state = scan_deliberation(
             records, rulings, configuration, stop_order=record["order"]
         )
@@ -640,6 +674,8 @@ def reduce_session(bundle, as_of):
             message = record["header"]["message"]
             if message not in RULING_REQUIRED or record["comment_id"] in rulings:
                 continue
+            if message != "configuration" and active_configuration is None:
+                continue
             decision, reason = decision_for(
                 record, records, rulings, active_configuration, configurations_valid
             )
@@ -653,6 +689,14 @@ def reduce_session(bundle, as_of):
                 active_configuration = configuration_context(records, rulings)
 
         configuration = configuration_context(records, rulings)
+        if configuration is None:
+            return {
+                "profile": PROFILE,
+                "as_of": as_of,
+                "unreplayable": False,
+                "writes": ruling_writes,
+                "notices": notices,
+            }
         status, phase, turn, settled, open_proposals = derive_deliberation(
             records, rulings, configuration, notices
         )
@@ -749,6 +793,15 @@ def permission_for(repository, login, token):
     return data.get("permission")
 
 
+def trusted_last_edited_at(edits, comment_id):
+    """Return authenticated edit metadata while rejecting inventory races."""
+    if comment_id not in edits:
+        raise ReductionError(
+            "trusted lastEditedAt metadata is missing for comment {}".format(comment_id)
+        )
+    return edits[comment_id]
+
+
 def load_event_context():
     path = os.environ.get("GITHUB_EVENT_PATH")
     if not path:
@@ -781,7 +834,7 @@ def build_github_bundle(repository, issue_number, token, principal):
             "comment_id": comment["id"],
             "created_at": comment["created_at"],
             "updated_at": comment["updated_at"],
-            "last_edited_at": edits.get(comment["id"]),
+            "last_edited_at": trusted_last_edited_at(edits, comment["id"]),
             "body": comment.get("body") or "",
             "html_url": comment["html_url"],
         }
@@ -897,37 +950,8 @@ def run_self_test():
     first = reduce_session(bundle, as_of)
     second = reduce_session(bundle, as_of)
     assert first == second and not first["unreplayable"]
-    print("pure deliberation reduction: ok")
-
-    comments = [write for write in first["writes"] if write["operation"] == "post_comment"]
-    assert len(comments) == 1
-    assert "decision: rejected" in comments[0]["body"]
-    assert "claims are advisory" in comments[0]["body"]
-    print("advisory claim ruling: rejected and explained")
-
-    body_write = [write for write in first["writes"] if write["operation"] == "update_issue_body"][0]
-    projected = body_write["body"]
-    assert "**Not reducer-conformant.**" in projected
-    assert "no authenticated creation receipts and no deletion evidence" in projected
-    assert "private participant prose" not in projected
-    assert projected.startswith("Human preface\n\nHuman suffix\n" + START_MARKER)
-    print("projection notice, prose exclusion, and marker preservation: ok")
-
-    ruled_bundle = json.loads(json.dumps(bundle))
-    ruling = comments[0]["body"]
-    ruled_bundle["ordered_events"].append({
-        "actor_id": 41898282,
-        "actor_login": "github-actions[bot]",
-        "comment_id": 204,
-        "created_at": "2026-08-04T00:00:04Z",
-        "updated_at": "2026-08-04T00:00:04Z",
-        "last_edited_at": None,
-        "body": ruling,
-        "html_url": "https://example.invalid/issues/7#issuecomment-204",
-    })
-    replay = reduce_session(ruled_bundle, as_of)
-    assert not any(write["operation"] == "post_comment" for write in replay["writes"])
-    print("existing ruling search: duplicate append suppressed")
+    assert first["writes"] == []
+    print("configuration-free session: no rulings or reducer projection")
 
     edited_bundle = json.loads(json.dumps(bundle))
     edited_bundle["ordered_events"][0]["last_edited_at"] = "2026-08-04T00:30:00Z"
@@ -936,14 +960,31 @@ def run_self_test():
     assert failed["writes"] and "Session unreplayable" in failed["writes"][0]["body"]
     print("edit signal fail-closed projection: ok")
 
-    missing_bundle = json.loads(json.dumps(ruled_bundle))
-    missing_bundle["ordered_events"] = [
-        event for event in missing_bundle["ordered_events"]
-        if event["comment_id"] != 203
-    ]
-    missing = reduce_session(missing_bundle, as_of)
-    assert missing["unreplayable"] and "deleted or missing" in missing["reason"]
-    print("missing ruling source fails closed: ok")
+    malformed_repost = json.loads(json.dumps(bundle))
+    malformed_repost["ordered_events"] = malformed_repost["ordered_events"][:2]
+    malformed_repost["ordered_events"][0]["body"] = "\n".join([
+        "```open-table", "open-table: 0", "message: proposal",
+        "id: reserved-message-0001", "phase: initial", "turn: 1",
+        "point: decision", "```",
+    ])
+    malformed_repost["ordered_events"][1]["actor_id"] = (
+        malformed_repost["ordered_events"][0]["actor_id"]
+    )
+    malformed_repost["ordered_events"][1]["body"] = (
+        malformed_repost["ordered_events"][0]["body"] + "\n\nLater valid repost."
+    )
+    repost = reduce_session(malformed_repost, as_of)
+    assert repost["unreplayable"] and "reused message id" in repost["reason"]
+    print("invalid earliest envelope reserves its recoverable actor/message-id key")
+
+    assert trusted_last_edited_at({201: None}, 201) is None
+    try:
+        trusted_last_edited_at({}, 201)
+    except ReductionError as error:
+        assert "metadata is missing" in str(error)
+    else:
+        raise AssertionError("missing GraphQL edit metadata was accepted")
+    print("GraphQL edit metadata: authenticated null accepted, absent entry rejected")
 
     configured = fixture_bundle()
     configured["ordered_events"] = []
@@ -997,6 +1038,41 @@ def run_self_test():
     assert "`decision`: `accepted`" in configured_projection
     print("configuration and settlement write-access rulings: recorded and authorized")
 
+    no_configuration = json.loads(json.dumps(configured))
+    no_configuration["ordered_events"] = no_configuration["ordered_events"][1:]
+    no_configuration_plan = reduce_session(no_configuration, as_of)
+    assert not no_configuration_plan["unreplayable"]
+    assert no_configuration_plan["writes"] == []
+    print("configuration-free settlement: no ruling, termination, or projection")
+
+    ruled_bundle = json.loads(json.dumps(configured))
+    for offset, ruling in enumerate(configured_comments, 4):
+        timestamp = "2026-08-04T00:10:0{}Z".format(offset)
+        ruled_bundle["ordered_events"].append({
+            "actor_id": 41898282,
+            "actor_login": "github-actions[bot]",
+            "comment_id": 300 + offset,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+            "last_edited_at": None,
+            "body": ruling,
+            "html_url": "https://example.invalid/issues/7#issuecomment-{}".format(
+                300 + offset
+            ),
+        })
+    replay = reduce_session(ruled_bundle, as_of)
+    assert not any(write["operation"] == "post_comment" for write in replay["writes"])
+    print("existing ruling search: duplicate append suppressed")
+
+    missing_bundle = json.loads(json.dumps(ruled_bundle))
+    missing_bundle["ordered_events"] = [
+        event for event in missing_bundle["ordered_events"]
+        if event["comment_id"] != 303
+    ]
+    missing = reduce_session(missing_bundle, as_of)
+    assert missing["unreplayable"] and "deleted or missing" in missing["reason"]
+    print("missing ruling source fails closed: ok")
+
     invalid_proposal = json.loads(json.dumps(configured))
     invalid_proposal["ordered_events"][1]["body"] = (
         invalid_proposal["ordered_events"][1]["body"].replace("turn: 1", "turn: 3")
@@ -1031,7 +1107,7 @@ def run_self_test():
     ]
     assert len(late_rulings) == 1 and "decision: unauthorized" in late_rulings[0]
     print("configuration after deliberation cannot govern retroactively: ok")
-    print("self-test: deliberation projection, idempotency, advisory claim, non-conformance, and fail-closed paths passed")
+    print("self-test: configured projection, idempotency, metadata, and fail-closed paths passed")
 
 
 def build_parser():
