@@ -48,6 +48,10 @@ requires. The two roles carry very different burdens, and collapsing them would
 place the reducer's cost on every participant, contradicting the razor in
 section 1. This repository currently ships a reference envelope and integrity
 validator, not a reducer-conformant implementation.
+A deployment MAY operate while explicitly declaring its unmet reducer
+guarantees, but this creates no additional conformance tier: it MUST NOT
+represent itself or any session it processes as reducer-conformant until every
+reducer requirement is satisfied.
 
 1.8. The key words MUST, MUST NOT, REQUIRED, SHOULD, SHOULD NOT, and MAY are to
 be interpreted as normative requirements.
