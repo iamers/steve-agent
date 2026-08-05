@@ -671,7 +671,13 @@ def decision_for(record, records, rulings, configuration, configurations_valid):
 def derive_deliberation(records, rulings, configuration, notices):
     """Derive section 9.2 values from valid deliberation messages."""
     state = scan_deliberation(records, rulings, configuration, notices=notices)
-    current_phase = state["phase"] or "initial"
+    current_phase = state["phase"]
+    if current_phase is None:
+        current_phase = "initial" if configuration is None else next(
+            phase
+            for phase, values in configuration.items()
+            if values["sequence"] == 1
+        )
     current_turn = state["turn"] or 1
     return (
         "terminated" if state["terminated"] else "open",
@@ -1063,13 +1069,24 @@ def run_self_test():
     configured_bodies = [
         "\n".join([
             "```open-table", "open-table: 0", "message: configuration",
-            "id: configuration-0001", "phase: initial", "sequence: 1",
+            "id: configuration-observation-0001", "phase: observation", "sequence: 1",
             "expected-actors: 101", "authority-profile: deliberation-only",
             "turn-limit: 2", "```", "", "Configuration.",
         ]),
         "\n".join([
+            "```open-table", "open-table: 0", "message: configuration",
+            "id: configuration-synthesis-0001", "phase: synthesis", "sequence: 2",
+            "expected-actors: 101", "authority-profile: deliberation-only",
+            "turn-limit: 2", "```", "", "Configuration.",
+        ]),
+        "\n".join([
+            "```open-table", "open-table: 0", "message: contribution",
+            "id: observation-contribution-0001", "phase: observation", "turn: 1",
+            "```", "", "Observation.",
+        ]),
+        "\n".join([
             "```open-table", "open-table: 0", "message: proposal",
-            "id: configured-proposal-0001", "phase: initial", "turn: 1",
+            "id: configured-proposal-0001", "phase: synthesis", "turn: 1",
             "point: decision", "```", "", configured_prose,
         ]),
         "\n".join([
@@ -1079,8 +1096,8 @@ def run_self_test():
         ]),
         "\n".join([
             "```open-table", "open-table: 0", "message: settled",
-            "id: configured-settled-0001", "phase: initial", "turn: 1",
-            "point: decision", "proposal-comment-id: 302",
+            "id: configured-settled-0001", "phase: synthesis", "turn: 1",
+            "point: decision", "proposal-comment-id: 304",
             "disposition: accepted", "terminal: true", "```", "", "Settlement.",
         ]),
     ]
@@ -1099,6 +1116,19 @@ def run_self_test():
             ),
             "permission": "write",
         })
+
+    configured_waiting = json.loads(json.dumps(configured))
+    configured_waiting["ordered_events"] = configured_waiting["ordered_events"][:2]
+    waiting_plan = reduce_session(configured_waiting, as_of)
+    waiting_projection = [
+        write["body"] for write in waiting_plan["writes"]
+        if write["operation"] == "update_issue_body"
+    ][0]
+    assert "Session status: `open`" in waiting_projection
+    assert "Current phase: `observation`" in waiting_projection
+    assert "Current turn: `1`" in waiting_projection
+    print("configured session before deliberation: first configured phase, turn 1")
+
     configured_plan = reduce_session(configured, as_of)
     configured_comments = [
         write["body"] for write in configured_plan["writes"]
@@ -1106,14 +1136,14 @@ def run_self_test():
     ]
     configured_authorized = [
         write["body"] for write in configured_plan["writes"]
-        if write.get("source_comment_id") in {301, 304}
+        if write.get("source_comment_id") in {301, 302, 306}
     ]
     claim_rulings = [
         write["body"] for write in configured_plan["writes"]
-        if write.get("source_comment_id") == 303
+        if write.get("source_comment_id") == 305
     ]
-    assert len(configured_comments) == 3
-    assert len(configured_authorized) == 2
+    assert len(configured_comments) == 4
+    assert len(configured_authorized) == 3
     assert all("decision: authorized" in body for body in configured_authorized)
     assert all("permission: write" in body for body in configured_authorized)
     assert len(claim_rulings) == 1
@@ -1125,12 +1155,15 @@ def run_self_test():
         if write["operation"] == "update_issue_body"
     ][0]
     assert "Session status: `terminated`" in configured_projection
+    assert "Current phase: `synthesis`" in configured_projection
+    assert "Current turn: `1`" in configured_projection
     assert "`decision`: `accepted`" in configured_projection
     assert (
         any(configured_prose in event["body"] for event in configured["ordered_events"])
         and configured_prose not in configured_projection
     )
     print("configured projection participant prose exclusion: ok")
+    print("configured phase transition and terminal settlement: ok")
     projection_prefix, _, after_start = configured_projection.partition(START_MARKER)
     _, _, projection_suffix = after_start.partition(END_MARKER)
     assert projection_prefix == configured_prefix and projection_suffix == configured_suffix
@@ -1138,15 +1171,18 @@ def run_self_test():
     print("configuration and settlement write-access rulings: recorded and authorized")
 
     no_configuration = json.loads(json.dumps(configured))
-    no_configuration["ordered_events"] = no_configuration["ordered_events"][1:]
+    no_configuration["ordered_events"] = no_configuration["ordered_events"][2:]
     no_configuration_plan = reduce_session(no_configuration, as_of)
     assert not no_configuration_plan["unreplayable"]
     assert no_configuration_plan["writes"] == []
+    configuration_free_state = derive_deliberation([], {}, None, [])
+    assert configuration_free_state[:3] == ("open", "initial", 1)
     print("configuration-free settlement: no ruling, termination, or projection")
+    print("configuration-free initial state: phase initial, turn 1")
 
     ruled_bundle = json.loads(json.dumps(configured))
-    for offset, ruling in enumerate(configured_comments, 5):
-        timestamp = "2026-08-04T00:10:0{}Z".format(offset)
+    for offset, ruling in enumerate(configured_comments, 7):
+        timestamp = "2026-08-04T00:10:{:02d}Z".format(offset)
         ruled_bundle["ordered_events"].append({
             "actor_id": 41898282,
             "actor_login": "github-actions[bot]",
@@ -1166,15 +1202,15 @@ def run_self_test():
     missing_bundle = json.loads(json.dumps(ruled_bundle))
     missing_bundle["ordered_events"] = [
         event for event in missing_bundle["ordered_events"]
-        if event["comment_id"] != 304
+        if event["comment_id"] != 306
     ]
     missing = reduce_session(missing_bundle, as_of)
     assert missing["unreplayable"] and "deleted or missing" in missing["reason"]
     print("missing ruling source fails closed: ok")
 
     invalid_proposal = json.loads(json.dumps(configured))
-    invalid_proposal["ordered_events"][1]["body"] = (
-        invalid_proposal["ordered_events"][1]["body"].replace("turn: 1", "turn: 3")
+    invalid_proposal["ordered_events"][3]["body"] = (
+        invalid_proposal["ordered_events"][3]["body"].replace("turn: 1", "turn: 3")
     )
     invalid_plan = reduce_session(invalid_proposal, as_of)
     invalid_rulings = [
@@ -1192,7 +1228,7 @@ def run_self_test():
 
     late_configuration = json.loads(json.dumps(configured))
     late_configuration["ordered_events"] = [
-        late_configuration["ordered_events"][1],
+        late_configuration["ordered_events"][3],
         late_configuration["ordered_events"][0],
     ]
     late_configuration["ordered_events"][0]["created_at"] = "2026-08-04T00:10:01Z"
