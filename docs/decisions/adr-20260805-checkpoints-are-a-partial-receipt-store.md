@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: superseded
 date: 2026-08-05
+superseded-by: adr-20260805-platform-memory-is-the-receipt-store.md
 ---
 
 # Reducer-authored checkpoints are a partial receipt store and point I stays open
