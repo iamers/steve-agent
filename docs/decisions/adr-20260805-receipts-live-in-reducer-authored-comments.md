@@ -3,7 +3,7 @@ status: accepted
 date: 2026-08-05
 ---
 
-# Creation receipts and deletion evidence live in an append-only checkpoint chain
+# Creation receipts and deletion evidence live in reducer-authored comments
 
 ## Context
 
@@ -85,22 +85,36 @@ header-only comments are not protocol messages under section 3.4 and are never
 receipted, which is what keeps an ordinary human conversation in a session issue
 free.
 
-**The envelope grammar constrains the checkpoint's shape, and the constraint is
-load-bearing rather than clerical.** Section 3.3 requires header values to be
-single-line and non-empty and requires each key to occur once, section 3.6
-enumerates scalar value types only, and section 3.8 makes every cross-message
-reference a single numeric comment id. There is no list-valued field in the
-grammar, and no existing family carries a variable-length set. A checkpoint that
-receipts N comments in one comment therefore cannot be expressed today. Nor can
-the receipts move into the prose: section 3.1 puts the protocol surface in the
-header block and leaves the prose for people, and where the specification has
-had to say so outright, as section 4.1 does for the configuration values, it
-forbids reducers to derive them from free prose. This decision does not settle which
-way out to take, because the choice belongs with the specification revision it
-authorises and each option is a different amendment. It records that the
-one-receipt-per-comment shape is the only one expressible without amending the
-grammar at all, that it is exactly the ruling's shape, and that its cost is one
-reducer comment per unruled protocol message.
+**The envelope grammar already batches, and the real constraint is narrower than
+it first appears.** Section 3.3 requires header values to be single-line and
+non-empty and requires each key to occur once, and section 3.8 makes every
+cross-message reference a single numeric comment id. That is not a prohibition
+on sets: section 4.1 already defines `expected-actors` as a comma-separated,
+whitespace-free list of unique numeric GitHub user ids, packed into one
+single-line value, and the reducer already parses it by splitting on the comma.
+A checkpoint carrying many comment ids in one value is therefore inside the
+grammar's existing idiom and needs no amendment.
+
+What the precedent does not cover is that a receipt is a **pair**, a comment id
+bound to a digest, while `expected-actors` is a flat list of scalars. Packing
+pairs into one value needs a second delimiter that no field uses today, and
+splitting them across two positionally aligned fields makes correctness depend
+on ordering, which the grammar never asks a reader to trust. So the open
+question is not whether a checkpoint may batch, which it may, but how it encodes
+a set of pairs.
+
+The receipts cannot move into the prose either: section 3.1 puts the protocol
+surface in the header block and leaves the prose for people, and where the
+specification has had to say so outright, as section 4.1 does for the
+configuration values, it forbids reducers to derive them from free prose.
+
+This decision does not settle the encoding, because it belongs with the
+specification revision it authorises. It records that one receipt per comment is
+the shape that needs no new syntax at all and is exactly the ruling's shape, at
+the cost of one reducer comment per unruled protocol message; that a flat packed
+list is already precedented and would remove most of that cost; and that a
+pair-valued field is the only option that asks the grammar for something it has
+never done.
 
 **A receipt is admissible only when the comment is provably unedited at
 observation.** The reducer records a receipt only when GraphQL `lastEditedAt`
@@ -140,6 +154,13 @@ the current inventory is a deletion, and the projection can name which comment
 rather than reporting an unexplained failure. The workflow already triggers on
 `issue_comment: deleted`; today that wakes a reducer with nothing to compare
 against, and the store is the missing memory rather than a missing trigger.
+
+**The chain covers the checkpoint half; the ruling half is already covered.**
+Rulings are not members of the chain and do not need to be: section 9.1 already
+makes a deleted or missing ruling fail closed, so the half of the store that
+predates this decision is protected by a rule the specification already has. The
+chain exists because a `checkpoint` binds no permission decision, so nothing in
+the existing rules would notice one going missing.
 
 **The chain protects the store from the same attack it detects, except at its
 tip.** Each checkpoint names every checkpoint comment id and digest it observed
@@ -248,9 +269,9 @@ Noise rises for protocol-heavy sessions and does not rise at all for
 conversation. Only comments carrying an `open-table` block are receipted, so the
 property #143 measured, that humans can discuss a session in its own issue at no
 protocol cost, is preserved. How far it rises is not yet fixed, because it
-follows from the unresolved grammar question above: one checkpoint per unruled
-protocol message is the ceiling and needs no amendment, while any batched shape
-lowers it and costs an amendment. Against the measured baseline, #143 produced
+follows from the unresolved encoding question above: one checkpoint per unruled
+protocol message is the ceiling, while a batched shape lowers it and is already
+inside the grammar's idiom for a flat list. Against the measured baseline, #143 produced
 three rulings for nine participant comments, and its unruled messages are the
 ones that would have carried the new cost.
 
@@ -265,10 +286,9 @@ reducer and workflow changes that follow it. Two constraints bound that revision
 and are worth carrying into it rather than rediscovering. The `checkpoint` must
 be its own comment, because section 3.2 requires exactly one `open-table` fenced
 block per comment, so it cannot be folded into a ruling. And the revision must
-choose how a checkpoint expresses more than one receipt, because the grammar
-admits only single-line scalar values today; the shape that needs no amendment
-is one receipt per comment, which is the ruling's shape and the noisiest of the
-options.
+choose how a checkpoint encodes a set of receipts. Batching itself is already
+precedented by `expected-actors`; what has no precedent is a list of pairs, and
+that is the question the revision has to answer.
 
 ## Alternatives considered
 
@@ -321,11 +341,13 @@ it changes the behaviour of the existing reducer for every session, not only for
 sessions with a store, and it deserves its own record rather than a sentence in
 this one.
 
-*How does a checkpoint express more than one receipt?* The grammar admits only
-single-line scalar values, so the shape needing no amendment is one receipt per
-comment. Whether to accept that noise, add a packed value type, or add a
-list-valued field is an amendment question and belongs with the specification
-revision this decision authorises.
+*How does a checkpoint encode a set of receipts?* Batching many values into one
+single-line field is already precedented by `expected-actors` in section 4.1, so
+the question is not whether a checkpoint may carry more than one receipt. It is
+that a receipt is a pair and the precedent is a flat list of scalars. Whether to
+accept one receipt per comment, introduce a second delimiter, or split the pair
+across positionally aligned fields belongs with the specification revision this
+decision authorises.
 
 *What anchors the tip of the chain?* Deleting the most recent checkpoint is
 undetectable, because nothing references it yet. The exposure is bounded to
