@@ -3,7 +3,8 @@
 name: Open Table permission probe
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [codex/open-table-point-i-anchor]
 
 permissions:
   issues: write
