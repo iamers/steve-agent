@@ -57,18 +57,50 @@ session killable by a stranger has closed the smaller half.
 
 ## Decision
 
-The store is an append-only chain of reducer-authored `checkpoint` comments in
-the session issue itself. Nothing else is added: the same `issues: write`
-token, the same comment stream that already carries rulings, and the same
-trusted GitHub metadata that already makes an edit detectable.
+The store is the reducer's own append-only comments in the session issue: the
+`ruling` comments it already writes, plus a new chained `checkpoint` family that
+covers what rulings do not reach. Nothing else is added: the same
+`issues: write` token, the same comment stream, and the same trusted GitHub
+metadata that already makes an edit detectable. Naming the existing half first
+matters, because it is the difference between adding a store and finishing one.
 
-**What a receipt is, and for which comments.** A checkpoint records, for each
-comment it receipts, the numeric comment id, the canonical digest of the
-complete body, the trusted `created_at`, and the id of the run that observed
-it. A receipt is recorded only for a comment that carries an `open-table`
-fenced block at first observation. Prose-only and header-only comments are not
-protocol messages under section 3.4 and are never receipted, which is what
-keeps an ordinary human conversation in a session issue free.
+**Part of the store already exists, and this decision names it rather than
+inventing a parallel one.** A `ruling` already binds `source-comment-id` to
+`source-digest` under section 4.16, is authored by the reducer principal, and is
+already load-bearing under section 9.1, which fails closed on a missing source
+or a digest mismatch. Every permission-sensitive message therefore already
+carries a durable authenticated receipt in an append-only comment. What is
+missing is coverage, not a mechanism: `contribution` and `proposal` are not
+permission-sensitive under section 4.17, so they receive no ruling and no
+receipt. The `checkpoint` family exists to close exactly that gap, and it
+inherits the ruling's binding, a comment id to a digest, instead of inventing a
+second way to say the same thing. What it cannot inherit is how many bindings
+fit in one comment, which the next paragraph takes up.
+
+**What a receipt is, and for which comments.** A receipt binds a numeric comment
+id to the canonical digest of the complete body of that comment, as section 3.7
+already defines the digest. A receipt is recorded only for a comment that
+carries an `open-table` fenced block at first observation. Prose-only and
+header-only comments are not protocol messages under section 3.4 and are never
+receipted, which is what keeps an ordinary human conversation in a session issue
+free.
+
+**The envelope grammar constrains the checkpoint's shape, and the constraint is
+load-bearing rather than clerical.** Section 3.3 requires header values to be
+single-line and non-empty and requires each key to occur once, section 3.6
+enumerates scalar value types only, and section 3.8 makes every cross-message
+reference a single numeric comment id. There is no list-valued field in the
+grammar, and no existing family carries a variable-length set. A checkpoint that
+receipts N comments in one comment therefore cannot be expressed today. Nor can
+the receipts move into the prose: section 3.1 puts the protocol surface in the
+header block and leaves the prose for people, and where the specification has
+had to say so outright, as section 4.1 does for the configuration values, it
+forbids reducers to derive them from free prose. This decision does not settle which
+way out to take, because the choice belongs with the specification revision it
+authorises and each option is a different amendment. It records that the
+one-receipt-per-comment shape is the only one expressible without amending the
+grammar at all, that it is exactly the ruling's shape, and that its cost is one
+reducer comment per unruled protocol message.
 
 **A receipt is admissible only when the comment is provably unedited at
 observation.** The reducer records a receipt only when GraphQL `lastEditedAt`
@@ -109,17 +141,30 @@ rather than reporting an unexplained failure. The workflow already triggers on
 `issue_comment: deleted`; today that wakes a reducer with nothing to compare
 against, and the store is the missing memory rather than a missing trigger.
 
-**The chain protects the store from the same attack it detects.** Each
-checkpoint names every checkpoint comment id and digest it observed that no
-earlier checkpoint already names. A deleted or edited checkpoint therefore
-breaks a link and fails closed, instead of shrinking the store silently, which
-is the deletion problem one level up.
+**The chain protects the store from the same attack it detects, except at its
+tip.** Each checkpoint names every checkpoint comment id and digest it observed
+that no earlier checkpoint already names. A deleted or edited checkpoint
+therefore breaks a link and fails closed, instead of shrinking the store
+silently, which is the deletion problem one level up. The most recent checkpoint
+is the exception, because nothing references it yet. Deleting it rolls the store
+back by the receipts only it carried, and the comments it alone receipted become
+indistinguishable from comments no run ever observed, which is the one case
+where the exclusion rule above turns from a protection into a hole. Closing it
+needs an anchor outside the comment stream, which is the durable-store problem
+one level up again, so this decision does not claim to close it. What bounds it
+is the permission: deleting a comment requires repository write access, so the
+exposure is to a maintainer rather than to the anonymous commenter whose attack
+this decision exists to stop. It is named here rather than left for a reader to
+find, and it is the first thing an anchor design should address.
 
 **Conformance becomes a property of a session, not of the deployment.** A
-session is receipt-complete when every protocol message in its inventory
-carries an admissible receipt. A session labelled before its first comment is
-receipt-complete by construction. Only a receipt-complete session may be
-represented as reducer-conformant; the deployment claims nothing on its own.
+session is receipt-complete when every protocol message in its inventory carries
+an admissible receipt. Labelling a session before its first comment is what
+makes completeness attainable, though not automatic: a comment edited before any
+run observed it is unreceiptable and leaves the session incomplete, which is the
+same event the exclusion rule handles rather than a second failure. Only a
+receipt-complete session may be represented as reducer-conformant; the
+deployment claims nothing on its own.
 
 The five obligations of section 2.3 are then answered as follows.
 
@@ -152,15 +197,29 @@ rests on GitHub's trusted metadata for those comments. It is never derived from
 the projection, and the issue body remains a rebuildable cache with no
 evidentiary role.
 
-**A scheduled trigger is added, and it is not the receipting path.** Events
-already receipt what they observe. The schedule exists for the case #143
-measured, a session whose last event died and which therefore stays stale
-forever, and it is the trigger of its own that reducer output cannot provide. A
-scheduled run has no issue context, so it selects sessions by the
-`open-table/session` label; the concurrency group must then be keyed on the
-issue it selected, because today's expression reads `github.event.issue.number`
-and would evaluate to empty on a scheduled run, collapsing every session into a
-single group.
+**A scheduled trigger is added, it runs daily, and it is not the receipting
+path.** Events already receipt what they observe. The schedule exists for the
+case #143 measured, a session whose last event died and which therefore stays
+stale forever, and it is the trigger of its own that reducer output cannot
+provide. Daily is the cadence because the pass is a safety net rather than the
+receipting path: it bounds staleness at twenty-four hours and writes nothing on
+a session with nothing to record. A scheduled run has no issue context, so it
+selects sessions by the `open-table/session` label; the concurrency group must
+then be keyed on the issue it selected, because today's expression reads
+`github.event.issue.number` and would evaluate to empty on a scheduled run,
+collapsing every session into a single group.
+
+**A session with a receipt gap is processed and is not conformant.** Refusing to
+process it would hand anyone able to create a gap the denial of service this
+decision exists to remove, which would reintroduce the defect through the door
+marked safety. The gap is stated in the projection, so an incomplete session is
+visibly incomplete rather than quietly treated as whole.
+
+**The checkpoint carries no digest for the prose comments it observed.** It
+would restore the per-comment noise this design avoids, and the exclusion rule
+does not need it: a comment carrying no `open-table` block at first observation
+influenced no ruling and no projection, so its absence from the store is already
+the right answer rather than a missing record.
 
 ## Consequences
 
@@ -186,11 +245,14 @@ That is a liveness cost paid deliberately in exchange for the availability
 gain, and it is visible in the projection rather than silent.
 
 Noise rises for protocol-heavy sessions and does not rise at all for
-conversation. Only comments carrying an `open-table` block are receipted, so
-the property #143 measured, that humans can discuss a session in its own issue
-at no protocol cost, is preserved. A session like #143 would have added roughly
-one checkpoint comment per run that observed a new protocol message, against
-three rulings for the whole session.
+conversation. Only comments carrying an `open-table` block are receipted, so the
+property #143 measured, that humans can discuss a session in its own issue at no
+protocol cost, is preserved. How far it rises is not yet fixed, because it
+follows from the unresolved grammar question above: one checkpoint per unruled
+protocol message is the ceiling and needs no amendment, while any batched shape
+lowers it and costs an amendment. Against the measured baseline, #143 produced
+three rulings for nine participant comments, and its unruled messages are the
+ones that would have carried the new cost.
 
 The trust boundary is unchanged and is worth stating plainly: a compromised
 workflow token can author a false checkpoint, exactly as it can author a false
@@ -199,9 +261,14 @@ session's history against everyone else.
 
 This decision records no implementation. The work it authorises is a
 specification revision adding the reducer-authored `checkpoint` family, and the
-reducer and workflow changes that follow it. The `checkpoint` must be its own
-comment, because section 3 permits exactly one `open-table` fenced block per
-comment and it therefore cannot be folded into a ruling.
+reducer and workflow changes that follow it. Two constraints bound that revision
+and are worth carrying into it rather than rediscovering. The `checkpoint` must
+be its own comment, because section 3.2 requires exactly one `open-table` fenced
+block per comment, so it cannot be folded into a ruling. And the revision must
+choose how a checkpoint expresses more than one receipt, because the grammar
+admits only single-line scalar values today; the shape that needs no amendment
+is one receipt per comment, which is the ruling's shape and the noisiest of the
+options.
 
 ## Alternatives considered
 
@@ -239,18 +306,29 @@ is the half of point I that #144 added.
 
 ## Open questions
 
-Each carries the answer this decision recommends, so that a reader who agrees
-can proceed without a round trip.
+Three questions posed by the first draft of this record are now settled and have
+moved into the decision above: the scheduled pass runs daily, a session with a
+receipt gap is processed and is not conformant, and the checkpoint carries no
+digest for prose comments. They are noted here because a reader of the PR
+discussion will find them raised and should not go looking for them unanswered.
 
-*How often should the scheduled pass run?* Recommended: daily. The schedule is
-a safety net for the dead-last-event case rather than the receipting path,
-which events already cover, so a daily pass bounds staleness at twenty-four
-hours and writes nothing on a session with nothing to record.
+What stays open is smaller and sharper.
 
-*Should a session with a receipt gap be usable?* Recommended: yes, and
-non-conformant. Refusing to process it would hand anyone who can create a gap
-the denial of service this decision exists to remove.
+*Should fail-closed be scoped to the affected message rather than the session?*
+Section 2.2's own wording scopes it to "the affected protocol history", so the
+narrower reading may already be the correct one. It is not settled here because
+it changes the behaviour of the existing reducer for every session, not only for
+sessions with a store, and it deserves its own record rather than a sentence in
+this one.
 
-*Should the checkpoint carry the digests of prose comments it observed, without
-treating them as receipts?* Recommended: no. It would restore the per-comment
-noise the design avoids, and the exclusion argument above does not need it.
+*How does a checkpoint express more than one receipt?* The grammar admits only
+single-line scalar values, so the shape needing no amendment is one receipt per
+comment. Whether to accept that noise, add a packed value type, or add a
+list-valued field is an amendment question and belongs with the specification
+revision this decision authorises.
+
+*What anchors the tip of the chain?* Deleting the most recent checkpoint is
+undetectable, because nothing references it yet. The exposure is bounded to
+actors with repository write access, which is not the attacker this decision
+closes out, but it is the residual most worth closing next and no answer to it
+is proposed here.
