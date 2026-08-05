@@ -36,6 +36,18 @@ START_MARKER = "<!-- open-table:start -->"
 END_MARKER = "<!-- open-table:end -->"
 PROFILE = "deliberation-only"
 VALIDATOR = Path(__file__).with_name("open-table-validate.py")
+VALIDATOR_PREFLIGHT_BODY = "\n".join([
+    "```open-table",
+    "open-table: 0",
+    "message: contribution",
+    "id: validator-preflight-0001",
+    "phase: preflight",
+    "turn: 1",
+    "```",
+    "",
+    "Reducer validator toolchain preflight.",
+])
+_VALIDATOR_PREFLIGHT_SIGNATURE = None
 TIMESTAMP_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 OPEN_TABLE_RE = re.compile(r"\A(?:[ \t]*\r?\n)* {0,3}```open-table[ \t]*\r?\n")
@@ -79,6 +91,21 @@ def validate_comment(body):
     if result.returncode != 0:
         detail = result.stderr.decode("utf-8", errors="replace").strip()
         raise ReductionError(detail or "single-comment validation failed")
+
+
+def verify_validator_toolchain():
+    """Prove the deployed validator can accept a known-valid envelope once."""
+    global _VALIDATOR_PREFLIGHT_SIGNATURE
+    signature = (sys.executable, str(VALIDATOR))
+    if _VALIDATOR_PREFLIGHT_SIGNATURE == signature:
+        return
+    try:
+        validate_comment(VALIDATOR_PREFLIGHT_BODY)
+    except (OSError, ReductionError) as error:
+        raise ReductionError(
+            "validator toolchain preflight failed: {}".format(error)
+        ) from error
+    _VALIDATOR_PREFLIGHT_SIGNATURE = signature
 
 
 def extract_header(body):
@@ -657,6 +684,7 @@ def derive_deliberation(records, rulings, configuration, notices):
 
 def reduce_session(bundle, as_of):
     """Purely map one replay bundle and explicit clock value to planned writes."""
+    verify_validator_toolchain()
     bundle = json.loads(json.dumps(bundle))
     bundle["as_of"] = as_of
     try:
@@ -814,6 +842,7 @@ def load_event_context():
 
 def build_github_bundle(repository, issue_number, token, principal):
     """Read current issue state and trusted edit metadata from GitHub."""
+    verify_validator_toolchain()
     base = "https://api.github.com/repos/{}".format(repository)
     issue = github_request("{}/issues/{}".format(base, issue_number), token)
     labels = [label["name"] for label in issue.get("labels", [])]
@@ -945,8 +974,44 @@ def fixture_bundle():
 
 
 def run_self_test():
+    import shutil
+    import tempfile
+
+    global VALIDATOR
     bundle = fixture_bundle()
     as_of = "2026-08-04T01:00:00Z"
+    verify_validator_toolchain()
+    print("validator toolchain preflight: known-valid envelope accepted")
+
+    invalid_participant = json.loads(json.dumps(bundle))
+    invalid_participant["ordered_events"] = invalid_participant["ordered_events"][:1]
+    invalid_participant["ordered_events"][0]["body"] = (
+        invalid_participant["ordered_events"][0]["body"].replace(
+            "open-table: 0", "open-table: 1"
+        )
+    )
+    invalid_plan = reduce_session(invalid_participant, as_of)
+    assert not invalid_plan["unreplayable"] and invalid_plan["writes"] == []
+    assert len(invalid_plan["notices"]) == 1
+    assert invalid_plan["notices"][0]["reason"] == "invalid Open Table envelope"
+    print("invalid participant envelope: nonfatal notice retained")
+
+    original_validator = VALIDATOR
+    with tempfile.TemporaryDirectory() as directory:
+        isolated_validator = Path(directory) / VALIDATOR.name
+        shutil.copyfile(VALIDATOR, isolated_validator)
+        try:
+            VALIDATOR = isolated_validator
+            reduce_session(bundle, as_of)
+        except ReductionError as error:
+            assert "validator toolchain preflight failed" in str(error)
+            assert "open_table_core" in str(error)
+        else:
+            raise AssertionError("a missing validator dependency was accepted")
+        finally:
+            VALIDATOR = original_validator
+    print("missing validator dependency: fatal before reduction or planned writes")
+
     first = reduce_session(bundle, as_of)
     second = reduce_session(bundle, as_of)
     assert first == second and not first["unreplayable"]
