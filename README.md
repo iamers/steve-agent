@@ -53,6 +53,36 @@ team wherever it chats. WhatsApp support is on the roadmap, not shipping today.
 This repository is developed by its own factory. Tasks raised in chat land as
 reviewed pull requests here, in the open.
 
+## Open Table v0 contract
+
+The accepted runtime-neutral protocol lives in
+[`docs/specs/open-table-v0.md`](docs/specs/open-table-v0.md). Its reusable
+standard-library core is `tools/open_table_core.py`; the compatible offline CLI
+remains `tools/open-table-validate.py`. The CLI self-test runs the external,
+versioned integrity, reason-code, comment, and bundle fixtures under
+`docs/specs/open-table-v0/fixtures/`.
+
+This contract validates envelopes and the closed integrity bundle, including
+canonical body digests, immutable artefacts, duplicate/conflict behavior,
+reducer-principal checks over caller-supplied trusted metadata, ruling bindings,
+and stable diagnostics. Its supported Python API is the module's `__all__`
+surface; fatal validation raises `ValidationError` with a structured diagnostic,
+while the structured integrity entry point returns nonfatal diagnostics on
+success. Human-readable detail text is not contractual.
+
+The core does not authenticate or gather GitHub evidence, prove input
+completeness, detect deletions that GitHub no longer exposes, perform contextual
+reduction, write projections, mutate GitHub, or integrate a runtime, and it does
+not claim reducer conformance.
+
+The separate interim `deliberation-only` reducer is
+`tools/open-table-reduce.py`, with its GitHub Action in
+`.github/workflows/open-table.yml`. It uses the validator's single-comment mode,
+implements contextual reduction outside this core, and explicitly remains
+non-conformant because it has no authenticated creation receipts or deletion
+evidence. The accepted deployment boundary is recorded in
+`docs/decisions/adr-20260804-open-table-reducer-is-deliberation-only-and-not-conformant.md`.
+
 ## Built on Hermes Agent
 
 Steve Agent is built on [Hermes Agent](https://github.com/nousresearch/hermes-agent)

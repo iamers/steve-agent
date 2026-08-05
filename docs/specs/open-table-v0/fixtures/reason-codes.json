@@ -1,0 +1,76 @@
+{
+  "open_table": 0,
+  "suite_version": 1,
+  "reasons": [
+    {
+      "code": "invalid_bundle",
+      "rule": "2.8",
+      "fixture": "integrity.invalid_bundle"
+    },
+    {
+      "code": "event_order_invalid",
+      "rule": "2.4",
+      "fixture": "integrity.event_order_invalid"
+    },
+    {
+      "code": "source_edited",
+      "rule": "2.2, 7.3",
+      "fixture": "integrity.source_edited"
+    },
+    {
+      "code": "non_protocol_comment",
+      "rule": "2.8, 7.5",
+      "fixture": "integrity.non_protocol_comment"
+    },
+    {
+      "code": "invalid_envelope",
+      "rule": "3.1-3.5",
+      "fixture": "integrity.invalid_envelope"
+    },
+    {
+      "code": "invalid_field",
+      "rule": "3.3-3.6, 4",
+      "fixture": "integrity.invalid_field"
+    },
+    {
+      "code": "invalid_artefact",
+      "rule": "4.13",
+      "fixture": "integrity.invalid_artefact"
+    },
+    {
+      "code": "exact_duplicate",
+      "rule": "7.2",
+      "fixture": "integrity.exact_duplicate"
+    },
+    {
+      "code": "message_id_conflict",
+      "rule": "7.2",
+      "fixture": "integrity.message_id_conflict"
+    },
+    {
+      "code": "unauthorized_reducer_output",
+      "rule": "2.3, 4.12, 4.16",
+      "fixture": "integrity.unauthorized_reducer_output"
+    },
+    {
+      "code": "ruling_missing",
+      "rule": "4.16, 9.1",
+      "fixture": "integrity.ruling_missing"
+    },
+    {
+      "code": "ruling_duplicate",
+      "rule": "4.16, 9.1",
+      "fixture": "integrity.ruling_duplicate"
+    },
+    {
+      "code": "ruling_binding_invalid",
+      "rule": "4.16, 7.3",
+      "fixture": "integrity.ruling_binding_invalid"
+    },
+    {
+      "code": "ruling_decision_invalid",
+      "rule": "4.17",
+      "fixture": "integrity.ruling_decision_invalid"
+    }
+  ]
+}
