@@ -96,23 +96,37 @@ taken from trusted GitHub context at the observing run: the canonical digest of
 the complete comment body as section 3.7 defines it, the trusted `created_at`,
 and the numeric author actor id.
 
-**Which of section 2.2's fields are persisted, and why the rest are not.**
-Section 2.2 requires an adapter to capture the creation digest plus trusted
-`created_at`, `updated_at` and GraphQL `lastEditedAt`. The digest, `created_at`
-and the author id are persisted in the receipt. `updated_at` and `lastEditedAt`
-are read live from trusted context at every replay and are not persisted, and
-the division is deliberate rather than an omission.
+**Which of section 2.2's fields are persisted, and the reading of section 2.2
+that this rests on.** Section 2.2 requires a replay adapter to "capture an
+authenticated GitHub comment-creation event receipt containing the original
+complete-body canonical digest, plus trusted `created_at`, `updated_at`, and
+GitHub GraphQL `lastEditedAt` metadata". That sentence carries two readings and
+this decision does not get to pick one silently. On the wider one the receipt
+itself contains all four values. On the narrower one the adapter captures a
+receipt containing the digest and captures the three metadata fields alongside
+it, which is what the next requirement then uses when it says replay must match
+the body to the receipt digest while `lastEditedAt` is null and `updated_at`
+equals `created_at`, a test that means nothing except against a live comment.
 
-Their live form is the edit detector: a comment still present whose digest
-matches but whose `lastEditedAt` is now set was edited and reverted, and that
-is fatal under section 2.2 exactly as a mismatch is. Their persisted form would
-record constants. The admissibility rule below only records a receipt when
-`lastEditedAt` is null and `updated_at` equals `created_at`, so a stored copy
-of either says nothing an auditor could not derive from the receipt existing at
-all. Section 2.2 asks that they be captured, and they are captured at every
-replay from the authenticated context section 2.5 defines; what this decision
-adds is persistence for the one value that becomes unrecoverable the moment the
-body changes, plus the two that let a failure name what was lost.
+**This decision adopts the narrower reading, records that it is a reading
+rather than a settled fact, and sends the ambiguity to the specification
+revision it authorises.** Under it the digest, the trusted `created_at` and the
+author id are persisted in the receipt, while `updated_at` and `lastEditedAt`
+are read live from trusted context at every replay.
+
+The reason is that the two unpersisted fields would record constants. The
+admissibility rule below records a receipt only when `lastEditedAt` is null and
+`updated_at` equals `created_at`, so their stored values are fixed by
+construction and say nothing an auditor could not derive from the receipt
+existing at all. Their live form is the edit detector: a comment still present
+whose digest matches but whose `lastEditedAt` is now set was edited and
+reverted, and that is fatal under section 2.2 exactly as a mismatch is.
+
+If the revision settles on the wider reading instead, a receipt carries two
+more fields whose values are `created_at` and null, and the cost is encoding
+size rather than correctness. Nothing else here changes. What is not available
+is leaving the record asserting that the current text already permits the
+split, which is what an earlier draft did.
 
 That is what makes the division sufficient once the source is unavailable. When
 a receipted comment is absent from the inventory there is no live metadata to
@@ -375,9 +389,12 @@ configuration values, it forbids reducers to derive them from free prose.
 Reducer conformance does not become reachable, and this record is the second
 in a row to say so. The 2026-08-04 record declared the reducer deliberation-only
 and not conformant; this one removes most of what stood between the deployment
-and conformance and names precisely what still does. Sessions that predate the
-store do not become conformant retroactively in any case, which section 2.2
-already forbids.
+and conformance and leaves exactly one of section 2.3's five obligations unmet.
+That obligation is **fail-closed recovery**, unmet because a deletion inside the
+newest unreceipted window is not detected rather than being detected and
+refused, and it is the same one named in the decision above. Sessions that
+predate the store do not become conformant retroactively in any case, which
+section 2.2 already forbids.
 
 The denial of service in #144 closes for the case it was reported for and for
 the attacker it was reported against: a prose-only comment, edited by any
@@ -413,12 +430,14 @@ session's history against everyone else, and only outside its newest window.
 
 This decision records no implementation. The work it authorises is a
 specification revision adding the reducer-authored `checkpoint` family, and the
-reducer and workflow changes that follow it. Two constraints bound that revision
-and are worth carrying into it rather than rediscovering. The `checkpoint` must
-be its own comment, because section 3.2 requires exactly one `open-table` fenced
-block per comment, so it cannot be folded into a ruling. And the revision must
-choose how a checkpoint encodes a set of receipts, which is the tuple question
-above.
+reducer and workflow changes that follow it. Three constraints bound that
+revision and are worth carrying into it rather than rediscovering. The
+`checkpoint` must be its own comment, because section 3.2 requires exactly one
+`open-table` fenced block per comment, so it cannot be folded into a ruling.
+The revision must choose how a checkpoint encodes a set of receipts, which is
+the tuple question above. And it must settle section 2.2's wording on whether
+the three metadata fields belong inside the receipt or alongside it, because
+this decision reads that sentence narrowly and a reading is not a rule.
 
 The anchor is a separate decision and this one is a prerequisite for it rather
 than a substitute. It starts from a measured set of candidate record classes
