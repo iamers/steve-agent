@@ -135,9 +135,9 @@ jobs:
             cat "$timeline_file"
             printf '\n'
             found="$(jq -c --arg label "$label_name" \
-              '[.data.repository.issue.timelineItems.nodes[]? \
-                | select(.label.name == $label) \
-                | {id, createdAt, actor: .actor.login, actorDatabaseId: \
+              '[.data.repository.issue.timelineItems.nodes[]?
+                | select(.label.name == $label)
+                | {id, createdAt, actor: .actor.login, actorDatabaseId:
                   ((.actor | .databaseId) // null), label: .label.name}] | last' \
               "$timeline_file")"
             if test "$found" != "null"; then
@@ -162,9 +162,9 @@ jobs:
           cat "$timeline_file"
           printf '\n'
           after_cleanup="$(jq -c --arg label "$label_name" \
-            '[.data.repository.issue.timelineItems.nodes[]? \
-              | select(.label.name == $label) \
-              | {id, createdAt, actor: .actor.login, actorDatabaseId: \
+            '[.data.repository.issue.timelineItems.nodes[]?
+              | select(.label.name == $label)
+              | {id, createdAt, actor: .actor.login, actorDatabaseId:
                 ((.actor | .databaseId) // null), label: .label.name}] | last' \
             "$timeline_file")"
           printf 'MATCHED EVENT AFTER CLEANUP: %s\n' "$after_cleanup"
