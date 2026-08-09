@@ -259,7 +259,7 @@ Expected log entries:
 - Number of registered commands
 - "Sent home-channel startup notification to telegram:<group-chat-id>"
 
-The gateway uses long polling and doesn't open any listening ports. Any reserved port (e.g., `23789`) is for future use with a local dashboard/API.
+The gateway uses long polling and doesn't open any listening ports. The optional dashboard (section 6) is a separate process that does listen; Hermes defaults it to port `9119`. Reserve its port deliberately against whatever scheme the host already uses, rather than picking the next plausible number: a port that looks free today may be one another service has reserved and merely isn't holding right now.
 
 ## 6. Web dashboard (optional)
 
