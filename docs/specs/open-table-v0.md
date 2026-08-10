@@ -192,8 +192,8 @@ compatibility matrix, one row per upstream release, evaluated when an official
 release appears. No Open Table adapter currently declares such a pin. The pin
 does not move by chasing an unreleased branch.
 
-2.8. `tools/open-table-validate.py --integrity-bundle` validates only the
-comment-event integrity slice supplied to it: envelope structure, trusted event
+2.8. The comment-event integrity slice validates only what is supplied to it:
+envelope structure, trusted event
 ordering, numeric identity, canonical digests, reducer-output principals,
 duplicates, conflicts, ruling bindings, and event-local timestamps. Its input
 is not the complete replay bundle from
@@ -213,6 +213,22 @@ that begins an `open-table` block but fails strict envelope, UTF-8 scalar, or
 event-local validation is also fatal; malformed participant input is instead
 excluded deterministically as section 7.5 requires. Exact retries are identified
 before event-local checks and remain inert under section 7.2.
+
+`tools/open-table-validate.py --integrity-bundle` is this repository's reference
+implementation of the slice, and it has not been revised to this section. The
+shipped core still requires the removed `created_body_digest` on every event,
+still requires `last_edited_at` to be null and `updated_at` to equal
+`created_at`, and still rejects a whole bundle on an edit signal, so a bundle
+conforming to the schema below is rejected by the tool as shipped. The versioned
+fixtures under `docs/specs/open-table-v0/fixtures/` are legacy for the same
+reason, and the `source_edited` case among them, whose `rule` field cites
+sections 2.2 and 7.3, is evidence of the superseded rule rather than of this
+specification. Aligning the implementation is work this section authorises and
+does not require the detection mechanism of section 2.3; until it is done, a
+green self-test of that tool is evidence about the shipped behavior and not
+about this section. This lag is declared here for the same reason section 1.7
+declares the repository's wider non-conformance, and it is removed by aligning
+the tool rather than by weakening the schema below.
 
 The integrity-bundle serialization is a closed JSON schema in version 0. Its
 top-level object MUST contain exactly `authority_policy` and `ordered_events`.
