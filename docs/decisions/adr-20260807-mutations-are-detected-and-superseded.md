@@ -292,14 +292,17 @@ ruling again. The mechanism must remove that ambiguity, and where it cannot
 remove it, it must resolve it toward fail-closed: an unresolved doubt about
 whether a ruling existed is not a licence to look up current access.
 
-**An insider mutation is a detected event that opens an iteration, not
-session-fatal tampering.** In a team tool the admin who deletes a comment is
-usually doing housekeeping. The prior designs treated insider deletion of
-principal output as session death; this record downgrades it to the same
-notice-and-supersede path as every other mutation, with attribution where the
-platform provides it. This is a security downgrade, made deliberately for a
-team tool, and written down as one: the log detects and names insider
-mutations where the platform allows, and it does not prove them.
+**An insider mutation, where it is detected, opens an iteration rather than
+being session-fatal tampering.** In a team tool the admin who deletes a comment
+is usually doing housekeeping. The prior designs treated insider deletion of
+principal output as session death; this record downgrades a detected insider
+mutation to the same notice-and-supersede path as any other, with attribution
+where the platform provides it. The qualification is not decoration: property 2
+and the non-guarantees state that an insider can defeat detection of a specific
+mutation, and this paragraph governs only the mutations that are detected. This
+is a security downgrade, made deliberately for a team tool, and written down as
+one: the log detects and names insider mutations where the platform leaves a
+trace, declares the case where it does not, and proves neither.
 
 ### The non-guarantees, declared
 
@@ -463,7 +466,12 @@ The trust boundary is unchanged: a compromised principal token can author
 false tombstones, false notices, and false rulings exactly as it always
 could. The insider, previously the actor the checkpoint chain could not stop
 and the platform-memory design failed closed against, is now met where the
-product lives: detected, named where possible, superseded in the open.
+product lives: detected and superseded in the open where the platform leaves a
+trace, named on top of that where it provides attribution, and declared where
+it provides neither. That last clause is the whole of the downgrade, and it is
+stated here rather than only in the non-guarantees so that a reader who stops
+at the consequences does not leave with a stronger promise than the decision
+makes.
 
 ## Alternatives considered
 
