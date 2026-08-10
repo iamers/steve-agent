@@ -259,7 +259,7 @@ Expected log entries:
 - Number of registered commands
 - "Sent home-channel startup notification to telegram:<group-chat-id>"
 
-The gateway uses long polling and doesn't open any listening ports. Any reserved port (e.g., `23789`) is for future use with a local dashboard/API.
+The gateway uses long polling and doesn't open any listening ports. The optional dashboard (section 6) is a separate process that does listen; Hermes defaults it to port `9119`. Reserve its port deliberately against whatever scheme the host already uses, rather than picking the next plausible number: a port that looks free today may be one another service has reserved and merely isn't holding right now.
 
 ## 6. Web dashboard (optional)
 
@@ -272,8 +272,25 @@ Never commit `password_hash` or `secret` to the blueprint repo. The drift check 
 Start the dashboard:
 
 ```bash
-hermes dashboard --host <private-vpn-ip> --port <reserved-port> --no-open
+hermes dashboard --host <bind-host> --port <reserved-port> --no-open
 ```
+
+On a non-loopback bind the dashboard validates the `Host` header of every request against the exact value passed to `--host`, and answers `400 Invalid Host header` to anything else. That is a DNS-rebinding defence, not a misconfiguration to work around: there is no allowlist of accepted names, and the only way to accept several is to bind `0.0.0.0`, which exposes every interface and is a far worse trade.
+
+So `--host` is not merely a bind address, it is **the URL**, and it has no synonyms. Pick a value you are willing to type:
+
+- a **hostname** (for example the fully qualified name your VPN assigns) stays readable and survives a change of address, at the cost of being longer;
+- an **IP** works too, but then the URL is that IP forever, and a later renumbering silently breaks every bookmark.
+
+Whichever you pick, a short name that resolves for `ssh` is **not** interchangeable with the fully qualified one: only the exact string matches. Write the full URL in your own runbook rather than the abbreviation.
+
+Verify with `curl -L`, not a bare request:
+
+```bash
+curl -sL -o /dev/null -w '%{http_code}\n' http://<bind-host>:<reserved-port>/   # 200 ok, 400 wrong Host
+```
+
+Without `-L` the server answers `302` towards `/login` before the Host check runs, so a wrong URL looks like it works.
 
 The dashboard runs as a foreground process with no built-in service manager. Keep it alive with `tmux`, a `systemd --user` unit, or any process supervisor of your choice.
 
@@ -288,6 +305,8 @@ mkdir -p ~/.hermes/private
 install -m 600 /dev/null ~/.hermes/private/allowed-listeners.txt
 printf '%s\n' '<private-vpn-ip>:<reserved-port>' >> ~/.hermes/private/allowed-listeners.txt
 ```
+
+Note that this is **not** the same string as the browser URL, and the two are easy to conflate. The allowlist records the socket's local address exactly as `ss` prints it, which is always an address, never a name; the browser must use the value passed to `--host`. If you bound a hostname, the two legitimately differ — the allowlist holds the resolved address while the URL holds the name — and that difference is correct rather than drift to be reconciled.
 
 The file accepts one exact endpoint per line. Blank lines and lines beginning
 with `#` are ignored. Keep it instance-local and never commit its contents. If
