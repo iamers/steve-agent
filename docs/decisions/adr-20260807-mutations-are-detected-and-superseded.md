@@ -68,10 +68,12 @@ obligation.
 **This record therefore decides the requirement and does not decide the
 mechanism.** The reviewer offered the split and it is taken: the comment-log
 manifest, its lifecycle, and the supersede algorithm return as a separate
-implementation decision, written from an implementation rather than ahead of
-one. That ordering is the lesson of this branch: four mechanisms were designed
-here, and each died against a measurement or a reading of the deployed reducer,
-both of which an implementation supplies for free.
+implementation decision. That record still precedes the implementation it
+authorises, as `docs/decisions/README.md` requires; what it does not precede is
+the evidence. Four mechanisms were designed on this branch and every one died
+against a measurement or a reading of the deployed reducer, so the next one is
+decided after a spike that answers its open lifecycle questions against the
+running code, not from a blank page and a specification.
 
 ### The product rationale
 
@@ -409,8 +411,11 @@ revision may be done in two passes rather than held hostage to it:
 
 ### Implementation and test obligations
 
-The implementation decision is written from an implementation, not before one.
-Its tests are a fixture per row of the threat-model table plus one live drill:
+The implementation decision comes after a spike and before the implementation
+it authorises: the spike measures the lifecycle questions above against the
+deployed reducer, the record decides on that evidence, and only then is the
+mechanism built, which is the order `docs/decisions/README.md` already asks
+for. Its tests are a fixture per row of the threat-model table plus one live drill:
 a deletion of incorporated material mid-session, with the criterion that no
 contribution is lost and no session is killed. Four fixtures are named now,
 because they are the cases three review rounds paid for and no mechanism may
@@ -492,12 +497,12 @@ the excluded surface, rather than as a design.
 **Deciding the comment-log mechanism in this record** (its second mechanism):
 rejected on review, and the split taken instead. The mechanism was sound
 enough to close the four findings before it, and its remaining gaps were the
-lifecycle ones a record written ahead of an implementation cannot honestly
-answer: the commit point, the protection of the newest record, the shape of
-the ambiguity barrier. Keeping it here would have bought a fourth round on
-questions an implementation answers in an afternoon. The material is not lost:
-its obligations are listed above and the working design is kept with the
-branch's notes.
+lifecycle ones no argument can settle without evidence: the commit point, the
+protection of the newest record, the shape of the ambiguity barrier and its
+availability cost. Keeping it here would have bought a fourth round of
+reasoning about questions a spike against the deployed reducer answers in an
+afternoon. The material is not lost: its obligations are listed above and the
+working design is kept with the branch's notes.
 
 **Keeping property 2 unqualified and building the mechanism the insider case
 implies**: rejected, and this is the change of substance in this round. It is
