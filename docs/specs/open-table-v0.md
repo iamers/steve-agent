@@ -552,9 +552,9 @@ new id.
 the complete message, pinned when the ruling is created. That pin, not the
 platform's memory of the comment, is what anchors decided history. A current
 body whose canonical digest differs from the digest its ruling pinned is a
-mutation of incorporated material: it MUST be detected under section 2.2, and
-the state depending on that ruling MUST fail closed, scoped to that dependent
-state. A deleted or missing source or ruling makes dependent state
+mutation of incorporated material: section 2.2 requires it to be detected,
+within the actor scope stated there, and the state depending on that ruling
+MUST fail closed, scoped to that dependent state. A deleted or missing source or ruling makes dependent state
 unreplayable and MUST fail closed. A correction is a new message with a new id;
 it does not rewrite the invalidated history.
 
