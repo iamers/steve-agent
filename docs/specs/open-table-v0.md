@@ -66,29 +66,87 @@ the protocol header.
 append-only. This is a protocol convention, not a GitHub guarantee: comments
 can be edited or deleted. Participants MUST correct a message by posting a new
 message that references the invalidated one, never by silently editing it.
-Participants MUST NOT write Open Table projections. A replay adapter MUST
-capture an authenticated GitHub comment-creation event receipt containing the
-original complete-body canonical digest, plus trusted `created_at`, `updated_at`,
-and GitHub GraphQL `lastEditedAt` metadata. It also MUST capture a complete issue
-timeline capable of exposing deletions. Replay MUST match the current body to
-the creation-receipt digest; `lastEditedAt` MUST be null and `updated_at` MUST
-equal `created_at`. Any edit or deletion makes the affected protocol history
-unreplayable and MUST fail closed. A session without authenticated creation
-receipts is not reducer-conformant and cannot be retroactively upgraded by
-trusting its current comment bodies.
+Participants MUST NOT write Open Table projections.
+
+Because the platform does not enforce the convention, a mutation of material
+the reducer has already incorporated is detected rather than prevented. A
+replay adapter MUST supply the complete trusted comment inventory for the
+session and a complete issue timeline capable of exposing deletions. An edit or
+deletion of incorporated material MUST be detected and MUST NOT be lost
+silently. Against an account that can act only on its own comments this
+obligation has no exception. Against an account with repository write access,
+which GitHub permits to edit or delete any comment including the reducer's own
+output, it holds where the platform leaves a trace; section 2.3 declares the
+residual where it does not.
+
+A detected mutation MUST open a supersede iteration. The iteration is scoped to
+the affected message and the state depending on it, never to the session: it
+names what changed or was lost and what that material backed, re-establishing
+the material is deliberation like any other, and the session continues
+throughout. No act on the comment stream ends a session. What a lost source or
+ruling still costs is the scoped unreplayability of section 9.1. Section 2.3
+states the obligations detection MUST meet and the guarantees it does not make;
+the transition semantics of a supersede iteration and the form its notice takes
+belong to the separate accepted decision section 2.3 requires.
 
 2.3. Only an issuer matching a reducer principal allowed by the selected
 authority profile writes mutable projections or posts `ruling` messages. A
 GitHub Action remains this repository's intended first reducer implementation,
 but no conforming deployment has been selected or implemented in version 0 as
-currently shipped. Before an Action deployment can claim reducer conformance, a
-separate accepted decision MUST define the durable, authenticated, non-circular
-GitHub-resident store for creation receipts and deletion evidence, its minimum
-permissions, retention, concurrent-write behavior, and fail-closed recovery.
-No such store is selected today. In particular, the mutable issue projection,
-workflow caches, and retention-bound Action artefacts are not replay sources.
-Until that decision and implementation exist, work claims remain advisory and
-this repository MUST NOT claim reducer conformance. A future Action deployment's
+currently shipped.
+
+Detection under section 2.2 requires the reducer to remember what it
+incorporated. This specification fixes what that memory MUST satisfy and does
+not select its mechanism:
+
+- **The memory MUST NOT be the mutable issue projection.** Section 2.6 makes
+  the projection a rebuildable cache, so detection resting on the previous
+  projection is circular: the act that mutates the material can erase the
+  memory of it. The mutable issue projection, workflow caches, and
+  retention-bound Action artefacts are neither detection memory nor replay
+  sources.
+- **The memory MUST bind the numeric GitHub comment id to the canonical digest
+  of section 3.7 for the body that was incorporated.** A memory of comment ids
+  alone detects deletions and misses edits.
+- **Its domain is every message whose content affected protocol state, a
+  ruling, a projection, or a later decision.** That includes every family
+  requiring a ruling under section 4.17, every deliberation message under
+  section 4.2, and every ruling the reducer appended. A `contribution` is in
+  the domain because it advances phase and turn under section 5.2 even though
+  no section 9.2 entry names it.
+- **A permission-sensitive source whose ruling may have been lost MUST NOT be
+  ruled again against current permissions.** Section 9.1 already fails closed
+  on a deleted or missing ruling; detection MUST make that outcome reachable,
+  including where the loss is visible but does not identify the affected
+  comment. Where the ambiguity cannot be removed, it MUST resolve toward
+  failing closed: an unresolved doubt about whether a ruling existed is not
+  licence to consult current access.
+- **The minimum permission is GitHub `issues: write` and nothing more.**
+  Reading the comment inventory, reading the issue timeline, and writing
+  reducer output are inside it.
+
+Detection does not make these guarantees, and they are declared rather than
+implied:
+
+- A comment created and deleted before any run incorporated it is undetectable.
+  Nothing was remembered about it to compare against.
+- An account with repository write access can edit or delete any comment,
+  including reducer output, and can therefore defeat detection of a specific
+  mutation. Against that actor the protocol owes detection where the platform
+  leaves a trace, attribution where the platform supplies one, and this
+  declaration where it supplies neither. Against an account that can act only
+  on its own comments there is no such residual, because such an account cannot
+  reach what the reducer wrote. An adopter who does not accept this scope needs
+  an authority profile that provides a ledger, and version 0 defines none.
+- The deliberation log is not audit-grade history. It does not prove
+  completeness, absence, or the exact text of a deleted comment.
+
+Before an Action deployment can claim reducer conformance, a separate accepted
+decision MUST select the mechanism meeting these obligations and define its
+lifecycle, minimum permissions, concurrent-write behavior, and fail-closed
+recovery, and that mechanism MUST be implemented. No such mechanism is selected
+today. Until that decision and implementation exist, work claims remain
+advisory and this repository MUST NOT claim reducer conformance. A future Action deployment's
 authenticated issuer would be its token and its principal the bot account's
 positive numeric comment-author user id from trusted GitHub metadata. The
 principal remains per-repository deployment configuration, not a global
@@ -110,8 +168,10 @@ the declared event order.
 `ordered_events` contains the complete declared GitHub issue timeline, including
 comment-deletion evidence when GitHub exposes it. `trusted_context` contains
 authenticated GitHub metadata, including each event's actual author,
-authenticated creation-receipt body digest, `created_at`, `updated_at`,
-`lastEditedAt`, and recorded rulings. `authority_policy` is the selected profile
+`created_at`, `updated_at`, `lastEditedAt`, and recorded rulings. `updated_at`
+and `lastEditedAt` are auxiliary edit signals supplied when GitHub supplies
+them: no requirement of this specification rests on either, and detection is
+the obligation of section 2.3. `authority_policy` is the selected profile
 and its allowed reducer principals. `as_of` is an explicit trusted timestamp.
 Historical validity uses trusted GitHub event timestamps and MUST NOT use the
 reducer's current clock. Two reducers given the same replay bundle and `as_of`
@@ -132,24 +192,43 @@ compatibility matrix, one row per upstream release, evaluated when an official
 release appears. No Open Table adapter currently declares such a pin. The pin
 does not move by chasing an unreleased branch.
 
-2.8. `tools/open-table-validate.py --integrity-bundle` validates only the
-comment-event integrity slice supplied to it: envelope structure, trusted event
+2.8. The comment-event integrity slice validates only what is supplied to it:
+envelope structure, trusted event
 ordering, numeric identity, canonical digests, reducer-output principals,
-duplicates, conflicts, ruling bindings, null trusted `last_edited_at`, trusted
-`created_at`/`updated_at` equality, authenticated `created_body_digest` equality,
-and event-local timestamps. Its input is not the complete replay bundle from
+duplicates, conflicts, ruling bindings, and event-local timestamps. Its input
+is not the complete replay bundle from
 section 2.5: it intentionally has no
 `trusted_context`, deletion timeline, or `as_of` field and performs no
 contextual reduction, permission lookup, claim arbitration, result/review
 correlation, or projection write. The deployment adapter MUST supply a complete
 trusted comment inventory; this slice cannot prove completeness by itself. A
 green integrity check therefore MUST NOT be represented as reducer conformance.
-Within this integrity slice, any creation-receipt digest mismatch or other edit
-signal is fatal. Any first-occurrence comment from an allowed reducer principal
+Within this integrity slice an edit signal is not fatal and is not detection:
+the slice holds no memory of what a reducer incorporated, so it cannot tell an
+edited body from the body that was ruled on, and sections 2.2 and 2.3 place
+that obligation on the reducer instead. A ruling whose bound `source-digest`
+disagrees with its source remains fatal here, because that comparison needs no
+memory beyond the bundle. Any first-occurrence comment from an allowed reducer principal
 that begins an `open-table` block but fails strict envelope, UTF-8 scalar, or
 event-local validation is also fatal; malformed participant input is instead
 excluded deterministically as section 7.5 requires. Exact retries are identified
 before event-local checks and remain inert under section 7.2.
+
+`tools/open-table-validate.py --integrity-bundle` is this repository's reference
+implementation of the slice, and it has not been revised to this section. The
+shipped core still requires the removed `created_body_digest` on every event,
+still requires `last_edited_at` to be null and `updated_at` to equal
+`created_at`, and still rejects a whole bundle on an edit signal, so a bundle
+conforming to the schema below is rejected by the tool as shipped. The versioned
+fixtures under `docs/specs/open-table-v0/fixtures/` are legacy for the same
+reason, and the `source_edited` case among them, whose `rule` field cites
+sections 2.2 and 7.3, is evidence of the superseded rule rather than of this
+specification. Aligning the implementation is work this section authorises and
+does not require the detection mechanism of section 2.3; until it is done, a
+green self-test of that tool is evidence about the shipped behavior and not
+about this section. This lag is declared here for the same reason section 1.7
+declares the repository's wider non-conformance, and it is removed by aligning
+the tool rather than by weakening the schema below.
 
 The integrity-bundle serialization is a closed JSON schema in version 0. Its
 top-level object MUST contain exactly `authority_policy` and `ordered_events`.
@@ -162,11 +241,11 @@ losslessly; fractional or exponent forms and runtimes that coerce the value
 through binary floating point are not conforming. JSON strings, booleans, zero,
 and negative values are not actor ids.
 `ordered_events` is an array whose elements MUST each contain exactly
-`actor_id`, `comment_id`, `created_at`, `updated_at`, `last_edited_at`,
-`created_body_digest`, and `body`. `actor_id` and `comment_id` are positive JSON
+`actor_id`, `comment_id`, `created_at`, `updated_at`, `last_edited_at`, and
+`body`. `actor_id` and `comment_id` are positive JSON
 integers of at most 20 decimal digits; `created_at` and `updated_at` are strings
-in the exact timestamp form from section 3.6; `last_edited_at` is JSON null;
-`created_body_digest` is a canonical digest from section 3.7; and `body` is a
+in the exact timestamp form from section 3.6; `last_edited_at` is JSON null or a
+string in that same form; and `body` is a
 JSON string. Object member names MUST be unique before any value is interpreted.
 Duplicate, missing, or additional keys at any of these three levels are invalid.
 
@@ -486,12 +565,12 @@ occurrence reserves the key; it cannot be repaired by reposting and requires a
 new id.
 
 7.3. Every ruling binds to the numeric source comment id and canonical digest of
-the complete message. The current canonical body digest MUST equal the digest in
-the authenticated GitHub creation-event receipt. Trusted `updated_at` MUST equal
-`created_at`, and trusted GitHub GraphQL `lastEditedAt` MUST be null. Any
-violation means the comment was edited and replay MUST fail closed. The creation
-receipt comparison, not timestamp equality, detects an edit within timestamp
-display precision. A deleted or missing source or ruling makes dependent state
+the complete message, pinned when the ruling is created. That pin, not the
+platform's memory of the comment, is what anchors decided history. A current
+body whose canonical digest differs from the digest its ruling pinned is a
+mutation of incorporated material: section 2.2 requires it to be detected,
+within the actor scope stated there, and the state depending on that ruling
+MUST fail closed, scoped to that dependent state. A deleted or missing source or ruling makes dependent state
 unreplayable and MUST fail closed. A correction is a new message with a new id;
 it does not rewrite the invalidated history.
 
@@ -545,6 +624,11 @@ preserve all text outside those markers. Inside them it writes, in this order:
 - settled points with disposition and permalinks to settling comments;
 - open proposals with permalinks to proposal comments; and
 - invalid or duplicate message notices with comment permalinks and reasons.
+
+This projection is a cache under section 2.6 and is not the reducer's memory of
+what it incorporated. Its permalink citations are written for people, and
+section 2.3 excludes them from the detection role: a reducer MUST NOT read this
+region as its record of incorporated material.
 
 9.3. For work under an authenticated work authority profile, the reducer writes
 only labels prefixed `open-table/` and the GitHub assignee list. It computes

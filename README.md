@@ -62,6 +62,12 @@ remains `tools/open-table-validate.py`. The CLI self-test runs the external,
 versioned integrity, reason-code, comment, and bundle fixtures under
 `docs/specs/open-table-v0/fixtures/`.
 
+The integrity-bundle path of the core, and those fixtures, still implement the
+pre-revision form of specification section 2.8 and have not been aligned to it.
+The section declares the lag. Until it closes, a green self-test is evidence
+about the shipped behaviour, not about the current specification, and the
+`source_edited` fixture exercises a rule the specification no longer states.
+
 This contract validates envelopes and the closed integrity bundle, including
 canonical body digests, immutable artefacts, duplicate/conflict behavior,
 reducer-principal checks over caller-supplied trusted metadata, ruling bindings,
@@ -79,8 +85,8 @@ The separate interim `deliberation-only` reducer is
 `tools/open-table-reduce.py`, with its GitHub Action in
 `.github/workflows/open-table.yml`. It uses the validator's single-comment mode,
 implements contextual reduction outside this core, and explicitly remains
-non-conformant because it has no authenticated creation receipts or deletion
-evidence. The accepted deployment boundary is recorded in
+non-conformant because the detection mechanism sections 2.2 and 2.3 require is
+neither selected nor implemented. The accepted deployment boundary is recorded in
 `docs/decisions/adr-20260804-open-table-reducer-is-deliberation-only-and-not-conformant.md`.
 
 ## Built on Hermes Agent
