@@ -138,11 +138,25 @@ enumerable rather than open-ended:
 - the accepted decision records that speak of "the instance" without qualifying it, of which the
   superseded one is only the clearest case;
 - `instance/config.yaml` and its profiles, where model, chat, board and repository-gate settings
-  share one namespace, so no namespace can carry a scope until they are separated.
+  share one namespace, so no namespace can carry a scope until they are separated;
+- **installation and operational documentation**, enumerated because it is the category most easily
+  missed: `instance/INSTALL.md`, where the merge App is described as owned by each unqualified
+  instance and installed on its repository only; `.steve/pr-lifecycle.md`, which restates that
+  ownership five times; and `instance/README.md`, whose single occurrence is descriptive rather
+  than an ownership claim and is listed so the audit neither drops it silently nor overstates it.
 
-The audit assigns a scope to each of these and changes nothing else. It is bounded by that list,
-and the blueprint separation it may reveal is the open question already recorded below, not part of
-the audit itself.
+The bound is reproducible rather than asserted: the category is every tracked Markdown file outside
+`docs/decisions/` that asserts an instance-scoped ownership or cardinality, found by searching for
+those forms. Anything the search returns and this list omits is a defect in the list.
+
+The merge App case is worth one sentence, because it is not mere relabelling. The reason given for
+per-instance App ownership is that a shared App would let one deployment merge into another's
+repository. That is an isolation argument, and under this decision it becomes sharper rather than
+weaker: the App is hub-scoped precisely because the hub is the boundary that owns a repository.
+
+The audit assigns a scope to each of these and changes nothing else. It is bounded by that list and
+that search, and the blueprint separation it may reveal is the open question already recorded below,
+not part of the audit itself.
 
 ## Alternatives considered
 
