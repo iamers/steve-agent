@@ -139,15 +139,22 @@ enumerable rather than open-ended:
   superseded one is only the clearest case;
 - `instance/config.yaml` and its profiles, where model, chat, board and repository-gate settings
   share one namespace, so no namespace can carry a scope until they are separated;
-- **installation and operational documentation**, enumerated because it is the category most easily
-  missed: `instance/INSTALL.md`, where the merge App is described as owned by each unqualified
-  instance and installed on its repository only; `.steve/pr-lifecycle.md`, which restates that
-  ownership five times; and `instance/README.md`, whose single occurrence is descriptive rather
-  than an ownership claim and is listed so the audit neither drops it silently nor overstates it.
+- **installation and operational documentation**, the category most easily missed:
+  `instance/INSTALL.md`, where the merge App is described as owned by each unqualified instance and
+  installed on its repository only; `.steve/pr-lifecycle.md`, which restates that ownership five
+  times; `docs/GLOSSARY.md`, which defines the blueprint as the canonical copy of an instance's
+  config; and `instance/README.md`, whose single occurrence is descriptive rather than an ownership
+  claim and is listed so the audit neither drops it silently nor overstates it.
 
-The bound is reproducible rather than asserted: the category is every tracked Markdown file outside
-`docs/decisions/` that asserts an instance-scoped ownership or cardinality, found by searching for
-those forms. Anything the search returns and this list omits is a defect in the list.
+**The bound is the set of files to triage, not a set of phrases to match.** An earlier form of this
+paragraph defined the category by searching for particular wordings, and that form was wrong in the
+way phrase lists are always wrong: they cover what their author thought of. It missed the glossary,
+which makes the same assertion possessively rather than with any of the listed words.
+
+So the category is **every tracked file outside `docs/decisions/` that mentions an instance at
+all**, which is sixteen files, small enough to read. Four of them are named above as already
+identified; `docs/ARCHITECTURE.md` and the blueprint configuration are named separately in the
+categories above; triaging the remainder is part of the audit rather than a claim made here.
 
 The merge App case is worth one sentence, because it is not mere relabelling. The reason given for
 per-instance App ownership is that a shared App would let one deployment merge into another's
