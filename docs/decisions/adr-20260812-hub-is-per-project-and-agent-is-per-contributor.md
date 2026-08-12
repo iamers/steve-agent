@@ -26,22 +26,35 @@ several hubs; and because the agent was also the hub, the hub had to serve sever
 Breaking the third premise leaves multi-hub as a property of the agent and the hub as one per
 repository.
 
-**The hub is per repository because that is where atomicity lives**, which is a structural reason
-and not a convenience:
+**The hub is per repository because the deployment boundary already is the repository**, and
+because a project must have exactly one ownership authority. What each part of that rests on is
+stated separately, because the two are not equally strong:
 
-- assignment is the Kanban lease, and section 1.6 of `docs/specs/open-table-v0.md` requires that
-  lease to remain the sole ownership authority; two hubs over one repository cannot assign
-  exclusively;
-- the deterministic merge gate is bound to one repository and to a configured reviewer identity;
-- the `pr-watch` and `merge-gate-scan` schedules watch one repository;
-- GitHub Actions belong to the repository.
+- section 1.6 of `docs/specs/open-table-v0.md` requires that a project have **one** ownership
+  store, since under `steve/kanban` a claim may request the Kanban lease and Open Table must not
+  create a second one. That fixes the store, not the number of hubs: two hubs sharing one store
+  could still award exclusively, so the clause does not by itself establish this cardinality;
+- what does hold today is measured and is a property of the deployment rather than of the
+  protocol: the deterministic merge gate accepts one repository per invocation and one configured
+  reviewer identity, the `pr-watch` and `merge-gate-scan` schedules each watch one repository, and
+  GitHub Actions are repository-scoped.
 
-**The split is already written in this repository's own specification, under other names.** Open
-Table section 1.3 requires that a person with a text editor be able to participate while an
-authenticated reducer is required to rule, and section 1.7 defines two conformance tiers,
-participant and reducer, stating that the two roles carry very different burdens. Participant and
-reducer are the agent and the hub. That protocol is therefore a candidate for the boundary between
-them, which is a use nobody had considered for it.
+One hub per project is therefore the arrangement that guarantees the single ownership authority
+most simply, on a boundary the deployment already has. It is decided here as policy, and the
+argument that it is structurally forced is **not** made, because the evidence does not support it.
+
+**A candidate mapping the specification already suggests, and it is a candidate rather than a
+finding.** Open Table section 1.3 requires that a person with a text editor be able to participate
+while an authenticated reducer is required to rule, and section 1.7 defines participant and reducer
+as two conformance tiers carrying very different burdens. That is the same asymmetry this record
+draws, one authenticated deciding role against many unprivileged participating ones, which makes
+the protocol a plausible home for the hub-agent boundary and is a use nobody had considered for it.
+
+The mapping is not an identity, and the two places it fails are worth naming: section 1.5 lets any
+account that may comment participate, so a participant can be a person with no agent at all; and
+the hub does more than rule, since the gate, the schedules, the Actions and the project group are
+outside anything the specification defines. Whether the boundary is actually carried by this
+protocol is left to the open question below.
 
 ## Decision
 
@@ -83,9 +96,12 @@ roles. The names used here are `hub` and `contributor agent`.
 
 ## Alternatives considered
 
-**Making the hub multi-repository.** Rejected: it is the conclusion the false premise produced, and
-it breaks atomic assignment, which no amount of engineering restores once two hubs can award the
-same work.
+**Making the hub multi-repository.** Rejected, and on the ground the evidence supports rather than
+on a stronger one. It is the conclusion the false premise produced, and nothing in it is needed
+once the agent carries the multi-hub property. Against it: every deployment surface the hub owns
+today is repository-scoped, and a hub spanning repositories would have to keep one ownership
+authority per project without ever letting two of them award the same work. That is not shown to
+be impossible; it is shown to be unnecessary, and this record declines to buy it.
 
 **One agent per contributor per project.** Rejected: it multiplies instances along two dimensions
 and forces a contributor to maintain one installation per project they touch.
