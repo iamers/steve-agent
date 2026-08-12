@@ -17,8 +17,21 @@ platform integrations.
 
 The **contributor agent** is the instance a contributor installs. It holds that contributor's own
 model credentials and configuration, and one person contributes to more than one project, so it
-must attach to several hubs. A single developer or an entire company with shared credentials may
-sit behind one agent; that is a choice of whoever installs it, not a property of the product.
+must attach to several hubs.
+
+"Contributor" here is the **administrative trust boundary that owns the credentials and the
+configuration**, not necessarily one human. A single developer and an entire company with shared
+credentials are both contributors under that definition, which is why the cardinality is one agent
+per boundary rather than one per person. Stating it that way is what makes the count meaningful: it
+is not a headcount, it is a count of who administers the deployment.
+
+The deployment is not per project. **Each attachment to a hub may be**, and that is a different
+statement. The agent's model credentials and its configuration belong to the contributor, but a
+GitHub identity acting on a project is governed by that project: the worker identity uses a
+fine-grained token scoped to target repositories, and the accepted decision on role-separated
+identities makes concrete account names per-instance. So an agent attached to several hubs carries
+per-attachment state for identity selection, authorisation, revocation and isolation, whatever
+mechanism ends up providing it.
 
 The false conclusion was a chain broken only at its last step: credentials are personal, so an
 instance is per contributor; a contributor works on several projects, so that instance attaches to
@@ -58,16 +71,37 @@ protocol is left to the open question below.
 
 ## Decision
 
-**Steve is two roles, and every decision about Steve declares which of the two it speaks about.**
+**Steve is two roles, and everything written about Steve declares which of them it governs, `hub`,
+`contributor-agent`, or `shared`.**
 
 1. **One hub per project.** The hub is provided by the repository owner and is not multi-tenant.
    The earlier decision recorded on 2026-07-23 is preserved here in full, scoped to this role.
-2. **One agent per contributor, attaching to many hubs.** The agent holds its own credentials and
-   configuration. Nothing about it is per project.
+2. **One agent per contributor, attaching to many hubs**, where "contributor" is the
+   administrative boundary that owns the credentials and configuration. **The deployment is not
+   per project; each hub attachment may be.** The model credentials and the deployment belong to
+   the contributor. Of the two GitHub identities the factory separates by role, the **worker**
+   identity belongs to the contributor side, because it acts for whoever is doing the work and
+   GitHub's own per-repository access already governs what it may do there; the **reviewer**
+   identity belongs to the **hub**, because author-is-not-approver is a guarantee the project owes
+   and the gate checks a reviewer identity configured on the hub. That division is decided here
+   and is new; the mechanism by which an agent selects an identity per attachment is not.
 3. **A single deployment may perform both roles**, which is what this repository does today while
    developing itself. This is permitted as a deployment arrangement and forbidden as a conceptual
-   one: documents, records and configuration state which role they govern, and a sentence that
-   does not say is a defect to correct rather than a shorthand to interpret.
+   one. Concretely, and because an absolute version of this rule cannot classify a combined
+   deployment:
+   - the declared scopes are **`hub`**, **`contributor-agent`** and **`shared`**, and `shared` is a
+     real answer rather than a failure to choose: a combined deployment has runtime state that
+     genuinely belongs to both;
+   - a declaration attaches to an **artifact, a section, or a configuration namespace**, not to
+     every sentence. Requiring it per sentence is unsatisfiable and was the first form of this
+     rule;
+   - what is a defect is an artifact whose scope is **undeclared where the reader cannot infer
+     it**, not prose that omits the word.
+
+   This rule is not retroactively satisfied. The canonical architecture document still states one
+   unqualified instance per project, and the blueprint configuration mixes model, chat, board and
+   repository-gate concerns in one namespace. Both are named in the obligations below as a bounded
+   audit rather than left to be discovered by the first reader who takes rule 3 literally.
 
 This record supersedes rather than amends because the register has no amending status. The
 substance is a scoping: the superseded decision was right about the hub, silent about the agent,
@@ -93,6 +127,22 @@ the ignorance is the only honest handling available.
 Naming carries a cost that is recorded rather than solved: this repository is named `steve-agent`,
 so using "agent" for the contributor half makes the repository share a name with one of the two
 roles. The names used here are `hub` and `contributor agent`.
+
+**The bounded audit rule 3 owes, named so it is scheduled rather than discovered.** Landing this
+record makes existing canonical material non-compliant on the day it merges, and the material is
+enumerable rather than open-ended:
+
+- `docs/ARCHITECTURE.md`, which states one unqualified instance per project in its overview and
+  again in its fixed decisions, and describes the two GitHub identities without saying which side
+  owns them;
+- the accepted decision records that speak of "the instance" without qualifying it, of which the
+  superseded one is only the clearest case;
+- `instance/config.yaml` and its profiles, where model, chat, board and repository-gate settings
+  share one namespace, so no namespace can carry a scope until they are separated.
+
+The audit assigns a scope to each of these and changes nothing else. It is bounded by that list,
+and the blueprint separation it may reveal is the open question already recorded below, not part of
+the audit itself.
 
 ## Alternatives considered
 
