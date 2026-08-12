@@ -146,15 +146,24 @@ enumerable rather than open-ended:
   config; and `instance/README.md`, whose single occurrence is descriptive rather than an ownership
   claim and is listed so the audit neither drops it silently nor overstates it.
 
-**The bound is the set of files to triage, not a set of phrases to match.** An earlier form of this
-paragraph defined the category by searching for particular wordings, and that form was wrong in the
-way phrase lists are always wrong: they cover what their author thought of. It missed the glossary,
-which makes the same assertion possessively rather than with any of the listed words.
+**The bound is a command and its output, not a description of a search.** Two earlier forms of this
+paragraph failed in the same way: the first defined the category by particular wordings, which
+covered only what its author thought of and missed the glossary's possessive phrasing; the second
+claimed "every tracked file" while the search behind the number had been restricted to Markdown and
+YAML, so the assertion was wider than the measurement. Both are the defect this record exists to
+correct, committed inside the correction.
 
-So the category is **every tracked file outside `docs/decisions/` that mentions an instance at
-all**, which is sixteen files, small enough to read. Four of them are named above as already
-identified; `docs/ARCHITECTURE.md` and the blueprint configuration are named separately in the
-categories above; triaging the remainder is part of the audit rather than a claim made here.
+So the bound is stated as the command that produces it:
+
+```text
+git grep -Il -i -E 'instances?' -- ':!docs/decisions/**' | wc -l
+31
+```
+
+Thirty-one tracked files, measured on this head. The count is an **input set, not a defect count**:
+it includes matches that exist only in a path, in privacy wording, or in unrelated prose, and
+triaging those out is the first thing the audit does. Six files are already identified above as
+carrying the assertion. The remaining triage is the audit's work and no claim about it is made here.
 
 The merge App case is worth one sentence, because it is not mere relabelling. The reason given for
 per-instance App ownership is that a shared App would let one deployment merge into another's
