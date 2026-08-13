@@ -1,6 +1,7 @@
 ---
-status: accepted
+status: superseded
 date: 2026-07-23
+superseded-by: adr-20260812-hub-is-per-project-and-agent-is-per-contributor.md
 ---
 
 # One instance serves one project
