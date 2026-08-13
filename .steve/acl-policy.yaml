@@ -1,0 +1,69 @@
+# Declared expectation for the ACL facts that are safe to publish: command
+# names, which config keys must exist, and the structural relationship
+# between them. tools/acl-check.py asserts instance/config.yaml (and the
+# profile copies below) against this file, in CI, with no live instance and
+# no account/chat/user id anywhere in the comparison.
+#
+# No identity belongs here. The accounts these keys gate (who is admin, who
+# may talk to the instance, who may approve) are asserted separately, against
+# a baseline kept on the deployment: see .steve/acl-identity-keys.txt and
+# instance/drift-check.sh.
+#
+# Changing an expected value below is a reviewable diff, not a silent edit to
+# instance/config.yaml.
+
+# Telegram command tiering (docs/decisions/adr-20260723-single-telegram-profile-uses-command-tiering.md,
+# docs/ARCHITECTURE.md §6.3/§8.1). Each scope pairs an admin-gating key (must
+# stay present and non-empty; its resolved value is the deployment's business,
+# not this file's) with the commands left open to a non-admin user. Every
+# other command is reserved to whoever the admin key resolves to.
+telegram_command_tiers:
+  dm:
+    admin_key: platforms.telegram.extra.allow_admin_from
+    open_commands_key: platforms.telegram.extra.user_allowed_commands
+    open_commands: [status, whoami]
+  group:
+    admin_key: platforms.telegram.extra.group_allow_admin_from
+    open_commands_key: platforms.telegram.extra.group_user_allowed_commands
+    open_commands: [status, whoami]
+
+# Config files expected to carry the block above, verbatim.
+tiered_config_files:
+  - instance/config.yaml
+  - instance/profiles/steve-reviewer/config.yaml
+
+# The worker profile must NOT carry a Telegram surface at all: it is "a clone
+# of main WITHOUT TELEGRAM_* keys" (docs/ARCHITECTURE.md §5.1), so it never
+# double-polls the bot and never becomes a second, untiered entry point.
+untiered_config_files:
+  - instance/profiles/steve-worker/config.yaml
+
+# Inbound access control: who may talk to the agent at all
+# (docs/decisions/adr-20260723-trusted-group-and-admin-dms-use-separate-acls.md).
+# These keys carry identities and are never valorized here; this only pins
+# that they stay MANDATORY in the template, so a live instance can never lose
+# access control by having drift-check treat their absence as legitimate
+# (an @optional key's absence is not reported as drift).
+required_env_keys:
+  - TELEGRAM_ALLOWED_USERS
+  - TELEGRAM_GROUP_ALLOWED_CHATS
+
+# Worker/reviewer authorization: author != approver at the git-credentials
+# level too (docs/decisions/adr-20260723-github-identities-are-separated-by-role.md).
+# The mode value itself ("shared"/"isolated") carries no identity.
+credentials_mode:
+  valid_values: [shared, isolated]
+  # Profiles pinned to an exact mode because the mode IS the load-bearing
+  # invariant, not merely a well-formed value.
+  required:
+    instance/profiles/steve-reviewer: isolated
+
+# Deliberately NOT covered here: "an ordinary conversation still behaves
+# ordinarily" has no expression in configuration to assert against. It is not
+# gated by a key that could drift; it is whether the reply pipeline (model,
+# fallback chain, credential pool) is actually working, which only shows up
+# at runtime. Asserting a proxy for it here (a personality string, a
+# channel_prompt shape) would look like coverage without being any: it needs
+# a live probe instead, sending a neutral message and checking a coherent
+# reply arrives, the same way tools/e2e/injector.py already exercises
+# allowlists and mention-gating as a real Telegram account.

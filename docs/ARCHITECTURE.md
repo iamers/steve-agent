@@ -263,7 +263,14 @@ born in the repo and applied to the instance; if one is born live (an emergency)
 back to the repo immediately and noted in the journal. `drift-check.sh` compares live vs repo and
 **flags without restoring** (exit 1 on drift), covering config, the main's SOUL, the SOUL and
 config of the worker/reviewer profiles, `.env` keys (names, not values), profile conformance, and
-the skill. `smoke.sh` verifies 10 health checks (8.7).
+the skill. For the identity-bearing keys listed in `.steve/acl-identity-keys.txt` (who is admin,
+who may talk to the instance, who may approve), it goes one step further than key names: it
+compares each VALUE against a baseline kept only on the deployment, entirely over a value-blind
+SSH exchange, so a change to who those keys authorize is caught even when the key itself stays
+set. The publishable half of the same ACL surface (which Telegram commands are admin-only,
+which env keys must stay mandatory, worker/reviewer credential isolation) is asserted in CI
+against `.steve/acl-policy.yaml` by `tools/acl-check.py`, with no live instance involved.
+`smoke.sh` verifies 10 health checks (8.7).
 
 ### 8.3 Process governance as code (`.steve/`)
 
