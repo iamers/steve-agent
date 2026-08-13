@@ -1,19 +1,22 @@
 # CI for iamers/steve-agent
 #
-# One lightweight job (target < 2 minutes). Seven checks in sequence:
+# One lightweight job (target < 2 minutes). Ten checks in sequence:
 #   1. tools/pr-brief.py self-test (deterministic review triage)
 #   2. tools/open-table-validate.py self-test (integrity rules)
 #   3. tools/open-table-reduce.py self-test (deliberation-only reducer)
-#   4. instance/smoke.sh listener verdict self-test
-#   5. syntax check (bash -n) on all tracked shell scripts
-#   6. shellcheck at warning severity on the same scripts
-#   7. gitleaks (manually downloaded binary, NOT the official action, which
-#      requires a license for organizations) on the working copy
+#   4. tools/boundary-check.py self-test (parallel task boundary collisions)
+#   5. instance/smoke.sh listener verdict self-test
+#   6. instance/merge-gate.sh self-test (deterministic merge decision logic)
+#   7. instance/merge-gate-scan.sh self-test (merge gate scanner formatter)
+#   8. syntax check (bash -n) on all tracked shell scripts
+#   9. shellcheck at warning severity on the same scripts
+#   10. gitleaks (manually downloaded binary, NOT the official action, which
+#       requires a license for organizations) on the working copy
 #
 # Note about check_privacy.sh: in CI it is a no-op by design -- the local
 # denylist (secret strings) exists only on the instance and is never committed,
 # so there is nothing to compare in CI. Secret/privacy coverage in CI relies
-# solely on gitleaks (step 7). check_privacy.sh remains useful as an optional
+# solely on gitleaks (step 10). check_privacy.sh remains useful as an optional
 # local guard on the instance, where the denylist is present.
 
 name: checks
@@ -42,8 +45,17 @@ jobs:
       - name: Open Table reducer self-test
         run: python3 tools/open-table-reduce.py --self-test
 
+      - name: boundary-check self-test
+        run: python3 tools/boundary-check.py --self-test
+
       - name: smoke listener self-test
         run: ./instance/smoke.sh --self-test
+
+      - name: merge-gate self-test
+        run: ./instance/merge-gate.sh --self-test
+
+      - name: merge-gate-scan self-test
+        run: ./instance/merge-gate-scan.sh --self-test
 
       - name: bash syntax check
         run: bash -n instance/*.sh scripts/*.sh
