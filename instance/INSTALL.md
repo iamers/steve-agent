@@ -449,14 +449,34 @@ If drift check reports non-conformant profiles, re-run `provision-worker.sh` on 
 
 #### Kanban Board Backup
 
-Schedule automated backups of `~/.hermes/kanban.db` (retains last 7 backups):
+Schedule automated backups of `~/.hermes/kanban.db` (retains last 7 backups).
+Like `pr-watch.sh` and `merge-gate-scan.sh`, the schedule lives in the Hermes
+cron database, not the system crontab: register the canonical script as a thin
+wrapper. Create `~/.hermes/scripts/backup-kanban-cron.sh`:
 
 ```bash
-# Add to crontab: crontab -e
-0 2 * * * cd ~/repos/steve-agent/instance && ./backup-kanban.sh
+#!/usr/bin/env bash
+# Wrapper cron: esegue il backup canonico del repo. Stdout vuoto = silenzio.
+exec bash "$HOME/repos/steve-agent/instance/backup-kanban.sh" 2>&1
 ```
 
-The backup script uses SQLite online backup API (safe with active databases) and is silent on success (designed for cron watchdog mode).
+Then register it with the Hermes scheduler:
+
+```bash
+hermes cron create '0 2 * * *' --script backup-kanban-cron.sh --no-agent --deliver <platform:chat:thread>
+```
+
+`--no-agent` runs the wrapper directly with no LLM spawned. The backup script
+uses the SQLite online backup API (safe with active databases) and is silent
+on success (designed for cron watchdog mode). That silence is precisely why a
+`--deliver` target is still required: the script speaks only when the backup
+fails, so a job registered without one delivers that failure nowhere and the
+backup stops working unobserved. Point it at the same operational channel the
+other watchdog jobs use, with `--deliver <target>`.
+
+A restore path for these backups is `instance/restore-kanban.sh`; see its
+header comment for usage. It always requires an explicit destination path, so
+it cannot overwrite a live database by omission.
 
 #### Merge-Gate Scan (Phase 2 Automation)
 
