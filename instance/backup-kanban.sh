@@ -50,9 +50,13 @@ except Exception as e:
 # Imposta permessi restrictivi sul backup
 chmod 600 "$BACKUP_FILE"
 
-# Cleanup: keep the latest 7 backups, delete the oldest ones
+# Cleanup: keep the latest 7 backups, delete the oldest ones (database file
+# plus any WAL/SHM sidecar files SQLite may have left next to it -- a plain
+# "*.db" glob does not match "*.db-wal" or "*.db-shm").
 cd "$BACKUP_DIR" || exit 1
-ls -t kanban-*.db 2>/dev/null | tail -n +$((RETENTION + 1)) | xargs -r rm -f
+ls -t kanban-*.db 2>/dev/null | tail -n +$((RETENTION + 1)) | while IFS= read -r old; do
+  rm -f -- "$old" "${old}-wal" "${old}-shm"
+done
 
 # Silenzioso su successo (stdout vuoto)
 exit 0
