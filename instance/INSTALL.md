@@ -463,14 +463,16 @@ exec bash "$HOME/repos/steve-agent/instance/backup-kanban.sh" 2>&1
 Then register it with the Hermes scheduler:
 
 ```bash
-hermes cron create '0 2 * * *' --script backup-kanban-cron.sh --no-agent
+hermes cron create '0 2 * * *' --script backup-kanban-cron.sh --no-agent --deliver <platform:chat:thread>
 ```
 
 `--no-agent` runs the wrapper directly with no LLM spawned. The backup script
 uses the SQLite online backup API (safe with active databases) and is silent
-on success (designed for cron watchdog mode): unlike `merge-gate-scan.sh`, it
-has nothing to deliver on the happy path, so no `--deliver` target is
-configured.
+on success (designed for cron watchdog mode). That silence is precisely why a
+`--deliver` target is still required: the script speaks only when the backup
+fails, so a job registered without one delivers that failure nowhere and the
+backup stops working unobserved. Point it at the same operational channel the
+other watchdog jobs use, with `--deliver <target>`.
 
 A restore path for these backups is `instance/restore-kanban.sh`; see its
 header comment for usage. It always requires an explicit destination path, so
