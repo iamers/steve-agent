@@ -3,11 +3,13 @@
 # destinazione a scelta, usando la SQLite online backup API (lo stesso
 # meccanismo di backup-kanban.sh, in direzione opposta).
 #
-# La destinazione e' SEMPRE un argomento esplicito: lo script non ha un target
-# di default, quindi non puo' mai scrivere sopra un database live per omissione.
+# La destinazione è SEMPRE un argomento esplicito: lo script non ha un target
+# di default, quindi non può mai scrivere sopra un database live per omissione.
 # Si rifiuta con un messaggio chiaro ed exit non-zero su sorgente mancante,
-# sorgente corrotta, o destinazione gia' esistente; non produce mai un file
-# vuoto lasciato li' a sembrare un successo.
+# vuota, corrotta o priva di tabelle, e su destinazione già esistente — inclusa
+# una che esiste solo come symlink penzolante, che `-e` da solo non vede e che
+# altrimenti verrebbe seguita creando il suo target. Non produce mai un file
+# vuoto lasciato lì a sembrare un successo.
 #
 # Uso: ./restore-kanban.sh <backup-file> <destination-file>
 set -u
@@ -25,7 +27,16 @@ if [ ! -f "$BACKUP_FILE" ]; then
   exit 1
 fi
 
-if [ -e "$DEST_FILE" ]; then
+# Un file da zero byte è un database SQLite vuoto perfettamente valido: passa
+# l'integrity check e verrebbe "restaurato" in una destinazione senza tabelle.
+if [ ! -s "$BACKUP_FILE" ]; then
+  echo "error: backup file is empty: $BACKUP_FILE" >&2
+  exit 1
+fi
+
+# -L oltre a -e: un symlink penzolante non "esiste" per -e, quindi senza questo
+# test verrebbe seguito e il restore creerebbe il suo target.
+if [ -e "$DEST_FILE" ] || [ -L "$DEST_FILE" ]; then
   echo "error: destination already exists, refusing to overwrite: $DEST_FILE" >&2
   exit 1
 fi
@@ -35,7 +46,7 @@ if [ ! -d "$DEST_DIR" ]; then
   mkdir -p "$DEST_DIR" || { echo "error: could not create destination directory: $DEST_DIR" >&2; exit 1; }
 fi
 
-# Verifica l'integrita' della sorgente PRIMA di scrivere qualsiasi byte sulla
+# Verifica l'integrità della sorgente PRIMA di scrivere qualsiasi byte sulla
 # destinazione, poi esegue il restore con la SQLite online backup API. Un
 # fallimento qui non deve lasciare un file di destinazione vuoto o parziale.
 BACKUP_FILE="$BACKUP_FILE" DEST_FILE="$DEST_FILE" python3 -c "
@@ -52,6 +63,14 @@ try:
     if check != 'ok':
         print(f'Restore error: backup failed integrity check: {check}', file=sys.stderr)
         sys.exit(1)
+    # Un database strutturalmente valido ma senza tabelle non è il backup di
+    # niente: restaurarlo produrrebbe un successo apparente su un file vuoto.
+    tables = src.execute(
+        \"SELECT count(*) FROM sqlite_master WHERE type = 'table'\"
+    ).fetchone()[0]
+    if tables == 0:
+        print('Restore error: backup contains no tables', file=sys.stderr)
+        sys.exit(1)
     dst = sqlite3.connect(dest_file)
     src.backup(dst)
     src.close()
@@ -64,7 +83,7 @@ except sqlite3.Error as e:
 RC=$?
 if [ "$RC" -ne 0 ]; then
   # Rimuove un eventuale file di destinazione vuoto/parziale creato prima del
-  # fallimento, cosi' un refuse non lascia un artefatto che sembra un successo.
+  # fallimento, così un refuse non lascia un artefatto che sembra un successo.
   rm -f "$DEST_FILE"
   exit 1
 fi
