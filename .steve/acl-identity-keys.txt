@@ -1,3 +1,10 @@
+# The baseline these keys are compared against lives ONLY on the deployment
+# (~/.hermes/private/). It holds unsalted SHA-256 of each value, and a numeric
+# account id has a small enough space that an unsalted hash is recoverable in
+# seconds -- so the file's safety rests entirely on it never leaving that host.
+# The privacy guard cannot enforce that (it matches values, and a hash is not
+# its value), so tools/acl-check.py asserts it is not tracked and .gitignore
+# keeps it from being staged by accident.
 # Identity-bearing .env keys tracked for VALUE drift by
 # instance/drift-check.sh, on the deployment only. A key NAME here is public
 # (it says which authorization decision exists); the VALUE it holds on a live

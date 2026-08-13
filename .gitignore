@@ -6,3 +6,7 @@ instance.env
 .DS_Store
 __pycache__/
 .worktrees/
+
+# The deployment-side identity baseline holds unsalted hashes of identity
+# values: it must never enter this repository. Asserted by tools/acl-check.py.
+*acl-identity-baseline*

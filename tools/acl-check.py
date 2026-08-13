@@ -18,6 +18,7 @@ Usage:
   python3 tools/acl-check.py --self-test
 """
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -119,6 +120,31 @@ def check_credentials_mode(modes, valid_values, required):
             problems.append(
                 "{}/credentials.mode: is {!r}, must be {!r}".format(
                     profile, actual, expected))
+    return problems
+
+
+def tracked_files(root):
+    """What the repository ships is `git ls-files`, not a directory walk with
+    exclusions: the second is right on the day it is written and quietly wrong
+    afterwards."""
+    out = subprocess.run(
+        ["git", "-C", str(root), "ls-files"],
+        capture_output=True, text=True, check=True).stdout
+    return [line for line in out.splitlines() if line]
+
+
+def check_baseline_not_tracked(tracked_paths, baseline_name):
+    """The identity baseline holds UNSALTED hashes of identity values. A numeric
+    account id has a small enough space that an unsalted hash is recoverable in
+    seconds, so the whole design rests on that file never leaving the deployment.
+    The privacy guard cannot enforce it: the guard matches values, and a hash is
+    not its value. So the assertion lives here, where it can fail."""
+    problems = []
+    for path in tracked_paths:
+        if Path(path).name == baseline_name:
+            problems.append(
+                "{}: the identity baseline must never be tracked -- it holds "
+                "unsalted hashes of identity values".format(path))
     return problems
 
 
@@ -245,6 +271,15 @@ def run_self_test():
            check_identity_keys_declared(["TELEGRAM_ADMIN_ID"], "OTHER_KEY=\n"),
            want_clean=False)
 
+    expect("baseline: a tree without the baseline is clean",
+           check_baseline_not_tracked(
+               ["instance/drift-check.sh", ".steve/acl-policy.yaml"], "b.sha256"),
+           want_clean=True)
+    expect("baseline: a tracked baseline is flagged wherever it sits",
+           check_baseline_not_tracked(
+               ["docs/notes/b.sha256"], "b.sha256"),
+           want_clean=False)
+
     # --- Real repo: the actual files must be clean right now.
     root = find_repo_root()
     if root is None:
@@ -263,6 +298,8 @@ def run_self_test():
         real_problems += check_no_telegram_surface(data, rel_path)
     real_problems += check_required_env_keys(template_text, policy["required_env_keys"])
     real_problems += check_identity_keys_declared(identity_keys, template_text)
+    real_problems += check_baseline_not_tracked(
+        tracked_files(root), policy["identity_baseline_filename"])
 
     modes = {}
     for profile_dir in sorted((root / "instance" / "profiles").iterdir()):

@@ -67,3 +67,7 @@ credentials_mode:
 # a live probe instead, sending a neutral message and checking a coherent
 # reply arrives, the same way tools/e2e/injector.py already exercises
 # allowlists and mention-gating as a real Telegram account.
+
+# The deployment-side identity baseline. Named here so the assertion that it is
+# never tracked has something to compare against.
+identity_baseline_filename: acl-identity-baseline.sha256
