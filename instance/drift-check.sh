@@ -374,9 +374,17 @@ read_keys_file() {
 # compare_identity_baseline <env-file> <baseline-file> <keys-file>
 # For every key named in keys-file: hashes its current value in env-file and
 # prints "OK <key>", "DRIFT <key>" or "NO-BASELINE <key>" against
-# baseline-file. NEVER prints a value or a hash. Returns 1 if any key
-# drifted, 0 otherwise (a lone NO-BASELINE does not fail the check).
+# baseline-file. NEVER prints a value or a hash, including under shell
+# tracing. Returns 1 if any key drifted OR has no baseline entry: a run that
+# compared nothing must not be indistinguishable from a clean one.
 compare_identity_baseline() {
+  # Il corpo gira in una subshell con xtrace SPENTO: sotto `bash -x` le
+  # espansioni di assegnamento e di printf stampavano il valore e il suo
+  # digest su stderr, che e' esattamente cio' che questa funzione promette di
+  # non emettere. Una promessa che vale solo finche' nessuno abilita il
+  # tracing non e' una promessa.
+  (
+  case "$-" in *x*) set +x ;; esac
   local env_file="$1" baseline_file="$2" keys_file="$3"
   local key value hash baseline_hash any_drift=0
   while IFS= read -r key; do
@@ -384,7 +392,10 @@ compare_identity_baseline() {
     hash=$(printf '%s' "$value" | sha256sum | cut -d' ' -f1)
     baseline_hash=$(env_value "$baseline_file" "$key")
     if [ -z "$baseline_hash" ]; then
-      echo "NO-BASELINE $key"
+      # Fail closed: senza baseline non e' stato confrontato NIENTE, e uscire
+      # 0 renderebbe un run verde indistinguibile da un confronto riuscito.
+      echo "NO-BASELINE $key (run --seed-identity-baseline once the live value is known correct)"
+      any_drift=1
     elif [ "$hash" = "$baseline_hash" ]; then
       echo "OK $key"
     else
@@ -393,6 +404,7 @@ compare_identity_baseline() {
     fi
   done < <(read_keys_file "$keys_file")
   return "$any_drift"
+  )
 }
 
 # seed_identity_baseline <env-file> <baseline-file> <keys-file>
@@ -400,6 +412,10 @@ compare_identity_baseline() {
 # deliberate action taken once the live value is known to be correct; never
 # invoked by compare_identity_baseline itself.
 seed_identity_baseline() {
+  # Stessa ragione della funzione sopra: sotto tracing questo corpo esponeva
+  # valore e digest.
+  (
+  case "$-" in *x*) set +x ;; esac
   local env_file="$1" baseline_file="$2" keys_file="$3"
   local key value hash tmp
   tmp=$(mktemp)
@@ -409,6 +425,7 @@ seed_identity_baseline() {
     printf '%s=%s\n' "$key" "$hash" >>"$tmp"
   done < <(read_keys_file "$keys_file")
   mv "$tmp" "$baseline_file"
+  )
 }
 
 if "$compare_only"; then

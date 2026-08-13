@@ -58,15 +58,23 @@ credentials_mode:
   required:
     instance/profiles/steve-reviewer: isolated
 
-# Deliberately NOT covered here: "an ordinary conversation still behaves
-# ordinarily" has no expression in configuration to assert against. It is not
-# gated by a key that could drift; it is whether the reply pipeline (model,
-# fallback chain, credential pool) is actually working, which only shows up
-# at runtime. Asserting a proxy for it here (a personality string, a
-# channel_prompt shape) would look like coverage without being any: it needs
-# a live probe instead, sending a neutral message and checking a coherent
-# reply arrives, the same way tools/e2e/injector.py already exercises
-# allowlists and mention-gating as a real Telegram account.
+# "An ordinary conversation still behaves ordinarily": configuration carries
+# its PREREQUISITES, not its sufficiency. Whether a neutral message actually
+# gets a coherent reply depends on the reply pipeline working at request time,
+# which is runtime and cannot be asserted here. What CAN be asserted is that
+# the blueprint still declares a primary model, a provider for it, and a
+# non-empty fallback chain: remove any of those and an ordinary message stops
+# getting an ordinary reply. So the prerequisites are asserted below, and the
+# sufficiency is left to a live probe, the way tools/e2e/injector.py already
+# exercises allowlists as a real Telegram account. Claiming this behaviour has
+# no expression in configuration at all would be too strong.
+conversation_prerequisites:
+  config_file: instance/config.yaml
+  required_paths:
+    - model.default
+    - model.provider
+  non_empty_list_paths:
+    - fallback_model
 
 # The deployment-side identity baseline. Named here so the assertion that it is
 # never tracked has something to compare against.

@@ -71,10 +71,24 @@ def check_command_tiers(config_data, tiers, label):
                 "{}: {} scope's admin key {} is missing or empty "
                 "(that scope's command tiering is not gated by anyone)".format(
                     label, scope, spec["admin_key"]))
+        elif not isinstance(admin_value, list):
+            # Truthiness is not a shape: `true` is truthy and gates nobody.
+            problems.append(
+                "{}: {} scope's admin key {} is {}, expected a list".format(
+                    label, scope, spec["admin_key"], type(admin_value).__name__))
         open_value = get_path(config_data, spec["open_commands_key"])
         if open_value is MISSING:
             problems.append("{}: {} scope's open-commands key {} is missing".format(
                 label, scope, spec["open_commands_key"]))
+        elif not isinstance(open_value, list) or not all(
+                isinstance(c, str) for c in open_value):
+            # The container must be checked before its contents: a mapping with
+            # the same keys, or a bare string, compares equal as a set and would
+            # pass while meaning something else entirely to the runtime.
+            problems.append(
+                "{}: {} scope's open-commands key {} is {}, expected a list of "
+                "strings".format(label, scope, spec["open_commands_key"],
+                                 type(open_value).__name__))
         elif set(open_value) != set(spec["open_commands"]):
             problems.append(
                 "{}: {} scope's open commands are {}, expected {}".format(
@@ -120,6 +134,27 @@ def check_credentials_mode(modes, valid_values, required):
             problems.append(
                 "{}/credentials.mode: is {!r}, must be {!r}".format(
                     profile, actual, expected))
+    return problems
+
+
+def check_conversation_prerequisites(config_data, spec, label):
+    """Configuration cannot prove an ordinary message gets a coherent reply --
+    that is runtime. It can prove the prerequisites are still declared: a
+    primary model, a provider for it, and a non-empty fallback chain. Remove
+    any of them and an ordinary reply stops arriving."""
+    problems = []
+    for dotted in spec.get("required_paths", []):
+        value = get_path(config_data, dotted)
+        if value is MISSING or value in (None, ""):
+            problems.append(
+                "{}: {} is missing or empty (an ordinary message would have no "
+                "model to answer it)".format(label, dotted))
+    for dotted in spec.get("non_empty_list_paths", []):
+        value = get_path(config_data, dotted)
+        if value is MISSING or not isinstance(value, list) or not value:
+            problems.append(
+                "{}: {} must be a non-empty list (no fallback chain left)".format(
+                    label, dotted))
     return problems
 
 
@@ -271,6 +306,32 @@ def run_self_test():
            check_identity_keys_declared(["TELEGRAM_ADMIN_ID"], "OTHER_KEY=\n"),
            want_clean=False)
 
+    expect("tiers: a mapping with the right keys is not a list",
+           check_command_tiers(
+               {"a": {"k": ["x"], "o": {"status": 1, "whoami": 2}}},
+               {"g": {"admin_key": "a.k", "open_commands_key": "a.o",
+                      "open_commands": ["status", "whoami"]}}, "x"),
+           want_clean=False)
+    expect("tiers: a truthy non-list admin gate is flagged",
+           check_command_tiers(
+               {"a": {"k": True, "o": ["status", "whoami"]}},
+               {"g": {"admin_key": "a.k", "open_commands_key": "a.o",
+                      "open_commands": ["status", "whoami"]}}, "x"),
+           want_clean=False)
+
+    expect("conversation: declared prerequisites are clean",
+           check_conversation_prerequisites(
+               {"model": {"default": "m", "provider": "p"}, "fallback_model": [{"model": "f"}]},
+               {"required_paths": ["model.default", "model.provider"],
+                "non_empty_list_paths": ["fallback_model"]}, "x"),
+           want_clean=True)
+    expect("conversation: an empty fallback chain is flagged",
+           check_conversation_prerequisites(
+               {"model": {"default": "m", "provider": "p"}, "fallback_model": []},
+               {"required_paths": ["model.default", "model.provider"],
+                "non_empty_list_paths": ["fallback_model"]}, "x"),
+           want_clean=False)
+
     expect("baseline: a tree without the baseline is clean",
            check_baseline_not_tracked(
                ["instance/drift-check.sh", ".steve/acl-policy.yaml"], "b.sha256"),
@@ -300,6 +361,9 @@ def run_self_test():
     real_problems += check_identity_keys_declared(identity_keys, template_text)
     real_problems += check_baseline_not_tracked(
         tracked_files(root), policy["identity_baseline_filename"])
+    conv = policy["conversation_prerequisites"]
+    real_problems += check_conversation_prerequisites(
+        load_config(root, conv["config_file"]), conv, conv["config_file"])
 
     modes = {}
     for profile_dir in sorted((root / "instance" / "profiles").iterdir()):
