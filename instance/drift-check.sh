@@ -9,11 +9,14 @@
 # The last two are the VALUE-blind counterpart to the .env section below: they
 # never read or print an account, chat id or user id, only whether one still
 # hashes to what a baseline (kept ONLY on the deployment) recorded. To seed or
-# refresh that baseline after a deliberate change, SSH into the instance and
-# run, from its repo clone:
-#   ./instance/drift-check.sh --seed-identity-baseline \
+# refresh that baseline after a deliberate change, SSH into the instance and,
+# from inside its repo clone's instance/ directory (this script relocates
+# itself there, so relative arguments below are relative to instance/, same
+# as the existing --compare-config):
+#   cd ~/repos/steve-agent/instance
+#   ./drift-check.sh --seed-identity-baseline \
 #     ~/.hermes/.env ~/.hermes/private/acl-identity-baseline.sha256 \
-#     .steve/acl-identity-keys.txt
+#     ../.steve/acl-identity-keys.txt
 set -u
 
 usage() {
@@ -642,7 +645,7 @@ fi
 
 echo
 echo "== .env: identity-bearing keys (value-blind; compared against a baseline kept ONLY on the instance) =="
-identity_keys_repo=".steve/acl-identity-keys.txt"
+identity_keys_repo="../.steve/acl-identity-keys.txt"
 if [ -s "$identity_keys_repo" ]; then
   # Stage the (public) key-name list on the instance, alongside the baseline
   # it will be compared against. Only key NAMES cross the wire here.
