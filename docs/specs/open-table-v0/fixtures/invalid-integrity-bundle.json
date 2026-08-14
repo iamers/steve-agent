@@ -5,13 +5,12 @@
   },
   "ordered_events": [
     {
-      "actor_id": 101,
+      "actor_id": 9001,
       "comment_id": 1,
       "created_at": "2026-08-02T10:00:00Z",
       "updated_at": "2026-08-02T10:00:00Z",
-      "last_edited_at": "2026-08-02T10:00:01Z",
-      "created_body_digest": "sha256:55b32413a2e403b989c79a94454187f7e8355647a7b631bb46aab105ff5386f3",
-      "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: external-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nExternal valid CLI fixture."
+      "last_edited_at": null,
+      "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: external-contribution-0001\nturn: 1\n```\n\nExternal invalid CLI fixture: reducer-principal output missing phase."
     }
   ]
 }

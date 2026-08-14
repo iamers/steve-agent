@@ -27,7 +27,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:8ed06b10243960607eec6eb228fca1474728214fe477011b33f81dff3d65cfde",
             "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution."
           }
         ]
@@ -82,7 +81,6 @@
             "created_at": "2026-08-02T10:01:00Z",
             "updated_at": "2026-08-02T10:01:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:b5cb2d62f271324ec54b02e1d8de97193616a5548ca4dc5abcb21c07c6aa4aaa",
             "body": "Ordinary prose."
           },
           {
@@ -91,7 +89,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:b5cb2d62f271324ec54b02e1d8de97193616a5548ca4dc5abcb21c07c6aa4aaa",
             "body": "Ordinary prose."
           }
         ]
@@ -119,7 +116,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:b5cb2d62f271324ec54b02e1d8de97193616a5548ca4dc5abcb21c07c6aa4aaa",
             "body": "Ordinary prose."
           }
         ]
@@ -147,7 +143,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:a5be61298f99f1d29c76c219f3bc2c82232fbecc2e6c675fe11e7f5a18b3478d",
             "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: broken-0001\nphase: dreamer\nturn: 1\n"
           }
         ]
@@ -175,7 +170,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:7d46b1385827fdd1f4aa9ee38ec376f553dbf703419d8c83811bf54245d926de",
             "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\nruntime: forbidden\n```\n\nHuman-readable fixture for contribution."
           }
         ]
@@ -203,7 +197,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:a487c12f301d4b51d58bf31dc5b7f6f389080479b4ec9fe14b83e98da6395c66",
             "body": "```open-table\nopen-table: 0\nmessage: result\nid: fixture-result-0001\nclaim-comment-id: 1\noutcome: completed\nartefact: mutable-reference\n```\n\nHuman-readable fixture for result."
           }
         ]
@@ -231,7 +224,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:8ed06b10243960607eec6eb228fca1474728214fe477011b33f81dff3d65cfde",
             "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution."
           },
           {
@@ -240,7 +232,6 @@
             "created_at": "2026-08-02T10:01:00Z",
             "updated_at": "2026-08-02T10:01:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:8ed06b10243960607eec6eb228fca1474728214fe477011b33f81dff3d65cfde",
             "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution."
           }
         ]
@@ -268,7 +259,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:8ed06b10243960607eec6eb228fca1474728214fe477011b33f81dff3d65cfde",
             "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution."
           },
           {
@@ -277,7 +267,6 @@
             "created_at": "2026-08-02T10:01:00Z",
             "updated_at": "2026-08-02T10:01:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:be6953b91453415a6a35a61d4b3b92bce63cbb4f69c942ab8e5bb149872e78d2",
             "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nChanged prose."
           }
         ]
@@ -305,7 +294,6 @@
             "created_at": "2026-08-02T10:01:00Z",
             "updated_at": "2026-08-02T10:01:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:2e81ff3e6ed0ea2aca41ba1deac1826efa9ff0adafbdc9efad9654b4cf5fa98d",
             "body": "```open-table\nopen-table: 0\nmessage: ruling\nid: fixture-ruling-0001\ntarget-actor-id: 101\nmessage-id: fixture-claim-0001\nsource-comment-id: 1\nsource-digest: sha256:f9274b7b79b267584d0c6d7c747d65a86146daa415aea43d5cf008fd3196278d\ndecision: awarded\n```\n\nHuman-readable fixture for ruling."
           }
         ]
@@ -314,34 +302,6 @@
         "severity": "excluded",
         "code": "unauthorized_reducer_output",
         "rule": "2.3, 4.12, 4.16"
-      }
-    },
-    {
-      "name": "integrity.source_edited",
-      "entry_point": "validate_integrity_bundle_diagnostics",
-      "input": {
-        "authority_policy": {
-          "profile": "open-table/ordered-claims",
-          "reducer_principals": [
-            9001
-          ]
-        },
-        "ordered_events": [
-          {
-            "actor_id": 101,
-            "comment_id": 1,
-            "created_at": "2026-08-02T10:00:00Z",
-            "updated_at": "2026-08-02T10:00:00Z",
-            "last_edited_at": "2026-08-02T10:00:01Z",
-            "created_body_digest": "sha256:8ed06b10243960607eec6eb228fca1474728214fe477011b33f81dff3d65cfde",
-            "body": "```open-table\nopen-table: 0\nmessage: contribution\nid: fixture-contribution-0001\nphase: dreamer\nturn: 1\n```\n\nHuman-readable fixture for contribution."
-          }
-        ]
-      },
-      "expected": {
-        "severity": "fatal",
-        "code": "source_edited",
-        "rule": "2.2, 7.3"
       }
     },
     {
@@ -361,7 +321,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:f9274b7b79b267584d0c6d7c747d65a86146daa415aea43d5cf008fd3196278d",
             "body": "```open-table\nopen-table: 0\nmessage: claim\nid: fixture-claim-0001\nexpires-at: 2026-08-02T12:00:00Z\n```\n\nHuman-readable fixture for claim."
           }
         ]
@@ -389,7 +348,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:f9274b7b79b267584d0c6d7c747d65a86146daa415aea43d5cf008fd3196278d",
             "body": "```open-table\nopen-table: 0\nmessage: claim\nid: fixture-claim-0001\nexpires-at: 2026-08-02T12:00:00Z\n```\n\nHuman-readable fixture for claim."
           },
           {
@@ -398,7 +356,6 @@
             "created_at": "2026-08-02T10:01:00Z",
             "updated_at": "2026-08-02T10:01:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:2e81ff3e6ed0ea2aca41ba1deac1826efa9ff0adafbdc9efad9654b4cf5fa98d",
             "body": "```open-table\nopen-table: 0\nmessage: ruling\nid: fixture-ruling-0001\ntarget-actor-id: 101\nmessage-id: fixture-claim-0001\nsource-comment-id: 1\nsource-digest: sha256:f9274b7b79b267584d0c6d7c747d65a86146daa415aea43d5cf008fd3196278d\ndecision: awarded\n```\n\nHuman-readable fixture for ruling."
           },
           {
@@ -407,7 +364,6 @@
             "created_at": "2026-08-02T10:02:00Z",
             "updated_at": "2026-08-02T10:02:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:eef6722053201dfb74625a772e757eca1d554fd8c6bad02d4dca094f927bee7d",
             "body": "```open-table\nopen-table: 0\nmessage: ruling\nid: fixture-ruling-0002\ntarget-actor-id: 101\nmessage-id: fixture-claim-0001\nsource-comment-id: 1\nsource-digest: sha256:f9274b7b79b267584d0c6d7c747d65a86146daa415aea43d5cf008fd3196278d\ndecision: awarded\n```\n\nHuman-readable fixture for ruling."
           }
         ]
@@ -435,7 +391,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:f9274b7b79b267584d0c6d7c747d65a86146daa415aea43d5cf008fd3196278d",
             "body": "```open-table\nopen-table: 0\nmessage: claim\nid: fixture-claim-0001\nexpires-at: 2026-08-02T12:00:00Z\n```\n\nHuman-readable fixture for claim."
           },
           {
@@ -444,7 +399,6 @@
             "created_at": "2026-08-02T10:01:00Z",
             "updated_at": "2026-08-02T10:01:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:019abba95daf76838961dd250b7e5117d47c24f75a161937c5892c0fb6e7947b",
             "body": "```open-table\nopen-table: 0\nmessage: ruling\nid: fixture-ruling-0001\ntarget-actor-id: 101\nmessage-id: fixture-claim-0001\nsource-comment-id: 1\nsource-digest: sha256:0000000000000000000000000000000000000000000000000000000000000000\ndecision: awarded\n```\n\nHuman-readable fixture for ruling."
           }
         ]
@@ -472,7 +426,6 @@
             "created_at": "2026-08-02T10:00:00Z",
             "updated_at": "2026-08-02T10:00:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:f9274b7b79b267584d0c6d7c747d65a86146daa415aea43d5cf008fd3196278d",
             "body": "```open-table\nopen-table: 0\nmessage: claim\nid: fixture-claim-0001\nexpires-at: 2026-08-02T12:00:00Z\n```\n\nHuman-readable fixture for claim."
           },
           {
@@ -481,7 +434,6 @@
             "created_at": "2026-08-02T10:01:00Z",
             "updated_at": "2026-08-02T10:01:00Z",
             "last_edited_at": null,
-            "created_body_digest": "sha256:938e9fb47677f08a62f97edf59409d5922afce58314aa7340b2b19610eb5570f",
             "body": "```open-table\nopen-table: 0\nmessage: ruling\nid: fixture-ruling-0001\ntarget-actor-id: 101\nmessage-id: fixture-claim-0001\nsource-comment-id: 1\nsource-digest: sha256:f9274b7b79b267584d0c6d7c747d65a86146daa415aea43d5cf008fd3196278d\ndecision: authorized\n```\n\nHuman-readable fixture for ruling."
           }
         ]
