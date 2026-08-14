@@ -146,6 +146,19 @@ def check_credentials_mode(modes, valid_values, required):
     return problems
 
 
+def _is_enabled(value):
+    """True only for values the runtime resolves to enabled. Mirrors its own
+    normalisation rather than Python truthiness: the two disagree on the
+    spellings that matter here."""
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "on"}
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    return bool(value)
+
+
 def check_conversation_prerequisites(config_data, spec, label, template_text=""):
     """Configuration cannot prove an ordinary message gets a coherent reply --
     that is runtime. It can prove the narrow prerequisites: a primary route to
@@ -170,8 +183,12 @@ def check_conversation_prerequisites(config_data, spec, label, template_text="")
     for dotted in spec.get("must_not_be_disabled", []):
         block = get_path(config_data, dotted)
         # Absent is fine: the runtime creates it from the credential. Present
-        # and explicitly disabled is not, because the runtime honours it.
-        if isinstance(block, dict) and block.get("enabled") is False:
+        # is a different matter, and the test has to be the runtime's, not the
+        # literal boolean: a present key with no value, an empty or quoted
+        # false, or a zero all resolve to disabled, and the mere presence of the
+        # key stops the credential from re-enabling the platform.
+        if isinstance(block, dict) and "enabled" in block and not _is_enabled(
+                block["enabled"]):
             problems.append(
                 "{}: {} is present and explicitly disabled, so no ordinary "
                 "message arrives on it".format(label, dotted))
@@ -184,9 +201,13 @@ def check_conversation_prerequisites(config_data, spec, label, template_text="")
                 "primary route fails)".format(label, chain_spec["path"]))
         else:
             for index, entry in enumerate(chain):
+                # The runtime applies `value or ""` before normalising, so a
+                # false, a zero, an empty list or a null are discarded. Calling
+                # str() on them first would turn each into a non-empty spelling
+                # and hide exactly the entries that get thrown away.
                 missing = [f for f in chain_spec["entry_required_fields"]
                            if not isinstance(entry, dict)
-                           or not str(entry.get(f, "")).strip()]
+                           or not str(entry.get(f) or "").strip()]
                 if missing:
                     # The runtime parser discards an entry that names no provider
                     # or model, so the file looks populated and the effective
@@ -399,6 +420,29 @@ def run_self_test():
                 "fallback_model": [{"provider": "x", "model": "y"}]},
                {"must_not_be_disabled": ["platforms.telegram"],
                 "fallback_chain": {"path": "fallback_model",
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=False)
+
+    expect("conversation: a platform disabled by a non-boolean spelling is flagged",
+           check_conversation_prerequisites(
+               {"platforms": {"telegram": {"enabled": "false"}},
+                "fallback_model": [{"provider": "x", "model": "y"}]},
+               {"must_not_be_disabled": ["platforms.telegram"],
+                "fallback_chain": {"path": "fallback_model",
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=False)
+    expect("conversation: a platform explicitly enabled is not flagged",
+           check_conversation_prerequisites(
+               {"platforms": {"telegram": {"enabled": True}},
+                "fallback_model": [{"provider": "x", "model": "y"}]},
+               {"must_not_be_disabled": ["platforms.telegram"],
+                "fallback_chain": {"path": "fallback_model",
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=True)
+    expect("conversation: a falsey non-string fallback field is flagged",
+           check_conversation_prerequisites(
+               {"fallback_model": [{"provider": [], "model": "y"}]},
+               {"fallback_chain": {"path": "fallback_model",
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=False)
 
