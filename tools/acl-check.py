@@ -160,11 +160,6 @@ def check_conversation_prerequisites(config_data, spec, label, template_text="")
             problems.append(
                 "{}: {} must be a non-empty string (nothing is configured to "
                 "answer an ordinary message)".format(label, dotted))
-    for dotted in spec.get("present_paths", []):
-        if get_path(config_data, dotted) is MISSING:
-            problems.append(
-                "{}: {} is absent (an ordinary message has no surface to arrive "
-                "on)".format(label, dotted))
     for key in spec.get("required_env_keys", []):
         line = next((ln for ln in template_text.splitlines()
                      if ln.startswith(key + "=")), None)
@@ -362,7 +357,6 @@ def run_self_test():
                 "platforms": {"telegram": {}},
                 "fallback_model": [{"provider": "x", "model": "y"}]},
                {"non_empty_strings": ["model.default", "model.provider"],
-                "present_paths": ["platforms.telegram"],
                 "fallback_chain": {"path": "fallback_model",
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=True)
@@ -372,16 +366,6 @@ def run_self_test():
                 "platforms": {"telegram": {}},
                 "fallback_model": [{"provider": "x", "model": "y"}]},
                {"non_empty_strings": ["model.default", "model.provider"],
-                "present_paths": ["platforms.telegram"],
-                "fallback_chain": {"path": "fallback_model",
-                                   "entry_required_fields": ["provider", "model"]}}, "x"),
-           want_clean=False)
-    expect("conversation: a missing messaging surface is flagged",
-           check_conversation_prerequisites(
-               {"model": {"default": "m", "provider": "p"},
-                "fallback_model": [{"provider": "x", "model": "y"}]},
-               {"non_empty_strings": ["model.default", "model.provider"],
-                "present_paths": ["platforms.telegram"],
                 "fallback_chain": {"path": "fallback_model",
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=False)
@@ -391,7 +375,6 @@ def run_self_test():
                 "platforms": {"telegram": {}},
                 "fallback_model": [{"provider": "x"}]},
                {"non_empty_strings": ["model.default", "model.provider"],
-                "present_paths": ["platforms.telegram"],
                 "fallback_chain": {"path": "fallback_model",
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=False)
@@ -401,7 +384,6 @@ def run_self_test():
                 "platforms": {"telegram": {}},
                 "fallback_model": [{}]},
                {"non_empty_strings": ["model.default", "model.provider"],
-                "present_paths": ["platforms.telegram"],
                 "fallback_chain": {"path": "fallback_model",
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=False)

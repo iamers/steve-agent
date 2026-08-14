@@ -78,10 +78,15 @@ conversation_prerequisites:
   non_empty_strings:
     - model.default
     - model.provider
-  # Without the messaging surface the message never arrives to be answered.
-  present_paths:
-    - platforms.telegram
-  # Without the bot credential that surface cannot authenticate.
+  # NOT asserted here, and the reason is worth keeping: a platforms.telegram
+  # block looks like a prerequisite and is not one. With the credential below
+  # present, the shipped runtime creates and enables that platform itself, so
+  # removing the block does not stop a message arriving. Asserting it would be
+  # stricter than the behaviour it claimed to protect, which is how a checker
+  # starts failing on configurations that work.
+  #
+  # Without the bot credential the surface cannot authenticate, and that one
+  # is load-bearing.
   required_env_keys:
     - TELEGRAM_BOT_TOKEN
   # Resilience, not prerequisite. Each entry must name a provider and a model,
