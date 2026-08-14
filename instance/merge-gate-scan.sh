@@ -48,7 +48,10 @@
 #                         (default: steve-approved, NOT the gate's "approved")
 #   STEVE_MERGE_APP_ID, STEVE_MERGE_KEY_PATH, STEVE_REVIEWER_LOGIN
 #                         gate credentials/identity (read by merge-gate.sh)
-#   TELEGRAM_ADMIN_ID     numeric id of the instance admin, read ONLY to name
+#   TELEGRAM_ADMIN_ID     numeric id of the instance admin, read ONLY to know whether
+#                         one is configured. Its VALUE is never printed: naming the role
+#                         is what a reader needs, and the identifier is exactly the class
+#                         of value this project keeps out of any emitted text.
 #                         them in the waiting-for-authorization message
 #                         (optional; the message degrades honestly if unset)
 set -u
@@ -108,9 +111,9 @@ format_waiting_announcement() {
     local repository="$1" pr="$2" label="$3" admin_id="${4:-}"
     local who
     if [ -n "$admin_id" ]; then
-        who="the admin (Telegram id ${admin_id})"
+        who="the admin"
     else
-        who="the admin (TELEGRAM_ADMIN_ID is not set on this instance)"
+        who="the admin (no admin is configured on this instance)"
     fi
     printf 'waiting: PR #%s is approved, CI is green, and the tier is safe.\n' "$pr"
     printf 'https://github.com/%s/pull/%s\n' "$repository" "$pr"
@@ -210,20 +213,20 @@ run_self_test() {
     expected=$(printf '%s\n' \
         'waiting: PR #161 is approved, CI is green, and the tier is safe.' \
         'https://github.com/octo/example/pull/161' \
-        'The only missing condition is the steve-approved label, which only the admin (Telegram id 555) can apply (approve in chat).' \
-        'the admin (Telegram id 555) has NOT been notified: no notification service is wired up yet, and this message only reaches whoever reads this channel.')
+        'The only missing condition is the steve-approved label, which only the admin can apply (approve in chat).' \
+        'the admin has NOT been notified: no notification service is wired up yet, and this message only reaches whoever reads this channel.')
     actual=$(format_waiting_announcement "octo/example" "161" "steve-approved" "555")
     if [ "$actual" != "$expected" ]; then
         echo "FAIL: format_waiting_announcement (admin id set) returned unexpected text"
         return 1
     fi
-    echo "ok: format_waiting_announcement -> names the admin by id when TELEGRAM_ADMIN_ID is set"
+    echo "ok: format_waiting_announcement -> names the admin by role, never by identifier"
 
     expected=$(printf '%s\n' \
         'waiting: PR #161 is approved, CI is green, and the tier is safe.' \
         'https://github.com/octo/example/pull/161' \
-        'The only missing condition is the steve-approved label, which only the admin (TELEGRAM_ADMIN_ID is not set on this instance) can apply (approve in chat).' \
-        'the admin (TELEGRAM_ADMIN_ID is not set on this instance) has NOT been notified: no notification service is wired up yet, and this message only reaches whoever reads this channel.')
+        'The only missing condition is the steve-approved label, which only the admin (no admin is configured on this instance) can apply (approve in chat).' \
+        'the admin (no admin is configured on this instance) has NOT been notified: no notification service is wired up yet, and this message only reaches whoever reads this channel.')
     actual=$(format_waiting_announcement "octo/example" "161" "steve-approved" "")
     if [ "$actual" != "$expected" ]; then
         echo "FAIL: format_waiting_announcement (admin id unset) returned unexpected text"

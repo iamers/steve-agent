@@ -277,7 +277,13 @@ of judging it from memory:
     python3 tools/review-followups.py --body-file <tmpfile>
 
 - **`status: items`** — for each item printed, `kanban_create` a new card:
-  `--initial-status blocked` (this is intake, not dispatch — see pitfall #25;
+  `--initial-status blocked`, and then HOLD it, because that flag alone does not:
+  it answers `blocked` and the next dispatcher tick promotes the card to `ready`.
+  Run `hermes kanban block <id> "<reason>" --kind needs_input` on the created
+  card, wait one dispatcher tick, and reread with `hermes kanban show <id>`
+  without trusting the block command's output. A follow-up card that reaches
+  `ready` is dispatched, which turns a reviewer's non-blocking observation into
+  work nobody asked to start (this is intake, not dispatch — see pitfall #25;
   a follow-up is exactly the kind of unsolicited work that must not
   auto-run), title naming the origin PR, body quoting the item verbatim plus
   a link to the PR and the review. Then say in the topic that the card was
@@ -621,8 +627,11 @@ task.
     tasks, and dispatched. On 2026-07-28, ten cards written as backlog items
     autonomously produced thirteen pull requests, including a runtime pin
     change that had been explicitly deferred. To deliberately park a backlog
-    card, use `hermes kanban create --initial-status blocked` instead: this is
-    the form that holds it; write the blocking reason in the card body.
+    card, do NOT rely on `hermes kanban create --initial-status blocked`: it
+    answers `blocked` and the next dispatcher tick promotes the card to `ready`.
+    Measured on 2026-08-14: created blocked, `blocked` immediately, `ready`
+    seventy-five seconds later. The form that holds is the two-step one in the
+    fix below, and the card body carries the blocking reason either way.
     - **Symptom:** work starts that nobody requested to run immediately.
     - **Fix:** on a card already in `ready`, run
       `hermes kanban block <id> "<reason>" --kind needs_input`; wait for one
