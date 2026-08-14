@@ -97,8 +97,32 @@ task_rules:
     instead: >-
       State a sufficiency criterion in the brief ("approve if X holds and there
       are no regressions; block only for Y"). When an idea for a further probe
-      appears after that bar is met, record it as a non-blocking note instead of
-      blocking on it.
+      appears after that bar is met, record it as a non-blocking note in the
+      review's Follow-ups section (see follow_ups_are_explicit below) instead
+      of blocking on it.
+
+  follow_ups_are_explicit:
+    rule: >-
+      Every published review body ends with a "## Follow-ups" section: either
+      one bullet per non-blocking observation, or the literal line "None."
+      when there is nothing to raise. Never omit the section.
+    why: >-
+      Before this rule, "record it as a non-blocking note" (see
+      review_depth_matches_consequence above) meant free prose anywhere in the
+      review body, which nothing collected. On PR #159 the approving review
+      carried a real constraint on future work ("must not restore the removed
+      normative receipt rule"); it survived only because a human happened to
+      read the review and copy it into a file by hand (t_92bfeac5). A section
+      that can be missing is not an explicit answer: "nothing to report" and
+      "nobody looked" read identically.
+    instead: >-
+      Close every review with "## Follow-ups" and either bullets or "None.".
+      tools/review-followups.py parses this deterministically (--self-test
+      covers the classification) and exits non-zero when the section is
+      missing or unparseable, so its absence is detectable without an LLM.
+      instance/skills/steve-factory/SKILL.md section 4 requires it for every
+      review task and describes what the orchestrator does with what it
+      finds.
 
   keep_runs_short:
     rule: "Prefer few targeted checks over exhaustive batteries."

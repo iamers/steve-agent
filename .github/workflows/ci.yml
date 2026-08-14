@@ -1,16 +1,17 @@
 # CI for iamers/steve-agent
 #
-# One lightweight job (target < 2 minutes). Ten checks in sequence:
+# One lightweight job (target < 2 minutes). Eleven checks in sequence:
 #   1. tools/pr-brief.py self-test (deterministic review triage)
 #   2. tools/open-table-validate.py self-test (integrity rules)
 #   3. tools/open-table-reduce.py self-test (deliberation-only reducer)
 #   4. tools/boundary-check.py self-test (parallel task boundary collisions)
-#   5. instance/smoke.sh listener verdict self-test
-#   6. instance/merge-gate.sh self-test (deterministic merge decision logic)
-#   7. instance/merge-gate-scan.sh self-test (merge gate scanner formatter)
-#   8. syntax check (bash -n) on all tracked shell scripts
-#   9. shellcheck at warning severity on the same scripts
-#   10. gitleaks (manually downloaded binary, NOT the official action, which
+#   5. tools/review-followups.py self-test (review Follow-ups classification)
+#   6. instance/smoke.sh listener verdict self-test
+#   7. instance/merge-gate.sh self-test (deterministic merge decision logic)
+#   8. instance/merge-gate-scan.sh self-test (merge gate scanner formatter)
+#   9. syntax check (bash -n) on all tracked shell scripts
+#   10. shellcheck at warning severity on the same scripts
+#   11. gitleaks (manually downloaded binary, NOT the official action, which
 #       requires a license for organizations) on the working copy
 #
 # Note about check_privacy.sh: in CI it is a no-op by design -- the local
@@ -47,6 +48,9 @@ jobs:
 
       - name: boundary-check self-test
         run: python3 tools/boundary-check.py --self-test
+
+      - name: review-followups self-test
+        run: python3 tools/review-followups.py --self-test
 
       - name: smoke listener self-test
         run: ./instance/smoke.sh --self-test
