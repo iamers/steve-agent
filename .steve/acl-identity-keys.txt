@@ -1,0 +1,28 @@
+# The baseline these keys are compared against lives ONLY on the deployment
+# (~/.hermes/private/). It holds unsalted SHA-256 of each value, and a numeric
+# account id has a small enough space that an unsalted hash is recoverable in
+# seconds -- so the file's safety rests entirely on it never leaving that host.
+# The privacy guard cannot enforce that (it matches values, and a hash is not
+# its value), so tools/acl-check.py asserts it is not tracked and .gitignore
+# keeps it from being staged by accident.
+# Identity-bearing .env keys tracked for VALUE drift by
+# instance/drift-check.sh, on the deployment only. A key NAME here is public
+# (it says which authorization decision exists); the VALUE it holds on a live
+# instance never appears in this repository, in drift-check's output, or in
+# any file it writes.
+#
+# One key per line, no inline comments after a key (drift-check reads it
+# literally). Blank lines and full-line "#" comments are ignored.
+#
+# TELEGRAM_ALLOWED_USERS, TELEGRAM_GROUP_ALLOWED_CHATS: who may talk to the
+# agent at all (inbound access control).
+TELEGRAM_ALLOWED_USERS
+TELEGRAM_GROUP_ALLOWED_CHATS
+# TELEGRAM_ADMIN_ID: who the reserved-command tiering treats as admin.
+TELEGRAM_ADMIN_ID
+# STEVE_REVIEWER_LOGIN, STEVE_HUMAN_REVIEWER, STEVE_MERGE_APP_ID: who may
+# approve as a reviewer (machine gate identity and the human asked for
+# review), and the identity that executes a safe-tier merge.
+STEVE_REVIEWER_LOGIN
+STEVE_HUMAN_REVIEWER
+STEVE_MERGE_APP_ID
