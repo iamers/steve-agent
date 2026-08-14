@@ -276,32 +276,28 @@ of judging it from memory:
     gh api repos/<owner>/<repo>/pulls/<n>/reviews --jq '.[-1].body' > <tmpfile>
     python3 tools/review-followups.py --body-file <tmpfile>
 
-- **`status: items`** — for each item printed, `kanban_create` a new card:
-  and then HOLD it, in this order, because the order is what makes it work.
-  Creating with `--initial-status blocked` is not enough on its own: it answers
-  `blocked`, emits only a `created` event, and the next dispatcher tick promotes
-  the card to `ready`. The block transition in turn accepts only a card that is
-  `running` or `ready`, so calling it on a just-created blocked card fails and
-  leaves nothing sticky. So: create the card, **wait one dispatcher tick**,
-  confirm with `hermes kanban show <id>` that it now reads `ready`, then run
-  `hermes kanban block <id> "<reason>" --kind needs_input`, wait one more tick,
-  and reread. **The card must read `blocked` at that final reread**; anything
-  else, including an error from the block command, means it is not held and the
-  card must be blocked again or archived. Do not report this step as done
-  without that observed state: measured on 2026-08-14, created blocked reads
-  `blocked` immediately and `ready` seventy-five seconds later, and blocking a
-  card already `ready` holds. A follow-up card that reaches
-  `ready` is dispatched, which turns a reviewer's non-blocking observation into
-  work nobody asked to start (this is intake, not dispatch — see pitfall #25;
-  a follow-up is exactly the kind of unsolicited work that must not
-  auto-run), title naming the origin PR, body quoting the item verbatim plus
-  a link to the PR and the review. Then say in the topic that the card was
-  filed, name the admin as the person expected to triage it, and state
-  plainly that the admin was **not individually notified** — posting in this
-  topic and filing the card are not a delivered personal notification, only
-  something visible to whoever reads the topic or the board. This mirrors
-  the honesty rule §6 uses for the merge-gate-scan waiting announcement:
-  name the person, never imply they were reached.
+- **`status: items`** — for each item printed, open a GitHub issue on the
+  repository. **Not a board card**, and the reason is a property of the
+  dispatcher rather than a preference: it promotes a card that carries no sticky
+  block and claims assigned ready cards **in the same pass**, so there is no
+  moment at which a newly created card can be caught and held before a worker
+  may already have started. Blocking it afterwards records `blocked` in the row
+  and does not stop a process that is already running. Until an operation exists
+  that creates a card already carrying the block event, a follow-up must live
+  somewhere that cannot dispatch, and this project already has such a place.
+
+  Title names the origin pull request; body quotes the item verbatim and links
+  the pull request and the review it came from. Then say in the topic that the
+  issue was filed, name the admin as the person expected to triage it, and state
+  plainly that the admin was **not individually notified** — filing an issue and
+  posting in this topic are not a delivered personal notification, only
+  something visible to whoever reads them. This mirrors the honesty rule §6 uses
+  for the merge-gate-scan waiting announcement: name the person, never imply
+  they were reached.
+
+  When that atomic operation exists, moving these back onto the board is a
+  one-line change here; what must not change is that a reviewer's non-blocking
+  observation never starts work by itself.
 - **`status: none`** — nothing to do; the review said so explicitly.
 - **`status: missing`** (exit 2) — the review did not close with the
   required section. This is a review-process defect, not silence to pass
@@ -639,8 +635,13 @@ task.
     card, do NOT rely on `hermes kanban create --initial-status blocked`: it
     answers `blocked` and the next dispatcher tick promotes the card to `ready`.
     Measured on 2026-08-14: created blocked, `blocked` immediately, `ready`
-    seventy-five seconds later. The form that holds is the two-step one in the
-    fix below, and the card body carries the blocking reason either way.
+    seventy-five seconds later. The two-step form in the fix below is a REPAIR,
+    not a hold: the dispatcher promotes and claims in the same pass, so by the
+    time a card reads `ready` its worker may already have started, and blocking
+    then records the state without stopping the process. For work that must
+    never start on its own, do not put it on the board at all until an operation
+    exists that creates a card already carrying the block event. The card body
+    carries the blocking reason either way.
     - **Symptom:** work starts that nobody requested to run immediately.
     - **Fix:** on a card already in `ready`, run
       `hermes kanban block <id> "<reason>" --kind needs_input`; wait for one
