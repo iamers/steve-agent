@@ -35,7 +35,10 @@ TRUST_FAILURE = 2
 
 HEADING_RE = re.compile(r"^#{1,6}\s")
 FOLLOW_UPS_HEADING_RE = re.compile(r"^#{1,6}\s*Follow-ups:?\s*$", re.IGNORECASE)
-NONE_RE = re.compile(r"^None\.?$", re.IGNORECASE)
+# The policy names the literal line `None.`, so that is what is accepted:
+# an optional period and a case-insensitive match were a looser grammar
+# than the contract this tool exists to enforce.
+NONE_LITERAL = "None."
 BULLET_RE = re.compile(r"^[-*]\s+(.*\S)\s*$")
 
 
@@ -71,14 +74,23 @@ def extract_follow_ups(text):
     if not stripped:
         return "missing", []
 
-    if len(stripped) == 1 and NONE_RE.match(stripped[0]):
+    if len(stripped) == 1 and stripped[0] == NONE_LITERAL:
         return "none", []
 
     items = []
+    unparsed = []
     for ln in stripped:
         match = BULLET_RE.match(ln)
         if match:
             items.append(match.group(1))
+        else:
+            unparsed.append(ln)
+    if items and unparsed:
+        # One observation in a bullet and another in prose beside it: returning
+        # the bullets would report success while dropping the prose one, which
+        # is the silence this extractor exists to remove, produced by the
+        # extractor itself. The policy is one bullet per observation.
+        return "mixed", []
     if items:
         return "items", items
 
@@ -98,6 +110,11 @@ def report(status, items):
         return 0
     if status == "none":
         return 0
+    if status == "mixed":
+        print("the Follow-ups section mixes bullets with prose, so an "
+              "observation would be dropped: the policy is one bullet per "
+              "observation")
+        return TRUST_FAILURE
     if status == "not_closing":
         print("the review does not end with its Follow-ups section: a heading "
               "follows it, so it is not the closing section the policy requires")
@@ -124,6 +141,23 @@ def run_self_test():
         "Add CLI self-tests for the new reason catalog",
     ], "unexpected item text: {!r}".format(items)
     print("ok: bulleted Follow-ups section -> 2 items")
+
+    mixed_body = (
+        "## Verification\n- [ ] CI green\n\n"
+        "## Follow-ups\n- One observation as a bullet\n"
+        "and a second one written as prose beside it\n"
+    )
+    status, items = extract_follow_ups(mixed_body)
+    assert status == "mixed", "expected 'mixed', got {!r}".format(status)
+    assert items == [], "mixed must not report the bullets it can parse"
+    print("ok: bullets mixed with prose -> mixed, and no item is reported")
+
+    loose_none_body = (
+        "## Verification\n- [ ] CI green\n\n## Follow-ups\nNONE\n"
+    )
+    status, items = extract_follow_ups(loose_none_body)
+    assert status == "missing", "a non-literal None must not read as 'none'"
+    print("ok: 'NONE' is not the literal the policy names -> missing")
 
     not_closing_body = (
         "## Follow-ups\n"
