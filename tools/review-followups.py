@@ -9,10 +9,13 @@ rule follow_ups_are_explicit) requires every published review to close with a
 queue, because the old convention -- "goes in the review body as a
 non-blocking note" -- collected it nowhere).
 
-This tool only extracts and classifies the section. Routing found items into
-the kanban queue is done by whoever calls it (instance/skills/steve-factory/
-SKILL.md, section 4): the orchestrator already reads every review outcome, so
-filing follow-ups there does not require a new watcher.
+This tool only extracts and classifies the section. Routing what it finds is
+done by whoever calls it (instance/skills/steve-factory/SKILL.md, section 4),
+and the destination is a repository issue rather than a board card: the
+dispatcher promotes a card carrying no sticky block and claims assigned ready
+cards in the same pass, so a follow-up placed on the board can start running
+before anything can hold it. The orchestrator already reads every review
+outcome, so filing them does not require a new watcher either way.
 
 Usage:
   python3 tools/review-followups.py --body-file <path>

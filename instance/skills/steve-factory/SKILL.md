@@ -295,10 +295,13 @@ of judging it from memory:
   for the merge-gate-scan waiting announcement: name the person, never imply
   they were reached.
 
-  **What this gives up, stated rather than discovered later.** A board card
-  carries queue state and can carry an assignee, a parent, a priority and a
-  workspace; an issue carries none of that and does not participate in the
-  dispatcher model at all. A follow-up filed this way is **durable intake, not
+  **What this gives up, stated rather than discovered later, and stated in
+  dispatcher terms because that is what is actually lost.** An issue keeps its
+  own open/closed state, assignees, labels, a milestone and comments; what it
+  does not have is any part in this factory's dispatcher — no board queue state,
+  no worker assignment, no dependency gating, no priority, no workspace routing,
+  and no run history: the blocks, retries and completion handoff a card
+  accumulates while it is worked. A follow-up filed this way is **durable intake, not
   queued work**, and nothing will pick it up on its own — which is the property
   being bought, and the same property that makes it invisible to anyone reading
   the board.
