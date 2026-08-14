@@ -242,6 +242,13 @@ claims; it **reruns** them. For **every** review task:
 - **(c)** If even one verify command fails, the review is **REQUEST_CHANGES**
   regardless of the diff: code that looks correct but does not pass the verify
   commands cannot be approved. The review verifies; it does not merely reread.
+- **(d)** The published review body ends with a `## Follow-ups` section: one
+  bullet per non-blocking observation, or the literal line `None.` when there
+  is nothing to raise. Never omit the section. This is
+  `follow_ups_are_explicit` in `.steve/review-policy.yaml`: a non-blocking
+  observation used to be free prose that nothing collected (t_92bfeac5); an
+  explicit, structured section is what lets the step below route it instead
+  of losing it.
 
 The author never reviews itself: if the worker that opened the PR is the same as
 the reviewer, assign the review to another profile.
@@ -260,6 +267,41 @@ the worker completed it after opening the PR and creating the review task. A
 The originating task's comment thread remains the place to track the chain: a
 `kanban_comment` on the parent task records the outcome of each round (fix
 applied, re-review requested, re-review outcome).
+
+**Routing what the review raised (t_92bfeac5).** As soon as a review reaches a
+terminal verdict (APPROVE or REQUEST_CHANGES) and its body is published,
+fetch it and classify the `## Follow-ups` section deterministically instead
+of judging it from memory:
+
+    gh api repos/<owner>/<repo>/pulls/<n>/reviews --jq '.[-1].body' > <tmpfile>
+    python3 tools/review-followups.py --body-file <tmpfile>
+
+- **`status: items`** — for each item printed, `kanban_create` a new card:
+  `--initial-status blocked` (this is intake, not dispatch — see pitfall #25;
+  a follow-up is exactly the kind of unsolicited work that must not
+  auto-run), title naming the origin PR, body quoting the item verbatim plus
+  a link to the PR and the review. Then say in the topic that the card was
+  filed, name the admin as the person expected to triage it, and state
+  plainly that the admin was **not individually notified** — posting in this
+  topic and filing the card are not a delivered personal notification, only
+  something visible to whoever reads the topic or the board. This mirrors
+  the honesty rule §6 uses for the merge-gate-scan waiting announcement:
+  name the person, never imply they were reached.
+- **`status: none`** — nothing to do; the review said so explicitly.
+- **`status: missing`** (exit 2) — the review did not close with the
+  required section. This is a review-process defect, not silence to pass
+  through: say so in the topic instead of assuming there was nothing to
+  report, and treat it the same as any other missing verify (§4 pitfall #2).
+
+This step is orchestrator prose today, not a script, because the reviewer
+skill that authors the review body lives outside this repo and Steve is
+already the party that reads every review outcome to decide the next step
+(fix task vs. §5). `tools/review-followups.py` is the deterministic part
+(extraction and classification, self-tested); routing is not delegated to a
+cron watcher because the cases that most needed it (t_92bfeac5's own
+example, PR #159) are `propagation`-tier reviews that a human merges outside
+any cron-observed event, so a scan limited to merged PRs would have missed
+exactly the case that exposed the defect.
 
 ## 5. Approval-ready brief and human decision
 
@@ -343,6 +385,17 @@ the cron scanner that finds PRs labeled `steve-approved` and invokes the gate
 on each one. The label you apply is exactly what the scanner looks for. After
 applying the label + comment, your work is finished: the scanner (cron) or the
 human (GitHub UI) takes the PR through to merge.
+
+The scanner also watches a second, smaller set on its own: open PRs with an
+APPROVED review but no label yet, i.e. approved, green, safe-tier, and
+waiting on nothing but the admin's approve-in-chat. It reports that state
+**once** per PR (t_cf1a09fa, measured on PR #161: approved, green, and
+completely unreported because an unlabelled PR was outside the old candidate
+set). The message names the admin and says outright that they were **not**
+individually notified — it only reaches whoever reads the cron's delivery
+channel. This does not change your job: you still apply the label yourself
+when the admin approves in chat; the scanner's message is a safety net for
+the case where nobody has approved in chat yet, not a substitute for it.
 
 ## 7. Topic convention for stories
 
@@ -596,6 +649,28 @@ task.
       card: close the card and create a new one in the same workspace with
       `--workspace dir:<path>`.
 
+28. **A state that persists produces silence on every tick, which reads as
+    "all quiet."** Two instances of the same defect, both found the same day
+    (t_cf1a09fa, t_92bfeac5): a watchdog whose contract is "empty stdout means
+    nothing to report" is correct for events but wrong for a *state* — a PR
+    stuck waiting for the admin's approve-in-chat, or a review's non-blocking
+    note with no queue to land in, both persist tick after tick and both used
+    to produce nothing. Neither was a missing case; each was a state nothing
+    was watching.
+    - **Symptom:** something needs a specific person's action and the system
+      never says so — not even once. Measured on PR #161 (approved, green,
+      unlabelled, silent) and on PR #159's review (a real future-work
+      constraint that survived only because a human happened to copy it by
+      hand).
+    - **Fix:** report the state **at least once**, name who is expected to
+      act, and say plainly whether they were actually notified or not — never
+      phrase it as delivered when it was only posted somewhere. See §6 for
+      the merge-gate-scan waiting announcement and §4's follow-ups routing
+      step for the two current instances. Neither builds a general
+      notification service (deliberately out of scope until one exists); both
+      are structured so their human-facing delivery can move onto it later
+      without changing the detection/extraction logic.
+
 ## Verification Checklist
 
 - [ ] The task brief has a goal, constraints, boundaries, executable verifies,
@@ -654,3 +729,12 @@ task.
 - [ ] When the admin approves a safe-tier PR in chat, apply the steve-approved
       label + decision comment. DO NOT merge: the gate (cron) or a human
       (GitHub UI) performs the merge.
+- [ ] Every review task requires a `## Follow-ups` section in the published
+      review body (bullets, or `None.`); never omit it (pitfall #28,
+      `follow_ups_are_explicit`).
+- [ ] After a review reaches a terminal verdict, classify its Follow-ups
+      section with `tools/review-followups.py` and route what it finds:
+      `items` -> file a blocked kanban card per item and say in the topic
+      that the admin was NOT individually notified; `none` -> nothing to do;
+      `missing` -> flag it as a review-process defect, not silence (§4,
+      pitfall #28).

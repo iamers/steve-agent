@@ -134,3 +134,10 @@ never shared, for the technical reason above.
 invokes `instance/merge-gate.sh`. The gate evaluates the precondition and the
 five conditions above, then uses the per-instance GitHub App to merge only an
 eligible PR.
+
+The scanner also watches open PRs that carry no label yet but are otherwise
+ready (approved review, green CI, safe tier, current branch): that state --
+waiting on nothing but condition (a), which only a human can satisfy -- is
+reported once per PR, naming the admin and stating explicitly that they were
+not individually notified (t_cf1a09fa). It does not apply the label itself;
+approve-in-chat remains the only way a PR becomes eligible.
