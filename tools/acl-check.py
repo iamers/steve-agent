@@ -262,6 +262,8 @@ def check_baseline_not_tracked(tracked_paths, baseline_name):
 
 
 def check_identity_keys_declared(identity_keys, template_text):
+    """A key line is compared verbatim, because the consumer reads it verbatim:
+    a padded line is a different string to it, and would baseline nothing."""
     """Every identity-bearing key tracked on the deployment side must also be
     a real key in env.template: otherwise the deployment could baseline a key
     that no installation guide ever tells anyone to set."""
@@ -289,11 +291,17 @@ def load_policy(root):
 
 
 def load_identity_keys(root):
+    """Returns the key lines exactly as the deployment-side consumer sees them.
+
+    That consumer drops blank and comment lines and keeps everything else
+    verbatim, padding included. Stripping here would let a padded line pass this
+    check while the consumer searches for a different string and silently
+    baselines nothing, so the raw line is what gets validated."""
     keys = []
     with open(root / IDENTITY_KEYS_PATH) as f:
         for line in f:
-            line = line.strip()
-            if line and not line.startswith("#"):
+            line = line.rstrip("\n")
+            if line.strip() and not line.lstrip().startswith("#"):
                 keys.append(line)
     return keys
 
@@ -475,6 +483,14 @@ def run_self_test():
                {"fallback_chain": {"paths": ["fallback_providers", "fallback_model"],
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=True)
+    expect("credentials mode: a trailing newline is accepted, as the consumer does",
+           check_credentials_mode({"p": "isolated\n".rstrip("\n")},
+                                  ["shared", "isolated"], {}),
+           want_clean=True)
+    expect("identity keys: a padded key line is rejected, since the consumer reads it raw",
+           check_identity_keys_declared([" TOKEN "], "TOKEN=\n"),
+           want_clean=False)
+
     expect("credentials mode: surrounding whitespace is rejected, as the consumer does",
            check_credentials_mode({"p": " isolated "}, ["shared", "isolated"], {}),
            want_clean=False)
@@ -546,7 +562,12 @@ def run_self_test():
             # there. Two normalisations for one invariant means the looser side
             # certifies something the stricter side will refuse: read it raw and
             # let this check be the one that says no first.
-            modes[rel] = mode_file.read_text()
+            # `$(cat file)` strips trailing newlines and nothing else, so
+            # that is the rule -- not str.strip(), which would also swallow
+            # padding the consumer rejects, and not raw text, which would
+            # reject a trailing newline the consumer accepts. Both directions
+            # are asserted in the self-test.
+            modes[rel] = mode_file.read_text().rstrip("\n")
     cred_policy = policy["credentials_mode"]
     real_problems += check_credentials_mode(
         modes, cred_policy["valid_values"], cred_policy["required"])
