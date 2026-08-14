@@ -36,6 +36,7 @@ to a public `docs/` directory.
 
 - **Identifiers** (files, folders, variables, keys, CLI flags, config fields): English, always. Non-negotiable.
 - **Prose content** (design docs, inline comments): currently Italian, reflecting the contributor community; long-term target is English, no hard deadline.
+- **Italian prose carries real accents**: `è` not `e'`, `può` not `puo'`, `già` not `gia'`, `ciò` not `cio'`. This applies wherever the prose is Italian, including files whose language is otherwise unconstrained. It was previously stated only in a reviewer profile, which meant an author had no shared place to read it and a reviewer had nothing citable to point at; it is written here so both sides can cite the same line.
 - **User-facing strings** (README, CONTRIBUTING, LICENSE, error messages): English.
 - **Agent personalities** (SOUL.md and analogs): any language.
 - **Vocabulary**: defined once in [docs/GLOSSARY.md](docs/GLOSSARY.md). Use those terms; add a term there rather than coining one here.
