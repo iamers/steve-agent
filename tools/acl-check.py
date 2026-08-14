@@ -19,6 +19,7 @@ Usage:
 """
 import argparse
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 
@@ -126,11 +127,14 @@ def check_required_env_keys(template_text, required_keys):
     problems = []
     lines = template_text.splitlines()
     for key in required_keys:
-        line = next((ln for ln in lines if ln.startswith(key + "=")), None)
-        if line is None:
+        declarations = [ln for ln in lines if ln.startswith(key + "=")]
+        if not declarations:
             problems.append("{}: required key {} is not declared".format(
                 ENV_TEMPLATE_PATH, key))
-        elif "@optional" in line:
+        # The consumer unions every line carrying the marker, so a mandatory
+        # declaration followed by a duplicate optional one makes the key
+        # optional there while only the first line was read here.
+        elif any("@optional" in ln for ln in declarations):
             problems.append(
                 "{}: required key {} is marked @optional (its absence would "
                 "no longer count as drift)".format(ENV_TEMPLATE_PATH, key))
@@ -202,9 +206,9 @@ def check_conversation_prerequisites(config_data, spec, label, template_text="")
                 "{}: {} must be a non-empty string (nothing is configured to "
                 "answer an ordinary message)".format(label, dotted))
     for key in spec.get("required_env_keys", []):
-        line = next((ln for ln in template_text.splitlines()
-                     if ln.startswith(key + "=")), None)
-        if line is None or "@optional" in line:
+        declarations = [ln for ln in template_text.splitlines()
+                        if ln.startswith(key + "=")]
+        if not declarations or any("@optional" in ln for ln in declarations):
             problems.append(
                 "{}: {} must stay a mandatory key (the messaging surface cannot "
                 "authenticate without it)".format(ENV_TEMPLATE_PATH, key))
@@ -290,6 +294,27 @@ def load_policy(root):
         return yaml.safe_load(f)
 
 
+def load_credentials_modes(root):
+    """Reads every profile's credentials.mode exactly as the deployment-side
+    consumer does.
+
+    That consumer is `$(cat file)`: it strips trailing LF bytes and nothing
+    else. So not str.strip(), which would swallow padding the consumer rejects;
+    not raw text, which would reject a trailing newline it accepts; and bytes
+    rather than text mode, because text mode translates CRLF and a lone CR to
+    LF before anything else runs and the shell does not."""
+    modes = {}
+    profiles = root / "instance" / "profiles"
+    if not profiles.is_dir():
+        return modes
+    for profile_dir in sorted(profiles.iterdir()):
+        mode_file = profile_dir / "credentials.mode"
+        if mode_file.is_file():
+            rel = str(profile_dir.relative_to(root))
+            modes[rel] = mode_file.read_bytes().decode("utf-8").rstrip("\n")
+    return modes
+
+
 def load_identity_keys(root):
     """Returns the key lines exactly as the deployment-side consumer sees them.
 
@@ -298,8 +323,11 @@ def load_identity_keys(root):
     check while the consumer searches for a different string and silently
     baselines nothing, so the raw line is what gets validated."""
     keys = []
-    with open(root / IDENTITY_KEYS_PATH) as f:
-        for line in f:
+    # Bytes for the same reason as the mode file: the consumer is a shell and
+    # sees a CR that Python's text mode would have translated away.
+    raw = (root / IDENTITY_KEYS_PATH).read_bytes().decode("utf-8")
+    for line in raw.split("\n"):
+        if True:
             line = line.rstrip("\n")
             if line.strip() and not line.lstrip().startswith("#"):
                 keys.append(line)
@@ -384,6 +412,13 @@ def run_self_test():
            check_credentials_mode(
                {"w": "shared", "r": "public"}, ["shared", "isolated"], {"r": "isolated"}),
            want_clean=False)
+
+    expect("env keys: a duplicate optional declaration makes the key optional, as the consumer sees it",
+           check_required_env_keys("K=\nK= # @optional\n", ["K"]),
+           want_clean=False)
+    expect("env keys: a single mandatory declaration is clean",
+           check_required_env_keys("K=\n", ["K"]),
+           want_clean=True)
 
     expect("identity keys: a declared key is clean",
            check_identity_keys_declared(["TELEGRAM_ADMIN_ID"], "TELEGRAM_ADMIN_ID=\n"),
@@ -483,13 +518,35 @@ def run_self_test():
                {"fallback_chain": {"paths": ["fallback_providers", "fallback_model"],
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=True)
-    expect("credentials mode: a trailing newline is accepted, as the consumer does",
-           check_credentials_mode({"p": "isolated\n".rstrip("\n")},
-                                  ["shared", "isolated"], {}),
-           want_clean=True)
-    expect("identity keys: a padded key line is rejected, since the consumer reads it raw",
-           check_identity_keys_declared([" TOKEN "], "TOKEN=\n"),
-           want_clean=False)
+    # These two exercise the REAL loaders against files on disk, because the
+    # normalisation being asserted lives in the loader and not in the pure
+    # comparison: passing a pre-normalised literal would stay green through a
+    # regression of the very thing it claims to protect.
+    with tempfile.TemporaryDirectory() as scratch:
+        root = Path(scratch)
+        (root / ".steve").mkdir()
+        (root / "instance" / "profiles" / "p").mkdir(parents=True)
+
+        for spelling, want_clean, label in [
+            (b"isolated\n", True, "a trailing LF is accepted, as the consumer does"),
+            (b"isolated\r\n", False, "a CRLF is rejected, as the consumer does"),
+            (b" isolated ", False, "padding is rejected, as the consumer does"),
+        ]:
+            (root / "instance" / "profiles" / "p" / "credentials.mode").write_bytes(spelling)
+            expect("credentials mode via the real loader: " + label,
+                   check_credentials_mode(load_credentials_modes(root),
+                                          ["shared", "isolated"], {}),
+                   want_clean=want_clean)
+
+        for spelling, want_clean, label in [
+            (b"TOKEN\n", True, "a clean line is accepted"),
+            (b" TOKEN \n", False, "a padded line is rejected, since the consumer reads it raw"),
+            (b"TOKEN\r\n", False, "a CRLF line is rejected, since the consumer keeps the CR"),
+        ]:
+            (root / ".steve" / "acl-identity-keys.txt").write_bytes(spelling)
+            expect("identity keys via the real loader: " + label,
+                   check_identity_keys_declared(load_identity_keys(root), "TOKEN=\n"),
+                   want_clean=want_clean)
 
     expect("credentials mode: surrounding whitespace is rejected, as the consumer does",
            check_credentials_mode({"p": " isolated "}, ["shared", "isolated"], {}),
@@ -552,22 +609,7 @@ def run_self_test():
         load_config(root, conv["config_file"]), conv, conv["config_file"],
         template_text)
 
-    modes = {}
-    for profile_dir in sorted((root / "instance" / "profiles").iterdir()):
-        mode_file = profile_dir / "credentials.mode"
-        if mode_file.is_file():
-            rel = str(profile_dir.relative_to(root))
-            # The deployment-side consumer compares the raw file contents, so a
-            # mode with surrounding whitespace passes here and is rejected
-            # there. Two normalisations for one invariant means the looser side
-            # certifies something the stricter side will refuse: read it raw and
-            # let this check be the one that says no first.
-            # `$(cat file)` strips trailing newlines and nothing else, so
-            # that is the rule -- not str.strip(), which would also swallow
-            # padding the consumer rejects, and not raw text, which would
-            # reject a trailing newline the consumer accepts. Both directions
-            # are asserted in the self-test.
-            modes[rel] = mode_file.read_text().rstrip("\n")
+    modes = load_credentials_modes(root)
     cred_policy = policy["credentials_mode"]
     real_problems += check_credentials_mode(
         modes, cred_policy["valid_values"], cred_policy["required"])
