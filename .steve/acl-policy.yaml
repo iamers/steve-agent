@@ -74,10 +74,13 @@ credentials_mode:
 # thing that is discovered during an incident rather than before one.
 conversation_prerequisites:
   config_file: instance/config.yaml
-  # Without a primary route nothing is configured to answer.
-  non_empty_strings:
-    - model.default
-    - model.provider
+  # NOT asserted, and measured rather than assumed: neither key is required for
+  # an ordinary reply on the pinned runtime. With the model key empty the
+  # gateway resolves a default from the provider catalog; with the provider key
+  # absent it resolves the authenticated active provider. Asserting them would
+  # be stricter than the behaviour, which is the same defect the messaging
+  # surface entry was removed for. The runtime is resilient here, and a checker
+  # should not pretend otherwise to look thorough.
   # NOT asserted here, and the reason is worth keeping: a platforms.telegram
   # block looks like a prerequisite and is not one. With the credential below
   # present, the shipped runtime creates and enables that platform itself, so
@@ -85,8 +88,9 @@ conversation_prerequisites:
   # stricter than the behaviour it claimed to protect, which is how a checker
   # starts failing on configurations that work.
   #
-  # Without the bot credential the surface cannot authenticate, and that one
-  # is load-bearing.
+  # The one genuine prerequisite, and it survived the same test the others
+  # failed: without the credential the configured messaging block has no token
+  # and is not connected, so no ordinary message arrives at all.
   required_env_keys:
     - TELEGRAM_BOT_TOKEN
   # Resilience, not prerequisite. Each entry must name a provider and a model,
