@@ -21,9 +21,10 @@ demand, and stops short of merging anything without a human's authorization on r
 
 A working factory: requests raised in a chat land, through a governed pipeline, as reviewed
 pull requests. This repository is built by its own instance of that pipeline, so most of its
-history is evidence of the cycle rather than a claim about it: of the 147 pull requests merged
-before this document was added, 119 were opened by the worker identity. The boundary is stated
-because the number moves: without it the sentence turns false the next time anything merges. The rest were opened directly by a person or a
+history is evidence of the cycle rather than a claim about it: of the first 146 pull requests
+merged to it, 119 were opened by the worker identity. The boundary is a count rather than a date
+because the number keeps moving: anchored this way the sentence stays true however much history
+is added after it. The rest were opened directly by a person or a
 session, which the project also permits and does not pretend otherwise.
 
 The pipeline, at the level a reader needs before going to `ARCHITECTURE.md` for the mechanism:
@@ -45,8 +46,8 @@ same name also stood for the per-project coordination point, that coordination p
 assumed to need the same reach. The first two steps hold. The third does not, once the two
 things the name covered are told apart.
 
-Steve Agent is two roles. Everything written about it, from here on, states which of the two
-it governs.
+Steve Agent is two roles. Everything written about it, from here on, declares the scope it
+governs — `hub`, `contributor-agent`, or `shared` — wherever a reader could not otherwise infer it.
 
 ## The hub: the coordination point of one project
 
