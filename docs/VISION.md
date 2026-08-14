@@ -20,8 +20,10 @@ demand, and stops short of merging anything without a human's authorization on r
 ## What Steve Agent is
 
 A working factory: requests raised in a chat land, through a governed pipeline, as reviewed
-pull requests. This repository is built by its own instance of that pipeline, so every merged
-pull request in its history is evidence of the cycle, not a claim about it.
+pull requests. This repository is built by its own instance of that pipeline, so most of its
+history is evidence of the cycle rather than a claim about it: of sixty merged pull requests,
+forty-four were opened by the worker identity. The rest were opened directly by a person or a
+session, which the project also permits and does not pretend otherwise.
 
 The pipeline, at the level a reader needs before going to `ARCHITECTURE.md` for the mechanism:
 a request becomes a brief with an explicit, executable definition of done; the brief becomes a
@@ -127,10 +129,13 @@ this protocol, or over a channel built for the purpose, is not decided.
 - It never modifies its own live runtime. The factory develops the repository under it, never
   its own configuration or installation; changes to a running instance happen only from the
   outside and are traced.
-- No agent merges anything, ever. A worker and a reviewer stop once a pull request is opened
-  and reviewed. A low-risk change is merged by deterministic code under a dedicated identity,
-  and only once a human has already recorded authorization for it; anything riskier is merged
-  by a human directly, on the platform. No model performs a merge.
+- Nothing is merged without a human's authorization on record, and no worker or reviewer
+  merges its own work. A worker and a reviewer stop once a pull request is opened and reviewed.
+  A low-risk change is merged by deterministic code under a dedicated identity, and only once
+  that authorization exists; anything riskier is merged by whoever holds it, or by an operator
+  acting on an authorization they were explicitly given. The invariant is the recorded
+  authorization, not which party performs the gesture -- stating it the other way would be a
+  promise this project has already broken in its own history.
 - A hub is not a shared runtime across projects. It is one project's own coordination point,
   not a service other projects reach into; reaching across projects is what the contributor
   agent is for, deliberately, and the hub deliberately is not built to do it.
