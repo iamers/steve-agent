@@ -60,9 +60,17 @@ def get_path(data, dotted):
 # ---------------------------------------------------------------------------
 
 def check_command_tiers(config_data, tiers, label):
-    """Each scope's admin key must be present and non-empty, and its open-
-    command list must match the policy exactly (as a set: order is not
-    load-bearing for a permission list)."""
+    """Asserts CANONICAL REPRESENTATION, not effective runtime policy, and the
+    difference is deliberate: the runtime accepts a scalar administrator value,
+    comma-separated commands, a leading slash and any case, and applies an
+    implicit floor for help and whoami. Several forms rejected here are
+    equivalent to accepted ones once it has finished normalising.
+
+    What is being protected is that a change to how this deployment writes its
+    command tiers shows up in a diff a human approves, not that the runtime
+    would refuse the other spellings. It will therefore reject configurations
+    that work, which is what a canonical-form invariant does; see the reasoning
+    in .steve/acl-policy.yaml."""
     problems = []
     for scope, spec in tiers.items():
         admin_value = get_path(config_data, spec["admin_key"])
@@ -146,6 +154,26 @@ def check_credentials_mode(modes, valid_values, required):
     return problems
 
 
+def _effective_fallback_chain(config_data, chain_spec):
+    """The chain the runtime would actually end up with: either key may hold a
+    single mapping or a list, the newer key is merged ahead of the legacy one,
+    and a malformed entry is discarded rather than invalidating its neighbours.
+    Reproducing those semantics is the point -- the reason this is checked at
+    all is that an EMPTY effective chain removes the only recovery path, and a
+    checker that fails a chain the runtime would happily use is asserting
+    something nobody promised."""
+    entries = []
+    for path in chain_spec["paths"]:
+        value = get_path(config_data, path)
+        if value is MISSING or value is None:
+            continue
+        entries.extend(value if isinstance(value, list) else [value])
+    required = chain_spec["entry_required_fields"]
+    return [e for e in entries
+            if isinstance(e, dict)
+            and all(str(e.get(f) or "").strip() for f in required)]
+
+
 def _is_enabled(value):
     """True only for values the runtime resolves to enabled. Mirrors its own
     normalisation rather than Python truthiness: the two disagree on the
@@ -194,28 +222,17 @@ def check_conversation_prerequisites(config_data, spec, label, template_text="")
                 "message arrives on it".format(label, dotted))
     chain_spec = spec.get("fallback_chain")
     if chain_spec:
-        chain = get_path(config_data, chain_spec["path"])
-        if chain is MISSING or not isinstance(chain, list) or not chain:
+        # The per-entry loop is gone on purpose: the runtime discards a
+        # malformed entry and keeps its neighbours, so flagging one while a
+        # valid one survives would report a missing chain that is not missing.
+        # What matters is whether anything survives at all.
+        chain = _effective_fallback_chain(config_data, chain_spec)
+        if not chain:
             problems.append(
-                "{}: {} must be a non-empty list (no recovery path left when the "
-                "primary route fails)".format(label, chain_spec["path"]))
-        else:
-            for index, entry in enumerate(chain):
-                # The runtime applies `value or ""` before normalising, so a
-                # false, a zero, an empty list or a null are discarded. Calling
-                # str() on them first would turn each into a non-empty spelling
-                # and hide exactly the entries that get thrown away.
-                missing = [f for f in chain_spec["entry_required_fields"]
-                           if not isinstance(entry, dict)
-                           or not str(entry.get(f) or "").strip()]
-                if missing:
-                    # The runtime parser discards an entry that names no provider
-                    # or model, so the file looks populated and the effective
-                    # chain is empty.
-                    problems.append(
-                        "{}: {}[{}] is missing {} and would be discarded at "
-                        "runtime".format(label, chain_spec["path"], index,
-                                         " and ".join(missing)))
+                "{}: no usable fallback entry survives in {} (each needs {}), so "
+                "there is no recovery path left when the primary route fails".format(
+                    label, " or ".join(chain_spec["paths"]),
+                    " and ".join(chain_spec["entry_required_fields"])))
     return problems
 
 
@@ -386,7 +403,7 @@ def run_self_test():
                 "platforms": {"telegram": {}},
                 "fallback_model": [{"provider": "x", "model": "y"}]},
                {"non_empty_strings": ["model.default", "model.provider"],
-                "fallback_chain": {"path": "fallback_model",
+                "fallback_chain": {"paths": ["fallback_model"],
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=True)
     expect("conversation: a non-string primary model is flagged",
@@ -395,7 +412,7 @@ def run_self_test():
                 "platforms": {"telegram": {}},
                 "fallback_model": [{"provider": "x", "model": "y"}]},
                {"non_empty_strings": ["model.default", "model.provider"],
-                "fallback_chain": {"path": "fallback_model",
+                "fallback_chain": {"paths": ["fallback_model"],
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=False)
     expect("conversation: a fallback entry naming no model is flagged",
@@ -404,14 +421,14 @@ def run_self_test():
                 "platforms": {"telegram": {}},
                 "fallback_model": [{"provider": "x"}]},
                {"non_empty_strings": ["model.default", "model.provider"],
-                "fallback_chain": {"path": "fallback_model",
+                "fallback_chain": {"paths": ["fallback_model"],
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=False)
     expect("conversation: an absent platform block is not a problem",
            check_conversation_prerequisites(
                {"fallback_model": [{"provider": "x", "model": "y"}]},
                {"must_not_be_disabled": ["platforms.telegram"],
-                "fallback_chain": {"path": "fallback_model",
+                "fallback_chain": {"paths": ["fallback_model"],
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=True)
     expect("conversation: a platform block explicitly disabled is flagged",
@@ -419,7 +436,7 @@ def run_self_test():
                {"platforms": {"telegram": {"enabled": False}},
                 "fallback_model": [{"provider": "x", "model": "y"}]},
                {"must_not_be_disabled": ["platforms.telegram"],
-                "fallback_chain": {"path": "fallback_model",
+                "fallback_chain": {"paths": ["fallback_model"],
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=False)
 
@@ -428,7 +445,7 @@ def run_self_test():
                {"platforms": {"telegram": {"enabled": "false"}},
                 "fallback_model": [{"provider": "x", "model": "y"}]},
                {"must_not_be_disabled": ["platforms.telegram"],
-                "fallback_chain": {"path": "fallback_model",
+                "fallback_chain": {"paths": ["fallback_model"],
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=False)
     expect("conversation: a platform explicitly enabled is not flagged",
@@ -436,14 +453,30 @@ def run_self_test():
                {"platforms": {"telegram": {"enabled": True}},
                 "fallback_model": [{"provider": "x", "model": "y"}]},
                {"must_not_be_disabled": ["platforms.telegram"],
-                "fallback_chain": {"path": "fallback_model",
+                "fallback_chain": {"paths": ["fallback_model"],
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=True)
     expect("conversation: a falsey non-string fallback field is flagged",
            check_conversation_prerequisites(
                {"fallback_model": [{"provider": [], "model": "y"}]},
-               {"fallback_chain": {"path": "fallback_model",
+               {"fallback_chain": {"paths": ["fallback_model"],
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=False)
+
+    expect("conversation: a single mapping is a chain, not a malformed list",
+           check_conversation_prerequisites(
+               {"fallback_model": {"provider": "x", "model": "y"}},
+               {"fallback_chain": {"paths": ["fallback_providers", "fallback_model"],
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=True)
+    expect("conversation: a valid entry beside a discarded one still leaves a chain",
+           check_conversation_prerequisites(
+               {"fallback_model": [{"provider": "x", "model": "y"}, {}]},
+               {"fallback_chain": {"paths": ["fallback_providers", "fallback_model"],
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=True)
+    expect("credentials mode: surrounding whitespace is rejected, as the consumer does",
+           check_credentials_mode({"p": " isolated "}, ["shared", "isolated"], {}),
            want_clean=False)
 
     expect("conversation: a fallback list of empty mappings is flagged",
@@ -452,7 +485,7 @@ def run_self_test():
                 "platforms": {"telegram": {}},
                 "fallback_model": [{}]},
                {"non_empty_strings": ["model.default", "model.provider"],
-                "fallback_chain": {"path": "fallback_model",
+                "fallback_chain": {"paths": ["fallback_model"],
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=False)
 
@@ -508,7 +541,12 @@ def run_self_test():
         mode_file = profile_dir / "credentials.mode"
         if mode_file.is_file():
             rel = str(profile_dir.relative_to(root))
-            modes[rel] = mode_file.read_text().strip()
+            # The deployment-side consumer compares the raw file contents, so a
+            # mode with surrounding whitespace passes here and is rejected
+            # there. Two normalisations for one invariant means the looser side
+            # certifies something the stricter side will refuse: read it raw and
+            # let this check be the one that says no first.
+            modes[rel] = mode_file.read_text()
     cred_policy = policy["credentials_mode"]
     real_problems += check_credentials_mode(
         modes, cred_policy["valid_values"], cred_policy["required"])

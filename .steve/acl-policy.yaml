@@ -17,6 +17,25 @@
 # stay present and non-empty; its resolved value is the deployment's business,
 # not this file's) with the commands left open to a non-admin user. Every
 # other command is reserved to whoever the admin key resolves to.
+# HOW TO READ THE TIER SECTION, because it is not a behaviour check and calling
+# it one would be false. The runtime is more permissive than what follows: it
+# accepts a scalar administrator value, comma-separated commands, a leading
+# slash, any case, and it applies an implicit floor that leaves `help` and
+# `whoami` open to non-admins whatever this file says. So several spellings the
+# check below rejects are, in the runtime, exactly equivalent to the ones it
+# accepts.
+#
+# That is deliberate. The invariant asserted here is CANONICAL REPRESENTATION,
+# not effective policy: this deployment writes its command tiers one way, and a
+# diff that changes the writing is a diff a human should see and approve, even
+# when the runtime would treat the two forms alike. Chasing the runtime's
+# normalisation instead would mean re-deriving its parser here and watching the
+# copy drift, which is the failure this repository already documents elsewhere.
+#
+# The cost is stated rather than hidden: this check will reject a configuration
+# that works. That is the intended behaviour of a canonical-form invariant, and
+# it is the reason this comment exists instead of a claim that the runtime
+# requires what follows.
 telegram_command_tiers:
   dm:
     admin_key: platforms.telegram.extra.allow_admin_from
@@ -104,8 +123,12 @@ conversation_prerequisites:
   # Resilience, not prerequisite. Each entry must name a provider and a model,
   # or the runtime parser discards it and the effective chain is empty while
   # this file still looks populated.
+  # Both keys, because the runtime merges them and either may hold a single
+  # mapping instead of a list. What is asserted is that the EFFECTIVE chain is
+  # not empty: a malformed entry beside a valid one is discarded by the runtime
+  # and must not be reported here as a missing chain.
   fallback_chain:
-    path: fallback_model
+    paths: [fallback_providers, fallback_model]
     entry_required_fields: [provider, model]
 
 # The deployment-side identity baseline. Named here so the assertion that it is
