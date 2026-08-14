@@ -295,9 +295,25 @@ of judging it from memory:
   for the merge-gate-scan waiting announcement: name the person, never imply
   they were reached.
 
-  When that atomic operation exists, moving these back onto the board is a
-  one-line change here; what must not change is that a reviewer's non-blocking
-  observation never starts work by itself.
+  **What this gives up, stated rather than discovered later.** A board card
+  carries queue state and can carry an assignee, a parent, a priority and a
+  workspace; an issue carries none of that and does not participate in the
+  dispatcher model at all. A follow-up filed this way is **durable intake, not
+  queued work**, and nothing will pick it up on its own — which is the property
+  being bought, and the same property that makes it invisible to anyone reading
+  the board.
+
+  **So triage has to be defined, or the intake rots.** Whoever triages an issue
+  filed this way does one of two things and records which: promotes it, by
+  creating the board card themselves with an assignee and letting it run, at
+  which point the issue is closed with a link to the card; or declines it, by
+  closing the issue with the reason. An issue left open and untriaged is the
+  same silence this section exists to remove, moved one surface along.
+
+  When an operation exists that creates a card already carrying the block event,
+  this can move back onto the board. That is not a one-line change: it also
+  restores assignment, parentage and priority to these items, and the triage
+  step above would be replaced rather than kept.
 - **`status: none`** — nothing to do; the review said so explicitly.
 - **`status: missing`** (exit 2) — the review did not close with the
   required section. This is a review-process defect, not silence to pass
@@ -753,7 +769,8 @@ task.
       `follow_ups_are_explicit`).
 - [ ] After a review reaches a terminal verdict, classify its Follow-ups
       section with `tools/review-followups.py` and route what it finds:
-      `items` -> file a blocked kanban card per item and say in the topic
+      `items` -> open one GitHub issue per item, NOT a board card (§4: a card
+      cannot be held before the dispatcher may claim it), and say in the topic
       that the admin was NOT individually notified; `none` -> nothing to do;
       `missing` -> flag it as a review-process defect, not silence (§4,
       pitfall #28).
