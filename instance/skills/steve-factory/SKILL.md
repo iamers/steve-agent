@@ -277,11 +277,20 @@ of judging it from memory:
     python3 tools/review-followups.py --body-file <tmpfile>
 
 - **`status: items`** — for each item printed, `kanban_create` a new card:
-  `--initial-status blocked`, and then HOLD it, because that flag alone does not:
-  it answers `blocked` and the next dispatcher tick promotes the card to `ready`.
-  Run `hermes kanban block <id> "<reason>" --kind needs_input` on the created
-  card, wait one dispatcher tick, and reread with `hermes kanban show <id>`
-  without trusting the block command's output. A follow-up card that reaches
+  and then HOLD it, in this order, because the order is what makes it work.
+  Creating with `--initial-status blocked` is not enough on its own: it answers
+  `blocked`, emits only a `created` event, and the next dispatcher tick promotes
+  the card to `ready`. The block transition in turn accepts only a card that is
+  `running` or `ready`, so calling it on a just-created blocked card fails and
+  leaves nothing sticky. So: create the card, **wait one dispatcher tick**,
+  confirm with `hermes kanban show <id>` that it now reads `ready`, then run
+  `hermes kanban block <id> "<reason>" --kind needs_input`, wait one more tick,
+  and reread. **The card must read `blocked` at that final reread**; anything
+  else, including an error from the block command, means it is not held and the
+  card must be blocked again or archived. Do not report this step as done
+  without that observed state: measured on 2026-08-14, created blocked reads
+  `blocked` immediately and `ready` seventy-five seconds later, and blocking a
+  card already `ready` holds. A follow-up card that reaches
   `ready` is dispatched, which turns a reviewer's non-blocking observation into
   work nobody asked to start (this is intake, not dispatch — see pitfall #25;
   a follow-up is exactly the kind of unsolicited work that must not

@@ -54,11 +54,14 @@ def extract_follow_ups(text):
     if section is None:
         return "missing", []
 
-    # The section runs until the next heading of any level, or EOF.
+    # The policy requires the review to CLOSE with this section, so a heading
+    # after it is a format violation rather than a boundary to stop at.
+    # Stopping silently would let this tool report success on exactly the shape
+    # it exists to make explicit.
     body = []
     for line in section:
         if HEADING_RE.match(line):
-            break
+            return "not_closing", []
         body.append(line)
 
     stripped = [ln.strip() for ln in body if ln.strip()]
@@ -92,6 +95,9 @@ def report(status, items):
         return 0
     if status == "none":
         return 0
+    if status == "not_closing":
+        print("the review does not end with its Follow-ups section: a heading "
+              "follows it, so it is not the closing section the policy requires")
     return TRUST_FAILURE
 
 
@@ -101,12 +107,12 @@ def run_self_test():
         "## What changes\n"
         "Some diff summary.\n"
         "\n"
+        "## Verification\n"
+        "- [ ] CI green\n"
+        "\n"
         "## Follow-ups\n"
         "- Update the core schema for the revised contract\n"
         "- Add CLI self-tests for the new reason catalog\n"
-        "\n"
-        "## Verification\n"
-        "- [ ] CI green\n"
     )
     status, items = extract_follow_ups(items_body)
     assert status == "items", "expected 'items', got {!r}".format(status)
@@ -116,10 +122,22 @@ def run_self_test():
     ], "unexpected item text: {!r}".format(items)
     print("ok: bulleted Follow-ups section -> 2 items")
 
+    not_closing_body = (
+        "## Follow-ups\n"
+        "- Something worth doing later\n"
+        "\n"
+        "## Verification\n"
+        "- [ ] CI green\n"
+    )
+    status, items = extract_follow_ups(not_closing_body)
+    assert status == "not_closing", "expected 'not_closing', got {!r}".format(status)
+    assert items == [], "not_closing must not yield items, got {!r}".format(items)
+    print("ok: a Follow-ups section that is not the closing one -> not_closing")
+
     none_body = (
         "## What changes\nSome diff summary.\n\n"
-        "## Follow-ups\nNone.\n\n"
-        "## Verification\n- [ ] CI green\n"
+        "## Verification\n- [ ] CI green\n\n"
+        "## Follow-ups\nNone.\n"
     )
     status, items = extract_follow_ups(none_body)
     assert (status, items) == ("none", []), "expected explicit 'none'"
@@ -133,16 +151,19 @@ def run_self_test():
     assert (status, items) == ("missing", []), "expected 'missing' when the section is absent"
     print("ok: no Follow-ups heading at all -> missing")
 
+    # Empty AND closing: the section is where it belongs and says nothing, which
+    # is the case this fixture is for. Empty and NOT closing is the separate
+    # not_closing case above.
     empty_section_body = (
-        "## Follow-ups\n\n## Verification\n- [ ] CI green\n"
+        "## Verification\n- [ ] CI green\n\n## Follow-ups\n"
     )
     status, items = extract_follow_ups(empty_section_body)
     assert (status, items) == ("missing", []), "expected 'missing' for an empty section"
     print("ok: Follow-ups heading with no content -> missing")
 
     malformed_body = (
+        "## Verification\n- [ ] CI green\n\n"
         "## Follow-ups\nSomething worth doing later, written as prose, not a bullet.\n"
-        "\n## Verification\n"
     )
     status, items = extract_follow_ups(malformed_body)
     assert (status, items) == ("missing", []), "expected 'missing' for unparseable content"
@@ -196,7 +217,10 @@ def main():
     try:
         text = Path(args.body_file).read_text(encoding="utf-8")
     except OSError as error:
-        print("error: cannot read {}: {}".format(args.body_file, error), file=sys.stderr)
+        # The path is caller-supplied and can be a deployment path: report the
+        # failure, never the location.
+        print("error: cannot read the review body file: {}".format(
+            error.strerror or "unreadable"), file=sys.stderr)
         return TRUST_FAILURE
 
     status, items = extract_follow_ups(text)

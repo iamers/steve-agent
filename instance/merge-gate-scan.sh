@@ -291,11 +291,13 @@ fi
 # scanner's error handling.
 fetch_unlabelled_approved() {
     local repo="$1" label="$2"
-    gh pr list --repo "$repo" --state open \
+    # gh takes ONE jq expression and no jq flags: --arg is rejected with
+    # "unknown flag", and with stderr suppressed the caller would read the
+    # failure as "no candidates" and stay silent forever. The label travels
+    # through the environment instead, which jq reads as $ENV.
+    STEVE_SCAN_LABEL="$label" gh pr list --repo "$repo" --state open \
         --json number,labels,reviewDecision \
-        --jq --arg label "$label" \
-        '.[] | select(.reviewDecision == "APPROVED") | select([.labels[].name] | index($label) | not) | .number' \
-        2>/dev/null
+        --jq '.[] | select(.reviewDecision == "APPROVED") | select([.labels[].name] | index($ENV.STEVE_SCAN_LABEL) | not) | .number'
 }
 
 # --dry-run mode: manual exploration without lock or state. List candidates and
