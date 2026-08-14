@@ -21,8 +21,9 @@ demand, and stops short of merging anything without a human's authorization on r
 
 A working factory: requests raised in a chat land, through a governed pipeline, as reviewed
 pull requests. This repository is built by its own instance of that pipeline, so most of its
-history is evidence of the cycle rather than a claim about it: of the 146 pull requests merged to
-date, 119 were opened by the worker identity. The rest were opened directly by a person or a
+history is evidence of the cycle rather than a claim about it: of the 147 pull requests merged
+before this document was added, 119 were opened by the worker identity. The boundary is stated
+because the number moves: without it the sentence turns false the next time anything merges. The rest were opened directly by a person or a
 session, which the project also permits and does not pretend otherwise.
 
 The pipeline, at the level a reader needs before going to `ARCHITECTURE.md` for the mechanism:
@@ -86,8 +87,9 @@ Of the two GitHub identities the factory already keeps separate by role, the wor
 the contributor agent: it acts for whoever is doing the work, and the platform's own
 per-repository access already governs what it may do on a given project. The reviewer belongs
 to the hub: the guarantee that whoever approves a change is not the party that authored it is
-something a project owes its own work, and the gate checks a reviewer identity that the hub
-configures. What is agent-scoped today: model credentials. Reaching several hubs from one agent still needs
+something a project owes its own work, and the gate checks a reviewer identity where the hub
+configures one. Where it does not, the gate falls back to accepting an approval from anyone who did
+not author the change, and the guarantee is correspondingly weaker. What is agent-scoped today: model credentials. Reaching several hubs from one agent still needs
 per-attachment state, and that mechanism is not settled yet.
 
 ## One deployment can hold both roles, as an arrangement, not as a merged concept
@@ -149,7 +151,7 @@ this protocol, or over a channel built for the purpose, is not decided.
 Decided:
 
 - The two roles exist, are named `hub` and `contributor agent`, and everything written about
-  Steve declares which of them, or both, it governs.
+  Steve declares its scope: `hub`, `contributor-agent`, or `shared`.
 - One hub per project; a hub is not multi-tenant.
 - One contributor agent per credential-owning administrative boundary, able to attach to more
   than one hub.
