@@ -70,26 +70,40 @@ def extract_follow_ups(text):
             return "not_closing", []
         body.append(line)
 
-    stripped = [ln.strip() for ln in body if ln.strip()]
-    if not stripped:
+    # Indentation is load-bearing here and must survive until classification:
+    # it is the only thing distinguishing a continuation line, which belongs to
+    # the bullet above it, from a separate observation written as prose. The
+    # boundary, decided in review: unindented prose anywhere fails closed, an
+    # empty bullet payload fails closed, and an indented line after a nonempty
+    # bullet is folded into that item.
+    kept = [ln.rstrip() for ln in body if ln.strip()]
+    if not kept:
         return "missing", []
 
-    if len(stripped) == 1 and stripped[0] == NONE_LITERAL:
+    if len(kept) == 1 and kept[0].strip() == NONE_LITERAL:
         return "none", []
 
     items = []
     unparsed = []
-    for ln in stripped:
-        match = BULLET_RE.match(ln)
+    empty_bullet = False
+    for ln in kept:
+        match = BULLET_RE.match(ln.strip())
         if match:
-            items.append(match.group(1))
-        else:
-            unparsed.append(ln)
-    if items and unparsed:
-        # One observation in a bullet and another in prose beside it: returning
-        # the bullets would report success while dropping the prose one, which
-        # is the silence this extractor exists to remove, produced by the
-        # extractor itself. The policy is one bullet per observation.
+            payload = match.group(1).strip()
+            if not payload:
+                empty_bullet = True
+                continue
+            items.append(payload)
+            continue
+        if ln[:1].isspace() and items:
+            items[-1] = items[-1] + " " + ln.strip()
+            continue
+        unparsed.append(ln.strip())
+
+    # The verdict is taken here rather than at the first surprise, because
+    # unindented prose BEFORE the first bullet is only distinguishable from
+    # prose that is the whole section once the rest has been read.
+    if empty_bullet or (items and unparsed):
         return "mixed", []
     if items:
         return "items", items
@@ -141,6 +155,27 @@ def run_self_test():
         "Add CLI self-tests for the new reason catalog",
     ], "unexpected item text: {!r}".format(items)
     print("ok: bulleted Follow-ups section -> 2 items")
+
+    continuation_body = (
+        "## Verification\n- [ ] CI green\n\n"
+        "## Follow-ups\n- One observation\n  continued on a second line\n"
+    )
+    status, items = extract_follow_ups(continuation_body)
+    assert status == "items", "a continuation must not read as mixed"
+    assert items == ["One observation continued on a second line"], (
+        "the continuation must be folded into its item, got {!r}".format(items))
+    print("ok: an indented continuation folds into its bullet -> one complete item")
+
+    for label, section in [
+        ("prose before the first bullet", "prose first\n- a bullet\n"),
+        ("prose between two bullets", "- a\nprose between\n- b\n"),
+        ("an empty bullet payload", "- a\n-\n"),
+    ]:
+        status, items = extract_follow_ups(
+            "## Verification\n- [ ] CI green\n\n## Follow-ups\n" + section)
+        assert status == "mixed", "{} must fail closed, got {!r}".format(label, status)
+        assert items == [], "{} must report no item".format(label)
+        print("ok: {} -> mixed, and no item is reported".format(label))
 
     mixed_body = (
         "## Verification\n- [ ] CI green\n\n"
