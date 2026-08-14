@@ -349,8 +349,10 @@ PY
 # Baseline file format: one "KEY=<sha256 of the key's current value>" line
 # per tracked key, nothing else.
 #
-# A key absent from the baseline is NOT drift: there is nothing to compare
-# against yet. It is reported as NO-BASELINE and does not fail the check.
+# A key absent from the baseline is reported as NO-BASELINE and DOES fail the
+# check: nothing was compared for it, and a run that compared nothing must not
+# be indistinguishable from a clean one. Seed it deliberately once the live
+# value is known correct.
 # Recording (or refreshing, after a deliberate change) the baseline is a
 # separate, explicit action -- see --seed-identity-baseline above -- never
 # taken automatically by the comparison below, the same "flag, do not
@@ -380,9 +382,9 @@ read_keys_file() {
 compare_identity_baseline() {
   # Il corpo gira in una subshell con xtrace SPENTO: sotto `bash -x` le
   # espansioni di assegnamento e di printf stampavano il valore e il suo
-  # digest su stderr, che e' esattamente cio' che questa funzione promette di
-  # non emettere. Una promessa che vale solo finche' nessuno abilita il
-  # tracing non e' una promessa.
+  # digest su stderr, che è esattamente ciò che questa funzione promette di
+  # non emettere. Una promessa che vale solo finché nessuno abilita il
+  # tracing non è una promessa.
   (
   case "$-" in *x*) set +x ;; esac
   local env_file="$1" baseline_file="$2" keys_file="$3"
@@ -392,7 +394,7 @@ compare_identity_baseline() {
     hash=$(printf '%s' "$value" | sha256sum | cut -d' ' -f1)
     baseline_hash=$(env_value "$baseline_file" "$key")
     if [ -z "$baseline_hash" ]; then
-      # Fail closed: senza baseline non e' stato confrontato NIENTE, e uscire
+      # Fail closed: senza baseline non è stato confrontato NIENTE, e uscire
       # 0 renderebbe un run verde indistinguibile da un confronto riuscito.
       echo "NO-BASELINE $key (run --seed-identity-baseline once the live value is known correct)"
       any_drift=1
@@ -673,9 +675,16 @@ if [ -s "$identity_keys_repo" ]; then
     identity_rc=$?
     echo "$identity_out"
     if [ "$identity_rc" -eq 0 ]; then
-      echo "OK: no tracked identity drifted (a NO-BASELINE line above has nothing to compare against yet; seed it, see this script's header)"
+      echo "OK: every tracked identity key was compared against its baseline and matched"
     else
-      echo "DRIFT: an identity-bearing value changed on the instance (see above; no value is ever shown)"
+      # Two very different situations both exit non-zero, and the operator
+      # needs to know which: a value that changed is an incident, a key that
+      # was never seeded is a check that has not started yet.
+      if printf '%s\n' "$identity_out" | grep -q '^DRIFT '; then
+        echo "DRIFT: an identity-bearing value changed on the instance (see above; no value is ever shown)"
+      else
+        echo "NOT COMPARED: at least one tracked key has no baseline entry, so nothing was verified for it; seed it deliberately once the live value is known correct"
+      fi
       drift=1
     fi
   else

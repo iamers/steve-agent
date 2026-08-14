@@ -76,6 +76,15 @@ def check_command_tiers(config_data, tiers, label):
             problems.append(
                 "{}: {} scope's admin key {} is {}, expected a list".format(
                     label, scope, spec["admin_key"], type(admin_value).__name__))
+        elif not all(isinstance(v, (str, int)) and not isinstance(v, bool)
+                     and str(v).strip() for v in admin_value):
+            # A list is not enough: an identity is a scalar. A nested list or a
+            # mapping inside it is not a usable administrator identity, and the
+            # runtime would gate on something that cannot match a sender.
+            problems.append(
+                "{}: {} scope's admin key {} contains a non-identity element "
+                "(each entry must be a non-empty account identifier)".format(
+                    label, scope, spec["admin_key"]))
         open_value = get_path(config_data, spec["open_commands_key"])
         if open_value is MISSING:
             problems.append("{}: {} scope's open-commands key {} is missing".format(
@@ -137,24 +146,52 @@ def check_credentials_mode(modes, valid_values, required):
     return problems
 
 
-def check_conversation_prerequisites(config_data, spec, label):
+def check_conversation_prerequisites(config_data, spec, label, template_text=""):
     """Configuration cannot prove an ordinary message gets a coherent reply --
-    that is runtime. It can prove the prerequisites are still declared: a
-    primary model, a provider for it, and a non-empty fallback chain. Remove
-    any of them and an ordinary reply stops arriving."""
+    that is runtime. It can prove the narrow prerequisites: a primary route to
+    answer with, a messaging surface for the message to arrive on, and the
+    credential that surface authenticates with. The fallback chain is checked
+    too, but as resilience rather than prerequisite: an ordinary reply arrives
+    without it while the primary route works."""
     problems = []
-    for dotted in spec.get("required_paths", []):
+    for dotted in spec.get("non_empty_strings", []):
         value = get_path(config_data, dotted)
-        if value is MISSING or value in (None, ""):
+        if value is MISSING or not isinstance(value, str) or not value.strip():
             problems.append(
-                "{}: {} is missing or empty (an ordinary message would have no "
-                "model to answer it)".format(label, dotted))
-    for dotted in spec.get("non_empty_list_paths", []):
-        value = get_path(config_data, dotted)
-        if value is MISSING or not isinstance(value, list) or not value:
+                "{}: {} must be a non-empty string (nothing is configured to "
+                "answer an ordinary message)".format(label, dotted))
+    for dotted in spec.get("present_paths", []):
+        if get_path(config_data, dotted) is MISSING:
             problems.append(
-                "{}: {} must be a non-empty list (no fallback chain left)".format(
-                    label, dotted))
+                "{}: {} is absent (an ordinary message has no surface to arrive "
+                "on)".format(label, dotted))
+    for key in spec.get("required_env_keys", []):
+        line = next((ln for ln in template_text.splitlines()
+                     if ln.startswith(key + "=")), None)
+        if line is None or "@optional" in line:
+            problems.append(
+                "{}: {} must stay a mandatory key (the messaging surface cannot "
+                "authenticate without it)".format(ENV_TEMPLATE_PATH, key))
+    chain_spec = spec.get("fallback_chain")
+    if chain_spec:
+        chain = get_path(config_data, chain_spec["path"])
+        if chain is MISSING or not isinstance(chain, list) or not chain:
+            problems.append(
+                "{}: {} must be a non-empty list (no recovery path left when the "
+                "primary route fails)".format(label, chain_spec["path"]))
+        else:
+            for index, entry in enumerate(chain):
+                missing = [f for f in chain_spec["entry_required_fields"]
+                           if not isinstance(entry, dict)
+                           or not str(entry.get(f, "")).strip()]
+                if missing:
+                    # The runtime parser discards an entry that names no provider
+                    # or model, so the file looks populated and the effective
+                    # chain is empty.
+                    problems.append(
+                        "{}: {}[{}] is missing {} and would be discarded at "
+                        "runtime".format(label, chain_spec["path"], index,
+                                         " and ".join(missing)))
     return problems
 
 
@@ -321,15 +358,65 @@ def run_self_test():
 
     expect("conversation: declared prerequisites are clean",
            check_conversation_prerequisites(
-               {"model": {"default": "m", "provider": "p"}, "fallback_model": [{"model": "f"}]},
-               {"required_paths": ["model.default", "model.provider"],
-                "non_empty_list_paths": ["fallback_model"]}, "x"),
+               {"model": {"default": "m", "provider": "p"},
+                "platforms": {"telegram": {}},
+                "fallback_model": [{"provider": "x", "model": "y"}]},
+               {"non_empty_strings": ["model.default", "model.provider"],
+                "present_paths": ["platforms.telegram"],
+                "fallback_chain": {"path": "fallback_model",
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=True)
-    expect("conversation: an empty fallback chain is flagged",
+    expect("conversation: a non-string primary model is flagged",
            check_conversation_prerequisites(
-               {"model": {"default": "m", "provider": "p"}, "fallback_model": []},
-               {"required_paths": ["model.default", "model.provider"],
-                "non_empty_list_paths": ["fallback_model"]}, "x"),
+               {"model": {"default": 42, "provider": "p"},
+                "platforms": {"telegram": {}},
+                "fallback_model": [{"provider": "x", "model": "y"}]},
+               {"non_empty_strings": ["model.default", "model.provider"],
+                "present_paths": ["platforms.telegram"],
+                "fallback_chain": {"path": "fallback_model",
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=False)
+    expect("conversation: a missing messaging surface is flagged",
+           check_conversation_prerequisites(
+               {"model": {"default": "m", "provider": "p"},
+                "fallback_model": [{"provider": "x", "model": "y"}]},
+               {"non_empty_strings": ["model.default", "model.provider"],
+                "present_paths": ["platforms.telegram"],
+                "fallback_chain": {"path": "fallback_model",
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=False)
+    expect("conversation: a fallback entry naming no model is flagged",
+           check_conversation_prerequisites(
+               {"model": {"default": "m", "provider": "p"},
+                "platforms": {"telegram": {}},
+                "fallback_model": [{"provider": "x"}]},
+               {"non_empty_strings": ["model.default", "model.provider"],
+                "present_paths": ["platforms.telegram"],
+                "fallback_chain": {"path": "fallback_model",
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=False)
+    expect("conversation: a fallback list of empty mappings is flagged",
+           check_conversation_prerequisites(
+               {"model": {"default": "m", "provider": "p"},
+                "platforms": {"telegram": {}},
+                "fallback_model": [{}]},
+               {"non_empty_strings": ["model.default", "model.provider"],
+                "present_paths": ["platforms.telegram"],
+                "fallback_chain": {"path": "fallback_model",
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=False)
+
+    expect("tiers: a nested list inside the admin gate is flagged",
+           check_command_tiers(
+               {"a": {"k": [["x"]], "o": ["status", "whoami"]}},
+               {"g": {"admin_key": "a.k", "open_commands_key": "a.o",
+                      "open_commands": ["status", "whoami"]}}, "x"),
+           want_clean=False)
+    expect("tiers: a mapping inside the admin gate is flagged",
+           check_command_tiers(
+               {"a": {"k": [{"id": 1}], "o": ["status", "whoami"]}},
+               {"g": {"admin_key": "a.k", "open_commands_key": "a.o",
+                      "open_commands": ["status", "whoami"]}}, "x"),
            want_clean=False)
 
     expect("baseline: a tree without the baseline is clean",
@@ -363,7 +450,8 @@ def run_self_test():
         tracked_files(root), policy["identity_baseline_filename"])
     conv = policy["conversation_prerequisites"]
     real_problems += check_conversation_prerequisites(
-        load_config(root, conv["config_file"]), conv, conv["config_file"])
+        load_config(root, conv["config_file"]), conv, conv["config_file"],
+        template_text)
 
     modes = {}
     for profile_dir in sorted((root / "instance" / "profiles").iterdir()):

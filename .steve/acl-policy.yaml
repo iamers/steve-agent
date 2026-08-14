@@ -59,22 +59,37 @@ credentials_mode:
     instance/profiles/steve-reviewer: isolated
 
 # "An ordinary conversation still behaves ordinarily": configuration carries
-# its PREREQUISITES, not its sufficiency. Whether a neutral message actually
-# gets a coherent reply depends on the reply pipeline working at request time,
-# which is runtime and cannot be asserted here. What CAN be asserted is that
-# the blueprint still declares a primary model, a provider for it, and a
-# non-empty fallback chain: remove any of those and an ordinary message stops
-# getting an ordinary reply. So the prerequisites are asserted below, and the
-# sufficiency is left to a live probe, the way tools/e2e/injector.py already
-# exercises allowlists as a real Telegram account. Claiming this behaviour has
-# no expression in configuration at all would be too strong.
+# some of its PREREQUISITES, never its sufficiency. Whether a neutral message
+# gets a coherent reply depends on the pipeline working at request time, which
+# is runtime. The behaviour boundary asserted here is deliberately narrow:
+# a message arriving on the shipped messaging surface and being answered by the
+# primary route. Remove any of the entries below and that stops being possible
+# at all -- the message never arrives, or nothing is configured to answer it.
+#
+# The fallback chain is NOT in that list, and saying it was is the error this
+# entry corrects: while the primary route works, an ordinary reply arrives
+# without it. It is resilience, and it is asserted separately and for its own
+# reason -- an empty or malformed chain silently removes the only recovery path
+# the deployment has when the primary route fails, which is exactly the kind of
+# thing that is discovered during an incident rather than before one.
 conversation_prerequisites:
   config_file: instance/config.yaml
-  required_paths:
+  # Without a primary route nothing is configured to answer.
+  non_empty_strings:
     - model.default
     - model.provider
-  non_empty_list_paths:
-    - fallback_model
+  # Without the messaging surface the message never arrives to be answered.
+  present_paths:
+    - platforms.telegram
+  # Without the bot credential that surface cannot authenticate.
+  required_env_keys:
+    - TELEGRAM_BOT_TOKEN
+  # Resilience, not prerequisite. Each entry must name a provider and a model,
+  # or the runtime parser discards it and the effective chain is empty while
+  # this file still looks populated.
+  fallback_chain:
+    path: fallback_model
+    entry_required_fields: [provider, model]
 
 # The deployment-side identity baseline. Named here so the assertion that it is
 # never tracked has something to compare against.
