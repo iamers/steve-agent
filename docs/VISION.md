@@ -21,8 +21,8 @@ demand, and stops short of merging anything without a human's authorization on r
 
 A working factory: requests raised in a chat land, through a governed pipeline, as reviewed
 pull requests. This repository is built by its own instance of that pipeline, so most of its
-history is evidence of the cycle rather than a claim about it: of sixty merged pull requests,
-forty-four were opened by the worker identity. The rest were opened directly by a person or a
+history is evidence of the cycle rather than a claim about it: of the 146 pull requests merged to
+date, 119 were opened by the worker identity. The rest were opened directly by a person or a
 session, which the project also permits and does not pretend otherwise.
 
 The pipeline, at the level a reader needs before going to `ARCHITECTURE.md` for the mechanism:
@@ -52,13 +52,16 @@ it governs.
 The hub is the coordination point of one project. Whoever owns the project's repository
 provides it and makes it reachable by every contributor: it answers about state, assigns work,
 and holds the platform integrations. What is hub-scoped today: the deterministic merge gate,
-the schedules that watch for new work and stale reviews, the identity that executes low-risk
-merges, and the project's chat group with its per-topic configuration.
+the schedules that watch for pull requests it has not seen and for pull requests carrying the
+approval label, the identity that executes low-risk merges, and the project's chat group with its
+per-topic configuration.
 
 One hub per project is a decision, not a proof. What actually holds today, measured rather than
 assumed, is that every one of those pieces is already scoped to a single repository: the merge
-gate takes one repository and one configured reviewer identity per run, each schedule watches
-one repository, and the platform's own automation is repository-scoped. One hub per project is
+gate takes one repository per run, each schedule watches one repository, and the platform's own
+automation is repository-scoped. The reviewer identity the gate checks is configured per hub where
+it is set at all; where it is not, the gate accepts an approval from anyone who did not author the
+change, which is a weaker guarantee and worth stating rather than rounding up. One hub per project is
 the arrangement that gives a project a single assignment authority most simply, on a boundary
 the deployment already has, and it is adopted as policy on that evidence, not because a hub
 spanning several projects has been shown to be impossible. It has only been shown to be
@@ -74,8 +77,8 @@ definition, and what is being counted is who administers a deployment, not a hea
 people.
 
 Because credentials belong to that boundary, and because a contributor is not expected to work
-on only one project, one contributor agent attaches to as many hubs as that contributor
-contributes to. The alternative, one agent per contributor per project, was rejected: it
+on only one project, one contributor agent can attach to more than one hub, rather than being
+confined to a single project. The alternative, one agent per contributor per project, was rejected: it
 multiplies installations along two dimensions and forces a contributor to run one installation
 per project they touch.
 
@@ -84,28 +87,26 @@ the contributor agent: it acts for whoever is doing the work, and the platform's
 per-repository access already governs what it may do on a given project. The reviewer belongs
 to the hub: the guarantee that whoever approves a change is not the party that authored it is
 something a project owes its own work, and the gate checks a reviewer identity that the hub
-configures. What is agent-scoped today: model credentials. What reaching several hubs from one
-agent still needs, and does not yet have a settled mechanism for, is per-attachment state: which
-identity to act under, and how authorization, revocation, and isolation work separately for each
-hub the same agent is attached to.
+configures. What is agent-scoped today: model credentials. Reaching several hubs from one agent still needs
+per-attachment state, and that mechanism is not settled yet.
 
 ## One deployment can hold both roles, as an arrangement, not as a merged concept
 
 This repository's own instance holds both roles today, developing itself. That is permitted as
 a deployment arrangement and forbidden as a conceptual one: anything written about Steve, a
-document, a section, a configuration namespace, has to be readable as governing the hub, the
-contributor agent, or explicitly both, and leaving that undeclared where a reader cannot infer
-it is a defect, not a stylistic choice. Declaring both at once is a real answer where the
-underlying state genuinely belongs to both roles, not a way of avoiding the question. What this
+document, a section, a configuration namespace, declares one of three scopes: `hub`,
+`contributor-agent`, or `shared`. `shared` is a first-class answer for state that genuinely belongs
+to both roles, not a way of avoiding the question, and leaving the scope undeclared where a reader
+cannot infer it is a defect rather than a stylistic choice. What this
 replaces is exactly the failure described above: presenting the two as one thing is what
 stalled a design decision for a day, and the discipline exists so that does not happen again.
 
 ## What carries over from the earlier decision, and what does not
 
 Steve Agent had earlier decided that one instance serves one project, not a multi-tenant one.
-That decision still holds, but only for half of what it used to describe: it is right about the
-hub, which remains bound to one project. It does not hold for the contributor agent, whose
-entire purpose is to serve several projects from one installation. Nobody recorded, at the time,
+That decision was right about the hub, which remains bound to one project, and **silent** about the
+contributor agent rather than wrong about it: it did not say which of the two it governed, which is
+the whole reason this split was needed. Nobody recorded, at the time,
 what "not multi-tenant" was decided against, so this narrows the earlier decision rather than
 reversing it: the reason behind the original boundary might still apply to something this split
 has not yet touched, and that gap is stated rather than assumed away.
@@ -150,8 +151,8 @@ Decided:
 - The two roles exist, are named `hub` and `contributor agent`, and everything written about
   Steve declares which of them, or both, it governs.
 - One hub per project; a hub is not multi-tenant.
-- One contributor agent per credential-owning administrative boundary, attaching to as many
-  hubs as that boundary contributes to.
+- One contributor agent per credential-owning administrative boundary, able to attach to more
+  than one hub.
 - The worker identity is scoped to the contributor agent; the reviewer identity is scoped to
   the hub.
 - A single deployment may hold both roles at once. Doing so is a deployment choice; it is never
@@ -162,14 +163,15 @@ Left open:
 - Whether `hub` and `contributor agent` are the names that stick. The repository itself is
   named `steve-agent`, so "agent" is already claimed by one of the two roles, and that
   collision is unresolved.
+- Which existing canonical material still has to be re-scoped. The decision record settles that a
+  bounded audit of it is owed and lists what falls in scope; carrying that out is work this
+  document does not do and does not get to forget.
 - How a contributor agent reaches several hubs in practice: over the same deliberation
   protocol Steve already uses for other cross-party questions, or over a channel built for
   this specifically.
-- How the pieces that today still mix both roles come apart. The installation blueprint
-  (configuration, profiles, drift-check) and the work queue both still hold hub concerns and
-  contributor concerns in one place, since assignment belongs to the hub while a contributor
-  also has private work of their own to queue. This is named as the hardest remaining part of
-  the split, not as a solved one.
+- How the parts that today serve both roles come apart. Assignment belongs to the hub while a
+  contributor also has private work of their own to queue, and separating the two is named as the
+  hardest remaining piece rather than a solved one.
 
 The vocabulary introduced here, `hub` and `contributor agent`, is not yet in
 [`GLOSSARY.md`](GLOSSARY.md), which is where this project defines each of its terms exactly
