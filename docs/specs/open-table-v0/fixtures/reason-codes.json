@@ -13,11 +13,6 @@
       "fixture": "integrity.event_order_invalid"
     },
     {
-      "code": "source_edited",
-      "rule": "2.2, 7.3",
-      "fixture": "integrity.source_edited"
-    },
-    {
       "code": "non_protocol_comment",
       "rule": "2.8, 7.5",
       "fixture": "integrity.non_protocol_comment"
