@@ -60,7 +60,7 @@ def run_integrity_fixture_test():
         "integrity.non_protocol_comment", "integrity.invalid_envelope",
         "integrity.invalid_field", "integrity.invalid_artefact",
         "integrity.exact_duplicate", "integrity.message_id_conflict",
-        "integrity.unauthorized_reducer_output", "integrity.source_edited",
+        "integrity.unauthorized_reducer_output",
         "integrity.ruling_missing", "integrity.ruling_duplicate",
         "integrity.ruling_binding_invalid", "integrity.ruling_decision_invalid",
     }
@@ -131,7 +131,7 @@ def run_reason_fixture_test(observed):
         }
         external_rules[reason["code"]] = {"rule": reason["rule"]}
     assert external_rules == REASON_CATALOG
-    assert len(external) == 14
+    assert len(external) == 13
     for code, row in external.items():
         assert observed.get(row["fixture"]) == code
     original = make_diagnostic(
@@ -156,7 +156,7 @@ def run_reason_fixture_test(observed):
     except AssertionError:
         rejected_probes += 1
     assert rejected_probes == 3
-    print("reason fixtures: 14 live catalog entries passed")
+    print("reason fixtures: 13 live catalog entries passed")
     print("fixture liveness probes: zero cases, duplicate names, unknown code rejected")
 
 
@@ -220,19 +220,6 @@ def make_fixture(message, fields):
 
 def run_self_test():
     """Exercise every family and malformed envelopes without network access."""
-    def refresh_fixture_receipt(event):
-        try:
-            event["created_body_digest"] = canonical_digest(event.get("body"))
-        except (AttributeError, UnicodeEncodeError):
-            event["created_body_digest"] = "sha256:" + "0" * 64
-
-    def validate_fixture_bundle(bundle):
-        """Attach authenticated creation receipts to an integrity fixture."""
-        for event in bundle.get("ordered_events", []):
-            if "created_body_digest" not in event:
-                refresh_fixture_receipt(event)
-        return validate_integrity_bundle(bundle)
-
     valid = {
         "configuration": [
             ("phase", "dreamer"),
@@ -532,26 +519,30 @@ def run_self_test():
             },
         ]
     }
-    notices = validate_fixture_bundle(duplicate_bundle)
+    notices = validate_integrity_bundle(duplicate_bundle)
     assert len(notices) == 1 and notices[0].startswith("exact duplicate:")
     print("integrity fixture (exact duplicate): accepted")
 
-    edited_bundle = json.loads(json.dumps(duplicate_bundle))
-    edited_bundle["ordered_events"][0]["last_edited_at"] = (
-        "2026-08-01T00:00:00Z"
-    )
-    try:
-        validate_fixture_bundle(edited_bundle)
-    except ValidationError as error:
-        assert "was edited" in str(error) and "fail closed" in str(error)
-        print("integrity fixture (edited trusted comment): rejected: {}".format(error))
-    else:
-        raise AssertionError("an edited trusted comment was accepted")
+    edited_bundle = {
+        "authority_policy": duplicate_bundle["authority_policy"],
+        "ordered_events": [
+            {
+                "actor_id": 101,
+                "comment_id": 1,
+                "created_at": "2026-08-01T00:00:00Z",
+                "updated_at": "2026-08-01T00:00:01Z",
+                "last_edited_at": "2026-08-01T00:00:01Z",
+                "body": duplicate_body,
+            },
+        ],
+    }
+    assert validate_integrity_bundle(edited_bundle) == []
+    print("integrity fixture (edited trusted comment): accepted; edit signal is not fatal")
 
     missing_update_bundle = json.loads(json.dumps(duplicate_bundle))
     del missing_update_bundle["ordered_events"][0]["updated_at"]
     try:
-        validate_fixture_bundle(missing_update_bundle)
+        validate_integrity_bundle(missing_update_bundle)
     except ValidationError as error:
         assert "must contain" in str(error) and "updated_at" in str(error)
         print("integrity fixture (missing trusted updated_at): rejected")
@@ -561,53 +552,27 @@ def run_self_test():
     missing_edit_marker_bundle = json.loads(json.dumps(duplicate_bundle))
     del missing_edit_marker_bundle["ordered_events"][0]["last_edited_at"]
     try:
-        validate_fixture_bundle(missing_edit_marker_bundle)
+        validate_integrity_bundle(missing_edit_marker_bundle)
     except ValidationError as error:
         assert "must contain" in str(error) and "last_edited_at" in str(error)
         print("integrity fixture (missing trusted last_edited_at): rejected")
     else:
         raise AssertionError("an event without trusted last_edited_at was accepted")
 
-    missing_creation_receipt_bundle = json.loads(json.dumps(duplicate_bundle))
-    del missing_creation_receipt_bundle["ordered_events"][0]["created_body_digest"]
+    malformed_edit_marker_bundle = json.loads(json.dumps(duplicate_bundle))
+    malformed_edit_marker_bundle["ordered_events"][0]["last_edited_at"] = "not-a-timestamp"
     try:
-        validate_integrity_bundle(missing_creation_receipt_bundle)
+        validate_integrity_bundle(malformed_edit_marker_bundle)
     except ValidationError as error:
-        assert "must contain" in str(error) and "created_body_digest" in str(error)
-        print("integrity fixture (missing authenticated creation digest): rejected")
+        assert "last_edited_at" in str(error) and "RFC 3339" in str(error)
+        print("integrity fixture (malformed trusted last_edited_at): rejected")
     else:
-        raise AssertionError("an event without a creation receipt digest was accepted")
-
-    creation_digest_mismatch_bundle = json.loads(json.dumps(duplicate_bundle))
-    creation_digest_mismatch_bundle["ordered_events"][0]["created_body_digest"] = (
-        "sha256:" + "0" * 64
-    )
-    try:
-        validate_fixture_bundle(creation_digest_mismatch_bundle)
-    except ValidationError as error:
-        assert "creation receipt digest" in str(error) and "fails closed" in str(error)
-        print("integrity fixture (creation receipt digest mismatch): rejected")
-    else:
-        raise AssertionError("a creation receipt digest mismatch was accepted")
-
-    edited_retry_bundle = json.loads(json.dumps(duplicate_bundle))
-    edited_retry_bundle["ordered_events"][1]["created_body_digest"] = (
-        "sha256:" + "0" * 64
-    )
-    try:
-        validate_fixture_bundle(edited_retry_bundle)
-    except ValidationError as error:
-        assert "creation receipt digest" in str(error)
-        assert "exact duplicate" not in str(error)
-        print("integrity fixture (edited exact retry): rejected before deduplication")
-    else:
-        raise AssertionError("an edited exact retry bypassed its creation receipt")
+        raise AssertionError("a malformed trusted last_edited_at was accepted")
 
     conflict_bundle = json.loads(json.dumps(duplicate_bundle))
     conflict_bundle["ordered_events"][1]["body"] += "\nChanged prose."
-    refresh_fixture_receipt(conflict_bundle["ordered_events"][1])
     try:
-        validate_fixture_bundle(conflict_bundle)
+        validate_integrity_bundle(conflict_bundle)
     except ValidationError as error:
         assert "conflict:" in str(error) and "not a duplicate" in str(error)
         print("integrity fixture (digest conflict): rejected: {}".format(error))
@@ -652,7 +617,7 @@ def run_self_test():
         ]
     }
     try:
-        validate_fixture_bundle(mismatch_bundle)
+        validate_integrity_bundle(mismatch_bundle)
     except ValidationError as error:
         assert "digest mismatch" in str(error) and "fail closed" in str(error)
         print("integrity fixture (ruling digest mismatch): rejected: {}".format(error))
@@ -673,9 +638,8 @@ def run_self_test():
     illegal_claim_decision_bundle["ordered_events"][1]["body"] = valid_ruling.replace(
         "decision: awarded", "decision: authorized"
     )
-    refresh_fixture_receipt(illegal_claim_decision_bundle["ordered_events"][1])
     try:
-        validate_fixture_bundle(illegal_claim_decision_bundle)
+        validate_integrity_bundle(illegal_claim_decision_bundle)
     except ValidationError as error:
         assert "decision authorized is not legal for claim" in str(error)
         print("integrity fixture (illegal claim ruling decision): rejected")
@@ -685,9 +649,8 @@ def run_self_test():
     deliberation_award_bundle = json.loads(json.dumps(mismatch_bundle))
     deliberation_award_bundle["authority_policy"]["profile"] = "deliberation-only"
     deliberation_award_bundle["ordered_events"][1]["body"] = valid_ruling
-    refresh_fixture_receipt(deliberation_award_bundle["ordered_events"][1])
     try:
-        validate_fixture_bundle(deliberation_award_bundle)
+        validate_integrity_bundle(deliberation_award_bundle)
     except ValidationError as error:
         assert "decision awarded is not legal for claim" in str(error)
         print("integrity fixture (deliberation-only claim award): rejected")
@@ -698,8 +661,7 @@ def run_self_test():
     invalidated_claim_bundle["ordered_events"][1]["body"] = valid_ruling.replace(
         "decision: awarded", "decision: invalidated"
     )
-    refresh_fixture_receipt(invalidated_claim_bundle["ordered_events"][1])
-    assert validate_fixture_bundle(invalidated_claim_bundle) == []
+    assert validate_integrity_bundle(invalidated_claim_bundle) == []
     print("integrity fixture (sole invalidated ruling): accepted")
 
     contribution_ruling = make_fixture(
@@ -727,7 +689,7 @@ def run_self_test():
         ],
     }
     try:
-        validate_fixture_bundle(non_rulable_source_bundle)
+        validate_integrity_bundle(non_rulable_source_bundle)
     except ValidationError as error:
         assert "does not accept rulings" in str(error)
         print("integrity fixture (ruling for non-rulable source): rejected")
@@ -756,7 +718,7 @@ def run_self_test():
             },
         ],
     }
-    notices = validate_fixture_bundle(late_duplicate_bundle)
+    notices = validate_integrity_bundle(late_duplicate_bundle)
     assert len(notices) == 1 and notices[0].startswith("exact duplicate:")
     print("integrity fixture (late exact duplicate): ignored before timestamp checks")
 
@@ -789,7 +751,7 @@ def run_self_test():
         ],
     }
     try:
-        validate_fixture_bundle(duplicate_ruling_bundle)
+        validate_integrity_bundle(duplicate_ruling_bundle)
     except ValidationError as error:
         assert "duplicate ruling fixture-ruling-0002" in str(error)
         assert "source comment 3" in str(error)
@@ -831,7 +793,7 @@ def run_self_test():
             },
         ],
     }
-    notices = validate_fixture_bundle(unauthorized_bundle)
+    notices = validate_integrity_bundle(unauthorized_bundle)
     assert notices == [
         "excluded ruling-shaped comment 7 from unauthorized actor 888; treated as prose"
     ]
@@ -841,7 +803,7 @@ def run_self_test():
         "authority_policy": unauthorized_bundle["authority_policy"],
         "ordered_events": [],
     }
-    assert validate_fixture_bundle(empty_bundle) == []
+    assert validate_integrity_bundle(empty_bundle) == []
     print("integrity fixture (empty event stream): accepted")
 
     duplicate_json_members = {
@@ -888,7 +850,7 @@ def run_self_test():
     oversized_bundle_values["event comment"] = oversized_comment_bundle
     for label, fixture in oversized_bundle_values.items():
         try:
-            validate_fixture_bundle(fixture)
+            validate_integrity_bundle(fixture)
         except ValidationError as error:
             assert "at most 20 digits" in str(error)
             print("integrity fixture (oversized {} id): rejected".format(label))
@@ -920,7 +882,7 @@ def run_self_test():
             },
         ],
     }
-    notices = validate_fixture_bundle(public_input_bundle)
+    notices = validate_integrity_bundle(public_input_bundle)
     assert notices[0].startswith("excluded non-protocol comment 8")
     assert notices[1].startswith("excluded invalid open-table comment 9")
     print("integrity fixture (ordinary and malformed public input): excluded")
@@ -942,7 +904,7 @@ def run_self_test():
             }
         ],
     }
-    notices = validate_fixture_bundle(invalid_lease_bundle)
+    notices = validate_integrity_bundle(invalid_lease_bundle)
     assert len(notices) == 1 and "seven days later" in notices[0]
     print("integrity fixture (invalid public lease interval): excluded")
 
@@ -963,7 +925,7 @@ def run_self_test():
             },
         ],
     }
-    notices = validate_fixture_bundle(malformed_unauthorized_bundle)
+    notices = validate_integrity_bundle(malformed_unauthorized_bundle)
     assert notices == [
         "excluded ruling-shaped comment 7 from unauthorized actor 888; "
         "treated as prose"
@@ -975,8 +937,7 @@ def run_self_test():
         json.dumps(malformed_unauthorized_bundle)
     )
     truncated_unauthorized_bundle["ordered_events"][1]["body"] = truncated_ruling
-    refresh_fixture_receipt(truncated_unauthorized_bundle["ordered_events"][1])
-    notices = validate_fixture_bundle(truncated_unauthorized_bundle)
+    notices = validate_integrity_bundle(truncated_unauthorized_bundle)
     assert notices == [
         "excluded ruling-shaped comment 7 from unauthorized actor 888; "
         "treated as prose"
@@ -988,7 +949,7 @@ def run_self_test():
     )
     truncated_authenticated_bundle["ordered_events"][1]["actor_id"] = 999
     try:
-        validate_fixture_bundle(truncated_authenticated_bundle)
+        validate_integrity_bundle(truncated_authenticated_bundle)
     except ValidationError as error:
         assert "invalid authenticated ruling" in str(error)
         print(
@@ -1005,9 +966,8 @@ def run_self_test():
     malformed_discriminator_bundle["ordered_events"][1]["body"] = (
         unauthorized_ruling.replace("message: ruling\n", "message: ruling \n")
     )
-    refresh_fixture_receipt(malformed_discriminator_bundle["ordered_events"][1])
     try:
-        validate_fixture_bundle(malformed_discriminator_bundle)
+        validate_integrity_bundle(malformed_discriminator_bundle)
     except ValidationError as error:
         assert "invalid authenticated ruling" in str(error)
         print(
@@ -1029,9 +989,8 @@ def run_self_test():
         malformed_delimiter_bundle["ordered_events"][1]["body"] = (
             duplicate_body.replace("message: contribution\n", malformed_message_line)
         )
-        refresh_fixture_receipt(malformed_delimiter_bundle["ordered_events"][1])
         try:
-            validate_fixture_bundle(malformed_delimiter_bundle)
+            validate_integrity_bundle(malformed_delimiter_bundle)
         except ValidationError as error:
             assert "invalid authenticated ruling" in str(error)
         else:
@@ -1046,9 +1005,8 @@ def run_self_test():
     missing_discriminator_bundle["ordered_events"][1]["body"] = (
         unauthorized_ruling.replace("message: ruling\n", "")
     )
-    refresh_fixture_receipt(missing_discriminator_bundle["ordered_events"][1])
     try:
-        validate_fixture_bundle(missing_discriminator_bundle)
+        validate_integrity_bundle(missing_discriminator_bundle)
     except ValidationError as error:
         assert "invalid authenticated ruling" in str(error)
         print(
@@ -1064,9 +1022,8 @@ def run_self_test():
     four_space_authenticated_bundle["ordered_events"][1]["body"] = (
         unauthorized_ruling.replace("```open-table\n", "    ```open-table\n", 1)
     )
-    refresh_fixture_receipt(four_space_authenticated_bundle["ordered_events"][1])
     try:
-        validate_fixture_bundle(four_space_authenticated_bundle)
+        validate_integrity_bundle(four_space_authenticated_bundle)
     except ValidationError as error:
         assert "invalid authenticated open-table" in str(error)
         assert "fenced block" in str(error)
@@ -1091,7 +1048,7 @@ def run_self_test():
             "body": reused_forged_id,
         }
     )
-    notices = validate_fixture_bundle(forged_id_conflict_bundle)
+    notices = validate_integrity_bundle(forged_id_conflict_bundle)
     assert notices == [
         "excluded ruling-shaped comment 7 from unauthorized actor 888; "
         "treated as prose"
@@ -1109,7 +1066,7 @@ def run_self_test():
             "body": reused_forged_id,
         }
     )
-    notices = validate_fixture_bundle(valid_forged_id_conflict_bundle)
+    notices = validate_integrity_bundle(valid_forged_id_conflict_bundle)
     assert notices == [
         "excluded ruling-shaped comment 7 from unauthorized actor 888; "
         "treated as prose"
@@ -1133,7 +1090,7 @@ def run_self_test():
             }
         ],
     }
-    notices = validate_fixture_bundle(unauthorized_expiration_bundle)
+    notices = validate_integrity_bundle(unauthorized_expiration_bundle)
     assert notices == [
         "excluded expiration-shaped comment 10 from unauthorized actor 888; treated as prose"
     ]
@@ -1152,7 +1109,7 @@ def run_self_test():
             }
         ],
     }
-    notices = validate_fixture_bundle(surrogate_public_bundle)
+    notices = validate_integrity_bundle(surrogate_public_bundle)
     assert len(notices) == 1 and "not valid UTF-8 scalar text" in notices[0]
     print("integrity fixture (lone-surrogate public text): excluded")
 
@@ -1162,7 +1119,7 @@ def run_self_test():
     surrogate_expiration_bundle["ordered_events"][0]["actor_id"] = 999
     surrogate_expiration_bundle["ordered_events"][0]["body"] += "\ud800"
     try:
-        validate_fixture_bundle(surrogate_expiration_bundle)
+        validate_integrity_bundle(surrogate_expiration_bundle)
     except ValidationError as error:
         assert "invalid authenticated expiration" in str(error)
         print(
@@ -1194,7 +1151,7 @@ def run_self_test():
             },
         ],
     }
-    notices = validate_fixture_bundle(duplicate_source_bundle)
+    notices = validate_integrity_bundle(duplicate_source_bundle)
     assert len(notices) == 1 and notices[0].startswith("exact duplicate:")
     print("integrity fixture (duplicate ruled source): ignored")
 
@@ -1220,7 +1177,7 @@ def run_self_test():
             },
         ],
     }
-    notices = validate_fixture_bundle(duplicate_ruling_retry_bundle)
+    notices = validate_integrity_bundle(duplicate_ruling_retry_bundle)
     assert len(notices) == 1 and notices[0].startswith("exact duplicate:")
     print("integrity fixture (duplicate ruling retry): ignored")
 
@@ -1246,7 +1203,7 @@ def run_self_test():
         ],
     }
     try:
-        validate_fixture_bundle(preemptive_ruling_bundle)
+        validate_integrity_bundle(preemptive_ruling_bundle)
     except ValidationError as error:
         assert "appended after" in str(error)
         print("integrity fixture (preemptive ruling): rejected: {}".format(error))
@@ -1262,7 +1219,7 @@ def run_self_test():
         "2026-08-01T11:59:59Z"
     )
     try:
-        validate_fixture_bundle(early_expiration_bundle)
+        validate_integrity_bundle(early_expiration_bundle)
     except ValidationError as error:
         assert "at or after expired-at" in str(error)
         print("integrity fixture (early expiration): rejected: {}".format(error))
@@ -1361,7 +1318,7 @@ def run_self_test():
         ],
     }
     try:
-        validate_fixture_bundle(reserved_id_bundle)
+        validate_integrity_bundle(reserved_id_bundle)
     except ValidationError as error:
         assert "conflict:" in str(error)
         print("integrity fixture (invalid earliest id reservation): {}".format(error))
@@ -1374,9 +1331,8 @@ def run_self_test():
     )
     repeated_id_bundle = json.loads(json.dumps(reserved_id_bundle))
     repeated_id_bundle["ordered_events"][0]["body"] = repeated_id_invalid_claim
-    refresh_fixture_receipt(repeated_id_bundle["ordered_events"][0])
     try:
-        validate_fixture_bundle(repeated_id_bundle)
+        validate_integrity_bundle(repeated_id_bundle)
     except ValidationError as error:
         assert "conflict:" in str(error)
         print(
@@ -1402,13 +1358,13 @@ def run_self_test():
             }
         ],
     }
-    notices = validate_fixture_bundle(ambiguous_id_bundle)
+    notices = validate_integrity_bundle(ambiguous_id_bundle)
     assert len(notices) == 1 and "no unambiguous message id reserved" in notices[0]
     print("integrity fixture (ambiguous invalid ids): no id reserved")
 
     ambiguous_surrogate_bundle = json.loads(json.dumps(ambiguous_id_bundle))
     ambiguous_surrogate_bundle["ordered_events"][0]["body"] += "\ud800"
-    notices = validate_fixture_bundle(ambiguous_surrogate_bundle)
+    notices = validate_integrity_bundle(ambiguous_surrogate_bundle)
     assert len(notices) == 1 and "no unambiguous message id reserved" in notices[0]
     print("integrity fixture (ambiguous surrogate ids): no id reserved")
 
@@ -1418,7 +1374,7 @@ def run_self_test():
     run_external_cli_fixture_test()
 
     print(
-        "self-test: 14 valid families, 20 malformed fixtures, and 55 integrity "
+        "self-test: 14 valid families, 20 malformed fixtures, and 53 integrity "
         "rules passed"
     )
 

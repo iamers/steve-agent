@@ -129,7 +129,6 @@ RULING_DECISIONS = {
 REASON_CATALOG = {
     "invalid_bundle": {"rule": "2.8"},
     "event_order_invalid": {"rule": "2.4"},
-    "source_edited": {"rule": "2.2, 7.3"},
     "non_protocol_comment": {"rule": "2.8, 7.5"},
     "invalid_envelope": {"rule": "3.1-3.5"},
     "invalid_field": {"rule": "3.3-3.6, 4"},
@@ -710,13 +709,13 @@ def validate_integrity_bundle_diagnostics(bundle):
     for index, event in enumerate(events, 1):
         required = {
             "actor_id", "comment_id", "created_at", "updated_at",
-            "last_edited_at", "created_body_digest", "body"
+            "last_edited_at", "body"
         }
         if not isinstance(event, dict) or set(event) != required:
             fail_validation(
                 "invalid_bundle",
                 "event {} must contain actor_id, comment_id, created_at, updated_at, "
-                "last_edited_at, created_body_digest, and body".format(index),
+                "last_edited_at, and body".format(index),
                 field="ordered_events",
             )
         actor_id = event["actor_id"]
@@ -724,7 +723,6 @@ def validate_integrity_bundle_diagnostics(bundle):
         created_at = event["created_at"]
         updated_at = event["updated_at"]
         last_edited_at = event["last_edited_at"]
-        created_body_digest = event["created_body_digest"]
         body = event["body"]
         if not is_positive_protocol_integer(actor_id):
             fail_validation(
@@ -768,28 +766,26 @@ def validate_integrity_bundle_diagnostics(bundle):
                         index, timestamp_field
                     ), field=timestamp_field
                 )
-        if updated_at != created_at:
-            fail_validation(
-                "source_edited",
-                "trusted comment {} was edited: updated_at differs from created_at; "
-                "fail closed".format(comment_id), comment_id=comment_id
-            )
         if last_edited_at is not None:
-            fail_validation(
-                "source_edited",
-                "trusted comment {} was edited: GitHub last_edited_at is non-null; "
-                "fail closed".format(comment_id), comment_id=comment_id
-            )
-        if (
-            not isinstance(created_body_digest, str)
-            or not DIGEST_RE.fullmatch(created_body_digest)
-        ):
-            fail_validation(
-                "invalid_bundle",
-                "event {} created_body_digest must be a canonical sha256 digest".format(
-                    index
-                ), comment_id=comment_id, field="created_body_digest"
-            )
+            if (
+                not isinstance(last_edited_at, str)
+                or not TIMESTAMP_RE.fullmatch(last_edited_at)
+            ):
+                fail_validation(
+                    "invalid_bundle",
+                    "event {} last_edited_at must be JSON null or a string in the "
+                    "exact RFC 3339 UTC form".format(index),
+                    comment_id=comment_id, field="last_edited_at"
+                )
+            try:
+                datetime.datetime.strptime(last_edited_at, "%Y-%m-%dT%H:%M:%SZ")
+            except ValueError:
+                fail_validation(
+                    "invalid_bundle",
+                    "event {} last_edited_at is not a real UTC date and time".format(
+                        index
+                    ), comment_id=comment_id, field="last_edited_at"
+                )
         if not isinstance(body, str):
             fail_validation(
                 "invalid_bundle", "event {} body must be a string".format(index),
@@ -854,14 +850,6 @@ def validate_integrity_bundle_diagnostics(bundle):
                 )
             )
             continue
-
-        if digest != created_body_digest:
-            fail_validation(
-                "source_edited",
-                "trusted comment {} body differs from its authenticated creation "
-                "receipt digest; edited source material fails closed".format(comment_id),
-                comment_id=comment_id,
-            )
 
         try:
             header, _ = parse_comment(body)
