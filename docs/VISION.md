@@ -152,7 +152,8 @@ this protocol, or over a channel built for the purpose, is not decided.
 Decided:
 
 - The two roles exist, are named `hub` and `contributor agent`, and everything written about
-  Steve declares its scope: `hub`, `contributor-agent`, or `shared`.
+  Steve declares its scope — `hub`, `contributor-agent`, or `shared` — wherever a reader could
+  not otherwise infer it.
 - One hub per project; a hub is not multi-tenant.
 - One contributor agent per credential-owning administrative boundary, able to attach to more
   than one hub.
