@@ -167,6 +167,14 @@ def check_conversation_prerequisites(config_data, spec, label, template_text="")
             problems.append(
                 "{}: {} must stay a mandatory key (the messaging surface cannot "
                 "authenticate without it)".format(ENV_TEMPLATE_PATH, key))
+    for dotted in spec.get("must_not_be_disabled", []):
+        block = get_path(config_data, dotted)
+        # Absent is fine: the runtime creates it from the credential. Present
+        # and explicitly disabled is not, because the runtime honours it.
+        if isinstance(block, dict) and block.get("enabled") is False:
+            problems.append(
+                "{}: {} is present and explicitly disabled, so no ordinary "
+                "message arrives on it".format(label, dotted))
     chain_spec = spec.get("fallback_chain")
     if chain_spec:
         chain = get_path(config_data, chain_spec["path"])
@@ -378,6 +386,22 @@ def run_self_test():
                 "fallback_chain": {"path": "fallback_model",
                                    "entry_required_fields": ["provider", "model"]}}, "x"),
            want_clean=False)
+    expect("conversation: an absent platform block is not a problem",
+           check_conversation_prerequisites(
+               {"fallback_model": [{"provider": "x", "model": "y"}]},
+               {"must_not_be_disabled": ["platforms.telegram"],
+                "fallback_chain": {"path": "fallback_model",
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=True)
+    expect("conversation: a platform block explicitly disabled is flagged",
+           check_conversation_prerequisites(
+               {"platforms": {"telegram": {"enabled": False}},
+                "fallback_model": [{"provider": "x", "model": "y"}]},
+               {"must_not_be_disabled": ["platforms.telegram"],
+                "fallback_chain": {"path": "fallback_model",
+                                   "entry_required_fields": ["provider", "model"]}}, "x"),
+           want_clean=False)
+
     expect("conversation: a fallback list of empty mappings is flagged",
            check_conversation_prerequisites(
                {"model": {"default": "m", "provider": "p"},

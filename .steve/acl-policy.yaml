@@ -91,6 +91,14 @@ conversation_prerequisites:
   # The one genuine prerequisite, and it survived the same test the others
   # failed: without the credential the configured messaging block has no token
   # and is not connected, so no ordinary message arrives at all.
+  # Absent and disabled are not the same thing, and the difference is measured:
+  # an absent platform block is created and enabled from the credential, while
+  # a block present with `enabled: false` is honoured and the platform does not
+  # connect. Asserting presence was wrong; asserting that a present block is not
+  # explicitly disabled is the shape that matches the runtime.
+  must_not_be_disabled:
+    - platforms.telegram
+
   required_env_keys:
     - TELEGRAM_BOT_TOKEN
   # Resilience, not prerequisite. Each entry must name a provider and a model,
