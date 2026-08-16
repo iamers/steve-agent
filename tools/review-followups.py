@@ -252,25 +252,49 @@ def run_invalid_utf8_body_fixture_test():
     main().
     """
     invalid_utf8_body = b"## Follow-ups\n- bad byte: \xff here\n"
-    with tempfile.TemporaryDirectory() as fixture_dir:
-        fixture_path = Path(fixture_dir) / "invalid-utf8-body.txt"
-        fixture_path.write_bytes(invalid_utf8_body)
-        result = subprocess.run(
-            [sys.executable, str(Path(__file__).resolve()),
-             "--body-file", str(fixture_path)],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+    script = Path(__file__).resolve()
+    try:
+        with tempfile.TemporaryDirectory() as fixture_dir:
+            fixture_path = Path(fixture_dir) / "invalid-utf8-body.txt"
+            fixture_path.write_bytes(invalid_utf8_body)
+            result = subprocess.run(
+                [sys.executable, str(script), "--body-file", str(fixture_path)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+    except OSError:
+        # Spawning is the fixture's own machinery, and its failure is not an
+        # AssertionError, so the self-test boundary in main() would not catch
+        # it and the interpreter would print a traceback carrying this
+        # script's path -- the disclosure this fixture exists to guard. It
+        # fails as an assertion instead, and it fails rather than skipping: a
+        # fixture that evaporates when it cannot run reads as a pass.
+        raise AssertionError(
+            "the invalid-UTF-8 CLI fixture could not spawn a subprocess, so "
+            "it proved nothing")
+
+    # The three facts become booleans BEFORE anything is asserted, and no
+    # captured output is ever interpolated into a message. The first version
+    # of this fixture put the whole child output in the exit-code assertion,
+    # so a regression in the decode handler failed on the exit code and
+    # published the child's traceback and path inside the one line the
+    # self-test prints, reopening the disclosure it was written to close, from
+    # the guard itself.
     combined = result.stdout + result.stderr
+    traceback_present = "Traceback" in combined
+    path_present = str(script.parent) in combined
+
+    # Leak first, exit code second: a broken handler leaks AND changes the
+    # exit code, and whichever assertion fires first is what the operator
+    # reads. The leak is the finding; the exit code is a symptom of it.
+    assert not traceback_present, (
+        "the CLI printed a traceback on an invalid-UTF-8 body file")
+    assert not path_present, (
+        "the CLI printed its own directory on an invalid-UTF-8 body file")
     assert result.returncode == TRUST_FAILURE, (
-        "expected exit {}, got {}: {!r}".format(
-            TRUST_FAILURE, result.returncode, combined))
-    assert "Traceback" not in combined, (
-        "a traceback leaked: {!r}".format(combined))
-    checkout_dir = str(Path(__file__).resolve().parent)
-    assert checkout_dir not in combined, (
-        "the checkout path leaked: {!r}".format(combined))
+        "expected exit {} on an invalid-UTF-8 body file, got {}".format(
+            TRUST_FAILURE, result.returncode))
     print("CLI fixture (invalid UTF-8 body file): exit {}, no traceback, "
           "no path".format(TRUST_FAILURE))
 
