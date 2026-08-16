@@ -242,6 +242,13 @@ claims; it **reruns** them. For **every** review task:
 - **(c)** If even one verify command fails, the review is **REQUEST_CHANGES**
   regardless of the diff: code that looks correct but does not pass the verify
   commands cannot be approved. The review verifies; it does not merely reread.
+- **(d)** The published review body ends with a `## Follow-ups` section: one
+  bullet per non-blocking observation, or the literal line `None.` when there
+  is nothing to raise. Never omit the section. This is
+  `follow_ups_are_explicit` in `.steve/review-policy.yaml`: a non-blocking
+  observation used to be free prose that nothing collected (t_92bfeac5); an
+  explicit, structured section is what lets the step below route it instead
+  of losing it.
 
 The author never reviews itself: if the worker that opened the PR is the same as
 the reviewer, assign the review to another profile.
@@ -260,6 +267,82 @@ the worker completed it after opening the PR and creating the review task. A
 The originating task's comment thread remains the place to track the chain: a
 `kanban_comment` on the parent task records the outcome of each round (fix
 applied, re-review requested, re-review outcome).
+
+**Routing what the review raised (t_92bfeac5).** As soon as a review reaches a
+terminal verdict (APPROVE or REQUEST_CHANGES) and its body is published,
+fetch it and classify the `## Follow-ups` section deterministically instead
+of judging it from memory:
+
+    gh api repos/<owner>/<repo>/pulls/<n>/reviews --jq '.[-1].body' > <tmpfile>
+    python3 tools/review-followups.py --body-file <tmpfile>
+
+- **`status: items`** — for each item printed, open a GitHub issue on the
+  repository. **Not a board card**, and the reason is a property of the
+  dispatcher rather than a preference: it promotes a card that carries no sticky
+  block and claims assigned ready cards **in the same pass**, so there is no
+  moment at which a newly created card can be caught and held before a worker
+  may already have started. Blocking it afterwards records `blocked` in the row
+  and does not stop a process that is already running. Until an operation exists
+  that creates a card already carrying the block event, a follow-up must live
+  somewhere that cannot dispatch, and this project already has such a place.
+
+  Title names the origin pull request; body quotes the item verbatim and links
+  the pull request and the review it came from. Then say in the topic that the
+  issue was filed, name the admin as the person expected to triage it, and state
+  plainly that the admin was **not individually notified** — filing an issue and
+  posting in this topic are not a delivered personal notification, only
+  something visible to whoever reads them. This mirrors the honesty rule §6 uses
+  for the merge-gate-scan waiting announcement: name the person, never imply
+  they were reached.
+
+  **What this gives up, stated rather than discovered later, and stated in
+  dispatcher terms because that is what is actually lost.** An issue keeps its
+  own open/closed state, assignees, labels, a milestone and comments; what it
+  does not have is any part in this factory's dispatcher — no board queue state,
+  no worker assignment, no dependency gating, no priority, no workspace routing,
+  and no run history: the blocks, retries and completion handoff a card
+  accumulates while it is worked. A follow-up filed this way is **durable intake, not
+  queued work**, and nothing will pick it up on its own — which is the property
+  being bought, and the same property that makes it invisible to anyone reading
+  the board.
+
+  **So triage has to be defined, or the intake rots.** Whoever triages an issue
+  filed this way does one of two things and records which: promotes it, by
+  creating the board card themselves with an assignee and letting it run, at
+  which point the issue is closed with a link to the card; or declines it, by
+  closing the issue with the reason. An issue left open and untriaged is the
+  same silence this section exists to remove, moved one surface along.
+
+  When an operation exists that creates a card already carrying the block event,
+  this can move back onto the board. That is not a one-line change: it also
+  restores assignment, parentage and priority to these items, and the triage
+  step above would be replaced rather than kept.
+- **`status: none`** — nothing to do; the review said so explicitly.
+- **`status: missing`** (exit 2) — the review did not close with the
+  required section. This is a review-process defect, not silence to pass
+  through: say so in the topic instead of assuming there was nothing to
+  report, and treat it the same as any other missing verify (§4 pitfall #2).
+- **`status: mixed`** (exit 2) — the section mixes bullets with prose (or has
+  an empty bullet payload), so an observation would be dropped if the tool
+  reported it. This is a review-process defect too: say so in the topic,
+  name it as `mixed` so the reviewer who wrote the section knows exactly
+  which malformed shape to fix, and do not attempt to extract the bullets
+  it could parse.
+- **`status: not_closing`** (exit 2) — a heading follows the Follow-ups
+  section, so it is not the review's closing section the policy requires.
+  Also a review-process defect: say so in the topic, name it as
+  `not_closing` so the reviewer knows to move the section to the end rather
+  than fix its content.
+
+This step is orchestrator prose today, not a script, because the reviewer
+skill that authors the review body lives outside this repo and Steve is
+already the party that reads every review outcome to decide the next step
+(fix task vs. §5). `tools/review-followups.py` is the deterministic part
+(extraction and classification, self-tested); routing is not delegated to a
+cron watcher because the cases that most needed it (t_92bfeac5's own
+example, PR #159) are `propagation`-tier reviews that a human merges outside
+any cron-observed event, so a scan limited to merged PRs would have missed
+exactly the case that exposed the defect.
 
 ## 5. Approval-ready brief and human decision
 
@@ -343,6 +426,17 @@ the cron scanner that finds PRs labeled `steve-approved` and invokes the gate
 on each one. The label you apply is exactly what the scanner looks for. After
 applying the label + comment, your work is finished: the scanner (cron) or the
 human (GitHub UI) takes the PR through to merge.
+
+The scanner also watches a second, smaller set on its own: open PRs with an
+APPROVED review but no label yet, i.e. approved, green, safe-tier, and
+waiting on nothing but the admin's approve-in-chat. It reports that state
+**once** per PR (t_cf1a09fa, measured on PR #161: approved, green, and
+completely unreported because an unlabelled PR was outside the old candidate
+set). The message names the admin and says outright that they were **not**
+individually notified — it only reaches whoever reads the cron's delivery
+channel. This does not change your job: you still apply the label yourself
+when the admin approves in chat; the scanner's message is a safety net for
+the case where nobody has approved in chat yet, not a substitute for it.
 
 ## 7. Topic convention for stories
 
@@ -568,8 +662,16 @@ task.
     tasks, and dispatched. On 2026-07-28, ten cards written as backlog items
     autonomously produced thirteen pull requests, including a runtime pin
     change that had been explicitly deferred. To deliberately park a backlog
-    card, use `hermes kanban create --initial-status blocked` instead: this is
-    the form that holds it; write the blocking reason in the card body.
+    card, do NOT rely on `hermes kanban create --initial-status blocked`: it
+    answers `blocked` and the next dispatcher tick promotes the card to `ready`.
+    Measured on 2026-08-14: created blocked, `blocked` immediately, `ready`
+    seventy-five seconds later. The two-step form in the fix below is a REPAIR,
+    not a hold: the dispatcher promotes and claims in the same pass, so by the
+    time a card reads `ready` its worker may already have started, and blocking
+    then records the state without stopping the process. For work that must
+    never start on its own, do not put it on the board at all until an operation
+    exists that creates a card already carrying the block event. The card body
+    carries the blocking reason either way.
     - **Symptom:** work starts that nobody requested to run immediately.
     - **Fix:** on a card already in `ready`, run
       `hermes kanban block <id> "<reason>" --kind needs_input`; wait for one
@@ -595,6 +697,28 @@ task.
     - **Fix:** apply `new_task_instead_of_unblock` here too, not only to a `done`
       card: close the card and create a new one in the same workspace with
       `--workspace dir:<path>`.
+
+28. **A state that persists produces silence on every tick, which reads as
+    "all quiet."** Two instances of the same defect, both found the same day
+    (t_cf1a09fa, t_92bfeac5): a watchdog whose contract is "empty stdout means
+    nothing to report" is correct for events but wrong for a *state* — a PR
+    stuck waiting for the admin's approve-in-chat, or a review's non-blocking
+    note with no queue to land in, both persist tick after tick and both used
+    to produce nothing. Neither was a missing case; each was a state nothing
+    was watching.
+    - **Symptom:** something needs a specific person's action and the system
+      never says so — not even once. Measured on PR #161 (approved, green,
+      unlabelled, silent) and on PR #159's review (a real future-work
+      constraint that survived only because a human happened to copy it by
+      hand).
+    - **Fix:** report the state **at least once**, name who is expected to
+      act, and say plainly whether they were actually notified or not — never
+      phrase it as delivered when it was only posted somewhere. See §6 for
+      the merge-gate-scan waiting announcement and §4's follow-ups routing
+      step for the two current instances. Neither builds a general
+      notification service (deliberately out of scope until one exists); both
+      are structured so their human-facing delivery can move onto it later
+      without changing the detection/extraction logic.
 
 ## Verification Checklist
 
@@ -654,3 +778,14 @@ task.
 - [ ] When the admin approves a safe-tier PR in chat, apply the steve-approved
       label + decision comment. DO NOT merge: the gate (cron) or a human
       (GitHub UI) performs the merge.
+- [ ] Every review task requires a `## Follow-ups` section in the published
+      review body (bullets, or `None.`); never omit it (pitfall #28,
+      `follow_ups_are_explicit`).
+- [ ] After a review reaches a terminal verdict, classify its Follow-ups
+      section with `tools/review-followups.py` and route what it finds:
+      `items` -> open one GitHub issue per item, NOT a board card (§4: a card
+      cannot be held before the dispatcher may claim it), and say in the topic
+      that the admin was NOT individually notified; `none` -> nothing to do;
+      `missing`, `mixed`, `not_closing` -> flag each as a review-process
+      defect, not silence, naming which of the three it is so the reviewer
+      knows what to fix (§4, pitfall #28).
