@@ -30,11 +30,15 @@ Exit codes:
      (a heading follows the section, so it is not the review's closing
      section) -- is a review process defect to flag, not silence to pass
      through. See STATUS_EXITS below for the routing this tool commits to.
+     The body file being unreadable or not valid UTF-8 also exits 2, before
+     any of the above classification runs.
 """
 import argparse
 import ast
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 TRUST_FAILURE = 2
@@ -237,6 +241,40 @@ def _emittable_statuses():
     return statuses
 
 
+def run_invalid_utf8_body_fixture_test():
+    """Exercise the real --body-file CLI on a file that is not valid UTF-8.
+
+    In-process assertions call extract_follow_ups directly and never touch
+    Path.read_text, so they cannot exercise the decode failure the finding
+    this fixture proves fixed was about: a non-UTF-8 body file reaching an
+    uncaught UnicodeDecodeError traceback that printed this script's own
+    deployment path. Only a subprocess drives the real read boundary in
+    main().
+    """
+    invalid_utf8_body = b"## Follow-ups\n- bad byte: \xff here\n"
+    with tempfile.TemporaryDirectory() as fixture_dir:
+        fixture_path = Path(fixture_dir) / "invalid-utf8-body.txt"
+        fixture_path.write_bytes(invalid_utf8_body)
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).resolve()),
+             "--body-file", str(fixture_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    combined = result.stdout + result.stderr
+    assert result.returncode == TRUST_FAILURE, (
+        "expected exit {}, got {}: {!r}".format(
+            TRUST_FAILURE, result.returncode, combined))
+    assert "Traceback" not in combined, (
+        "a traceback leaked: {!r}".format(combined))
+    checkout_dir = str(Path(__file__).resolve().parent)
+    assert checkout_dir not in combined, (
+        "the checkout path leaked: {!r}".format(combined))
+    print("CLI fixture (invalid UTF-8 body file): exit {}, no traceback, "
+          "no path".format(TRUST_FAILURE))
+
+
 def run_self_test():
     """Drive extract_follow_ups over fixtures covering each classification."""
     items_body = (
@@ -368,6 +406,8 @@ def run_self_test():
     print("ok: report() exit code matches STATUS_EXITS for every routed "
           "status -- {}".format(sorted(STATUS_EXITS.items())))
 
+    run_invalid_utf8_body_fixture_test()
+
     print("self-test ok")
     return 0
 
@@ -412,6 +452,20 @@ def main():
         # failure, never the location.
         print("error: cannot read the review body file: {}".format(
             error.strerror or "unreadable"), file=sys.stderr)
+        return TRUST_FAILURE
+    except UnicodeDecodeError:
+        # UnicodeDecodeError is a ValueError, not an OSError, so the branch
+        # above never catches it: a non-UTF-8 body file reached an uncaught
+        # traceback here before this branch existed, and that traceback
+        # printed this file's own deployment path -- the same disclosure the
+        # OSError branch above exists to prevent. str(UnicodeDecodeError)
+        # does not happen to include the file path, but that is not relied
+        # on: the message is a fixed description, built the same way the
+        # OSError branch builds one from strerror rather than the raw error.
+        # Malformed input is a classification this tool has a vocabulary
+        # for, not a bug, so it exits TRUST_FAILURE rather than crashing.
+        print("error: cannot read the review body file: not valid UTF-8",
+              file=sys.stderr)
         return TRUST_FAILURE
 
     status, items = extract_follow_ups(text)
