@@ -3,14 +3,32 @@
 # the repository. Report differences; do not restore them.
 # Usage: ./drift-check.sh [ssh-alias]
 #        ./drift-check.sh --compare-config <repo-yaml> <live-yaml>
+#        ./drift-check.sh --compare-identity-hashes <env-file> <baseline-file> <keys-file>
+#        ./drift-check.sh --seed-identity-baseline <env-file> <baseline-file> <keys-file>
+#
+# The last two are the VALUE-blind counterpart to the .env section below: they
+# never read or print an account, chat id or user id, only whether one still
+# hashes to what a baseline (kept ONLY on the deployment) recorded. To seed or
+# refresh that baseline after a deliberate change, SSH into the instance and,
+# from inside its repo clone's instance/ directory (this script relocates
+# itself there, so relative arguments below are relative to instance/, same
+# as the existing --compare-config):
+#   cd ~/repos/steve-agent/instance
+#   ./drift-check.sh --seed-identity-baseline \
+#     ~/.hermes/.env ~/.hermes/private/acl-identity-baseline.sha256 \
+#     ../.steve/acl-identity-keys.txt
 set -u
 
 usage() {
   echo "Usage: $0 [ssh-alias]" >&2
   echo "       $0 --compare-config <repo-yaml> <live-yaml>" >&2
+  echo "       $0 --compare-identity-hashes <env-file> <baseline-file> <keys-file>" >&2
+  echo "       $0 --seed-identity-baseline <env-file> <baseline-file> <keys-file>" >&2
 }
 
 compare_only=false
+identity_compare_only=false
+identity_seed_only=false
 if [ "${1:-}" = "--compare-config" ]; then
   if [ "$#" -ne 3 ]; then
     usage
@@ -19,6 +37,24 @@ if [ "${1:-}" = "--compare-config" ]; then
   compare_only=true
   compare_repo=$2
   compare_live=$3
+elif [ "${1:-}" = "--compare-identity-hashes" ]; then
+  if [ "$#" -ne 4 ]; then
+    usage
+    exit 2
+  fi
+  identity_compare_only=true
+  identity_env_file=$2
+  identity_baseline_file=$3
+  identity_keys_file=$4
+elif [ "${1:-}" = "--seed-identity-baseline" ]; then
+  if [ "$#" -ne 4 ]; then
+    usage
+    exit 2
+  fi
+  identity_seed_only=true
+  identity_env_file=$2
+  identity_baseline_file=$3
+  identity_keys_file=$4
 elif [ "$#" -gt 1 ]; then
   usage
   exit 2
@@ -299,8 +335,113 @@ PY
   fi
 }
 
+# ===========================================================================
+# Identity-bearing .env keys: VALUE drift via a baseline kept ONLY on the
+# deployment (never in this repository). The key NAMES (which authorization
+# decision each one gates: who is admin, who may talk to the instance, who
+# may approve) are public and live in .steve/acl-identity-keys.txt; the
+# VALUES never appear in this script's output. In the real SSH-driven check
+# further below, these three functions run ENTIRELY on the remote host (they
+# are shipped over via `declare -f`, the same idiom check_listeners() in
+# smoke.sh already uses): only a per-key verdict word crosses the network,
+# never a value or even a hash of one.
+#
+# Baseline file format: one "KEY=<sha256 of the key's current value>" line
+# per tracked key, nothing else.
+#
+# A key absent from the baseline is reported as NO-BASELINE and DOES fail the
+# check: nothing was compared for it, and a run that compared nothing must not
+# be indistinguishable from a clean one. Seed it deliberately once the live
+# value is known correct.
+# Recording (or refreshing, after a deliberate change) the baseline is a
+# separate, explicit action -- see --seed-identity-baseline above -- never
+# taken automatically by the comparison below, the same "flag, do not
+# restore" posture the rest of this script already follows.
+# ===========================================================================
+
+# env_value <file> <key>: prints the value of the first "key=..." line in
+# file, or nothing if absent. Pure text; does not interpret the value.
+env_value() {
+  local file="$1" key="$2"
+  grep -E "^${key}=" "$file" 2>/dev/null | head -1 | cut -d= -f2-
+}
+
+# read_keys_file <file>: prints one key name per line, skipping blank lines
+# and full-line "#" comments. Pure: no network, no interpretation of values.
+read_keys_file() {
+  local file="$1"
+  grep -vE '^[[:space:]]*(#|$)' "$file"
+}
+
+# compare_identity_baseline <env-file> <baseline-file> <keys-file>
+# For every key named in keys-file: hashes its current value in env-file and
+# prints "OK <key>", "DRIFT <key>" or "NO-BASELINE <key>" against
+# baseline-file. NEVER prints a value or a hash, including under shell
+# tracing. Returns 1 if any key drifted OR has no baseline entry: a run that
+# compared nothing must not be indistinguishable from a clean one.
+compare_identity_baseline() {
+  # Il corpo gira in una subshell con xtrace SPENTO: sotto `bash -x` le
+  # espansioni di assegnamento e di printf stampavano il valore e il suo
+  # digest su stderr, che è esattamente ciò che questa funzione promette di
+  # non emettere. Una promessa che vale solo finché nessuno abilita il
+  # tracing non è una promessa.
+  (
+  case "$-" in *x*) set +x ;; esac
+  local env_file="$1" baseline_file="$2" keys_file="$3"
+  local key value hash baseline_hash any_drift=0
+  while IFS= read -r key; do
+    value=$(env_value "$env_file" "$key")
+    hash=$(printf '%s' "$value" | sha256sum | cut -d' ' -f1)
+    baseline_hash=$(env_value "$baseline_file" "$key")
+    if [ -z "$baseline_hash" ]; then
+      # Fail closed: senza baseline non è stato confrontato NIENTE, e uscire
+      # 0 renderebbe un run verde indistinguibile da un confronto riuscito.
+      echo "NO-BASELINE $key (run --seed-identity-baseline once the live value is known correct)"
+      any_drift=1
+    elif [ "$hash" = "$baseline_hash" ]; then
+      echo "OK $key"
+    else
+      echo "DRIFT $key"
+      any_drift=1
+    fi
+  done < <(read_keys_file "$keys_file")
+  return "$any_drift"
+  )
+}
+
+# seed_identity_baseline <env-file> <baseline-file> <keys-file>
+# Rewrites baseline-file with the CURRENT hash of every key in keys-file. A
+# deliberate action taken once the live value is known to be correct; never
+# invoked by compare_identity_baseline itself.
+seed_identity_baseline() {
+  # Stessa ragione della funzione sopra: sotto tracing questo corpo esponeva
+  # valore e digest.
+  (
+  case "$-" in *x*) set +x ;; esac
+  local env_file="$1" baseline_file="$2" keys_file="$3"
+  local key value hash tmp
+  tmp=$(mktemp)
+  while IFS= read -r key; do
+    value=$(env_value "$env_file" "$key")
+    hash=$(printf '%s' "$value" | sha256sum | cut -d' ' -f1)
+    printf '%s=%s\n' "$key" "$hash" >>"$tmp"
+  done < <(read_keys_file "$keys_file")
+  mv "$tmp" "$baseline_file"
+  )
+}
+
 if "$compare_only"; then
   compare_config "$compare_repo" "$compare_live"
+  exit $?
+fi
+
+if "$identity_compare_only"; then
+  compare_identity_baseline "$identity_env_file" "$identity_baseline_file" "$identity_keys_file"
+  exit $?
+fi
+
+if "$identity_seed_only"; then
+  seed_identity_baseline "$identity_env_file" "$identity_baseline_file" "$identity_keys_file"
   exit $?
 fi
 
@@ -519,6 +660,39 @@ else
       drift=1
     fi
   done
+fi
+
+echo
+echo "== .env: identity-bearing keys (value-blind; compared against a baseline kept ONLY on the instance) =="
+identity_keys_repo="../.steve/acl-identity-keys.txt"
+if [ -s "$identity_keys_repo" ]; then
+  # Stage the (public) key-name list on the instance, alongside the baseline
+  # it will be compared against. Only key NAMES cross the wire here.
+  if ssh -T -o ConnectTimeout=10 "$HOST" 'mkdir -p ~/.hermes/private && cat > ~/.hermes/private/acl-identity-keys.txt' < "$identity_keys_repo"; then
+    identity_reader=$(declare -f env_value read_keys_file compare_identity_baseline)
+    identity_out=$(ssh -T -o ConnectTimeout=10 "$HOST" \
+      "$identity_reader; compare_identity_baseline ~/.hermes/.env ~/.hermes/private/acl-identity-baseline.sha256 ~/.hermes/private/acl-identity-keys.txt")
+    identity_rc=$?
+    echo "$identity_out"
+    if [ "$identity_rc" -eq 0 ]; then
+      echo "OK: every tracked identity key was compared against its baseline and matched"
+    else
+      # Two very different situations both exit non-zero, and the operator
+      # needs to know which: a value that changed is an incident, a key that
+      # was never seeded is a check that has not started yet.
+      if printf '%s\n' "$identity_out" | grep -q '^DRIFT '; then
+        echo "DRIFT: an identity-bearing value changed on the instance (see above; no value is ever shown)"
+      else
+        echo "NOT COMPARED: at least one tracked key has no baseline entry, so nothing was verified for it; seed it deliberately once the live value is known correct"
+      fi
+      drift=1
+    fi
+  else
+    echo "DRIFT: could not stage the identity-key name list on the instance"
+    drift=1
+  fi
+else
+  echo "OK: no identity keys declared in $identity_keys_repo"
 fi
 
 echo "----"

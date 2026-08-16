@@ -1,0 +1,136 @@
+# Declared expectation for the ACL facts that are safe to publish: command
+# names, which config keys must exist, and the structural relationship
+# between them. tools/acl-check.py asserts instance/config.yaml (and the
+# profile copies below) against this file, in CI, with no live instance and
+# no account/chat/user id anywhere in the comparison.
+#
+# No identity belongs here. The accounts these keys gate (who is admin, who
+# may talk to the instance, who may approve) are asserted separately, against
+# a baseline kept on the deployment: see .steve/acl-identity-keys.txt and
+# instance/drift-check.sh.
+#
+# Changing an expected value below is a reviewable diff, not a silent edit to
+# instance/config.yaml.
+
+# Telegram command tiering (docs/decisions/adr-20260723-single-telegram-profile-uses-command-tiering.md,
+# docs/ARCHITECTURE.md §6.3/§8.1). Each scope pairs an admin-gating key (must
+# stay present and non-empty; its resolved value is the deployment's business,
+# not this file's) with the commands left open to a non-admin user. Every
+# other command is reserved to whoever the admin key resolves to.
+# HOW TO READ THE TIER SECTION, because it is not a behaviour check and calling
+# it one would be false. The runtime is more permissive than what follows: it
+# accepts a scalar administrator value, comma-separated commands, a leading
+# slash, any case, and it applies an implicit floor that leaves `help` and
+# `whoami` open to non-admins whatever this file says. So several spellings the
+# check below rejects are, in the runtime, exactly equivalent to the ones it
+# accepts.
+#
+# That is deliberate. The invariant asserted here is CANONICAL REPRESENTATION,
+# not effective policy: this deployment writes its command tiers one way, and a
+# diff that changes the writing is a diff a human should see and approve, even
+# when the runtime would treat the two forms alike. Chasing the runtime's
+# normalisation instead would mean re-deriving its parser here and watching the
+# copy drift, which is the failure this repository already documents elsewhere.
+#
+# The cost is stated rather than hidden: this check will reject a configuration
+# that works. That is the intended behaviour of a canonical-form invariant, and
+# it is the reason this comment exists instead of a claim that the runtime
+# requires what follows.
+telegram_command_tiers:
+  dm:
+    admin_key: platforms.telegram.extra.allow_admin_from
+    open_commands_key: platforms.telegram.extra.user_allowed_commands
+    open_commands: [status, whoami]
+  group:
+    admin_key: platforms.telegram.extra.group_allow_admin_from
+    open_commands_key: platforms.telegram.extra.group_user_allowed_commands
+    open_commands: [status, whoami]
+
+# Config files expected to carry the block above, verbatim.
+tiered_config_files:
+  - instance/config.yaml
+  - instance/profiles/steve-reviewer/config.yaml
+
+# The worker profile must NOT carry a Telegram surface at all: it is "a clone
+# of main WITHOUT TELEGRAM_* keys" (docs/ARCHITECTURE.md §5.1), so it never
+# double-polls the bot and never becomes a second, untiered entry point.
+untiered_config_files:
+  - instance/profiles/steve-worker/config.yaml
+
+# Inbound access control: who may talk to the agent at all
+# (docs/decisions/adr-20260723-trusted-group-and-admin-dms-use-separate-acls.md).
+# These keys carry identities and are never valorized here; this only pins
+# that they stay MANDATORY in the template, so a live instance can never lose
+# access control by having drift-check treat their absence as legitimate
+# (an @optional key's absence is not reported as drift).
+required_env_keys:
+  - TELEGRAM_ALLOWED_USERS
+  - TELEGRAM_GROUP_ALLOWED_CHATS
+
+# Worker/reviewer authorization: author != approver at the git-credentials
+# level too (docs/decisions/adr-20260723-github-identities-are-separated-by-role.md).
+# The mode value itself ("shared"/"isolated") carries no identity.
+credentials_mode:
+  valid_values: [shared, isolated]
+  # Profiles pinned to an exact mode because the mode IS the load-bearing
+  # invariant, not merely a well-formed value.
+  required:
+    instance/profiles/steve-reviewer: isolated
+
+# "An ordinary conversation still behaves ordinarily": configuration carries
+# some of its PREREQUISITES, never its sufficiency. Whether a neutral message
+# gets a coherent reply depends on the pipeline working at request time, which
+# is runtime. The behaviour boundary asserted here is deliberately narrow:
+# a message arriving on the shipped messaging surface and being answered by the
+# primary route. Remove any of the entries below and that stops being possible
+# at all -- the message never arrives, or nothing is configured to answer it.
+#
+# The fallback chain is NOT in that list, and saying it was is the error this
+# entry corrects: while the primary route works, an ordinary reply arrives
+# without it. It is resilience, and it is asserted separately and for its own
+# reason -- an empty or malformed chain silently removes the only recovery path
+# the deployment has when the primary route fails, which is exactly the kind of
+# thing that is discovered during an incident rather than before one.
+conversation_prerequisites:
+  config_file: instance/config.yaml
+  # NOT asserted, and measured rather than assumed: neither key is required for
+  # an ordinary reply on the pinned runtime. With the model key empty the
+  # gateway resolves a default from the provider catalog; with the provider key
+  # absent it resolves the authenticated active provider. Asserting them would
+  # be stricter than the behaviour, which is the same defect the messaging
+  # surface entry was removed for. The runtime is resilient here, and a checker
+  # should not pretend otherwise to look thorough.
+  # NOT asserted here, and the reason is worth keeping: a platforms.telegram
+  # block looks like a prerequisite and is not one. With the credential below
+  # present, the shipped runtime creates and enables that platform itself, so
+  # removing the block does not stop a message arriving. Asserting it would be
+  # stricter than the behaviour it claimed to protect, which is how a checker
+  # starts failing on configurations that work.
+  #
+  # The one genuine prerequisite, and it survived the same test the others
+  # failed: without the credential the configured messaging block has no token
+  # and is not connected, so no ordinary message arrives at all.
+  # Absent and disabled are not the same thing, and the difference is measured:
+  # an absent platform block is created and enabled from the credential, while
+  # a block present with `enabled: false` is honoured and the platform does not
+  # connect. Asserting presence was wrong; asserting that a present block is not
+  # explicitly disabled is the shape that matches the runtime.
+  must_not_be_disabled:
+    - platforms.telegram
+
+  required_env_keys:
+    - TELEGRAM_BOT_TOKEN
+  # Resilience, not prerequisite. Each entry must name a provider and a model,
+  # or the runtime parser discards it and the effective chain is empty while
+  # this file still looks populated.
+  # Both keys, because the runtime merges them and either may hold a single
+  # mapping instead of a list. What is asserted is that the EFFECTIVE chain is
+  # not empty: a malformed entry beside a valid one is discarded by the runtime
+  # and must not be reported here as a missing chain.
+  fallback_chain:
+    paths: [fallback_providers, fallback_model]
+    entry_required_fields: [provider, model]
+
+# The deployment-side identity baseline. Named here so the assertion that it is
+# never tracked has something to compare against.
+identity_baseline_filename: acl-identity-baseline.sha256

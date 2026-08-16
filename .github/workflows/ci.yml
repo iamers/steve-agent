@@ -1,23 +1,26 @@
 # CI for iamers/steve-agent
 #
-# One lightweight job (target < 2 minutes). Eleven checks in sequence:
+# One lightweight job (target < 2 minutes). Twelve checks in sequence:
 #   1. tools/pr-brief.py self-test (deterministic review triage)
 #   2. tools/open-table-validate.py self-test (integrity rules)
 #   3. tools/open-table-reduce.py self-test (deliberation-only reducer)
 #   4. tools/boundary-check.py self-test (parallel task boundary collisions)
 #   5. tools/review-followups.py self-test (review Follow-ups classification)
-#   6. instance/smoke.sh listener verdict self-test
-#   7. instance/merge-gate.sh self-test (deterministic merge decision logic)
-#   8. instance/merge-gate-scan.sh self-test (merge gate scanner formatter)
-#   9. syntax check (bash -n) on all tracked shell scripts
-#   10. shellcheck at warning severity on the same scripts
-#   11. gitleaks (manually downloaded binary, NOT the official action, which
+#   6. tools/acl-check.py self-test (Telegram command tiering, access-control
+#      env keys, worker/reviewer credential isolation, against
+#      .steve/acl-policy.yaml -- no identity, only publishable facts)
+#   7. instance/smoke.sh listener verdict self-test
+#   8. instance/merge-gate.sh self-test (deterministic merge decision logic)
+#   9. instance/merge-gate-scan.sh self-test (merge gate scanner formatter)
+#   10. syntax check (bash -n) on all tracked shell scripts
+#   11. shellcheck at warning severity on the same scripts
+#   12. gitleaks (manually downloaded binary, NOT the official action, which
 #       requires a license for organizations) on the working copy
 #
 # Note about check_privacy.sh: in CI it is a no-op by design -- the local
 # denylist (secret strings) exists only on the instance and is never committed,
 # so there is nothing to compare in CI. Secret/privacy coverage in CI relies
-# solely on gitleaks (step 10). check_privacy.sh remains useful as an optional
+# solely on gitleaks (step 12). check_privacy.sh remains useful as an optional
 # local guard on the instance, where the denylist is present.
 
 name: checks
@@ -51,6 +54,9 @@ jobs:
 
       - name: review-followups self-test
         run: python3 tools/review-followups.py --self-test
+
+      - name: acl-check self-test
+        run: python3 tools/acl-check.py --self-test
 
       - name: smoke listener self-test
         run: ./instance/smoke.sh --self-test
