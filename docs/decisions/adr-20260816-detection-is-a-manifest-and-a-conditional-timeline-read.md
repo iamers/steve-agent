@@ -575,8 +575,10 @@ before an Action deployment can claim reducer conformance:
 
 The implementation comes after this record, per `docs/decisions/README.md`. The
 four fixtures the requirement record named are inherited unchanged, and this
-record adds five that correspond to the decisions above, each of which must
-fail before the implementation and pass after:
+record adds eight that correspond to the decisions above, each of which must
+fail before the implementation and pass after. Twelve in total, and the count
+grew from five as review rounds two, three and four each turned up a case the
+list did not cover:
 
 1. a deleted ruling with a surviving manifest entry fails closed and makes
    **zero** permission lookups;
