@@ -25,11 +25,11 @@ Exit codes:
   0  an explicit answer was found: "items" (one or more bullets) or "none"
      (the section reads the literal line "None.")
   2  every other status -- "missing" (no section, or one with no parseable
-     content), "mixed" (bullets and prose both present, so an item would be
-     dropped if it were reported), "not_closing" (a heading follows the
-     section, so it is not the review's closing section) -- is a review
-     process defect to flag, not silence to pass through. See STATUS_EXITS
-     below for the routing this tool commits to.
+     content), "mixed" (bullets and prose both present, or an empty bullet
+     payload, so an item would be dropped if it were reported), "not_closing"
+     (a heading follows the section, so it is not the review's closing
+     section) -- is a review process defect to flag, not silence to pass
+     through. See STATUS_EXITS below for the routing this tool commits to.
 """
 import argparse
 import ast
@@ -60,6 +60,12 @@ FOLLOW_UPS_HEADING_RE = re.compile(r"^#{1,6}\s*Follow-ups:?\s*$", re.IGNORECASE)
 # than the contract this tool exists to enforce.
 NONE_LITERAL = "None."
 BULLET_RE = re.compile(r"^[-*]\s+(.*\S)\s*$")
+# A bullet marker with nothing after it: no payload group, so unlike
+# BULLET_RE above there is nothing to capture. Matched separately rather than
+# folded into BULLET_RE's payload group as optional, so the two stay simple
+# to read against each other: one owns non-empty bullets, one owns empty
+# ones, and classification below decides what an empty one means.
+EMPTY_BULLET_RE = re.compile(r"^[-*]\s*$")
 
 
 def extract_follow_ups(text):
@@ -112,13 +118,13 @@ def extract_follow_ups(text):
     unparsed = []
     empty_bullet = False
     for ln in kept:
-        match = BULLET_RE.match(ln.strip())
+        stripped = ln.strip()
+        if EMPTY_BULLET_RE.match(stripped):
+            empty_bullet = True
+            continue
+        match = BULLET_RE.match(stripped)
         if match:
-            payload = match.group(1).strip()
-            if not payload:
-                empty_bullet = True
-                continue
-            items.append(payload)
+            items.append(match.group(1).strip())
             continue
         if ln[:1].isspace() and items:
             items[-1] = items[-1] + " " + ln.strip()
@@ -152,9 +158,10 @@ def report(status, items):
         for i, item in enumerate(items, start=1):
             print("{}. {}".format(i, item))
     elif status == "mixed":
-        print("the Follow-ups section mixes bullets with prose, so an "
-              "observation would be dropped: the policy is one bullet per "
-              "observation")
+        print("the Follow-ups section has an empty bullet marker, "
+              "unindented prose beside a bullet, or both, so an observation "
+              "would be dropped: the policy is one bullet per observation, "
+              "each with a payload")
     elif status == "not_closing":
         print("the review does not end with its Follow-ups section: a heading "
               "follows it, so it is not the closing section the policy requires")
@@ -260,7 +267,8 @@ def run_self_test():
     for label, section in [
         ("prose before the first bullet", "prose first\n- a bullet\n"),
         ("prose between two bullets", "- a\nprose between\n- b\n"),
-        ("an empty bullet payload", "- a\n-\n"),
+        ("a valid bullet followed by an empty bullet marker", "- a\n-\n"),
+        ("an empty bullet marker alone, isolated with no other content", "-\n"),
     ]:
         status, items = extract_follow_ups(
             "## Verification\n- [ ] CI green\n\n## Follow-ups\n" + section)
