@@ -4,8 +4,9 @@
 The pure ``reduce_session`` entry point maps a replay bundle and an explicit
 ``as_of`` timestamp to a JSON-serializable plan of issue writes. The GitHub
 adapter builds that bundle from authenticated API responses and applies the
-plan. This deployment deliberately has no creation receipts or deletion
-history and therefore never claims reducer conformance.
+plan. The detection mechanism section 2.3 requires is selected, in the
+`manifest` family of section 4.18, and is not implemented here, so this
+deployment never claims reducer conformance.
 
 Replay bundle shape (this is not the section 2.8 integrity-bundle schema):
 
@@ -203,8 +204,9 @@ def render_projection(status, phase, turn, settled, proposals, notices):
     lines = [
         "## Open Table projection",
         "",
-        "**Not reducer-conformant.** This deployment has no authenticated creation "
-        "receipts and no deletion evidence, so this session is not fully replayable.",
+        "**Not reducer-conformant.** The detection mechanism this protocol requires "
+        "is selected but not implemented in this deployment, so this session is not "
+        "fully replayable.",
         "",
         "- Protocol version: `0`",
         "- Session status: `{}`".format(status),
@@ -245,8 +247,8 @@ def render_unreplayable_projection(reason):
         "",
         "**Session unreplayable.** {}".format(reason),
         "",
-        "**Not reducer-conformant.** This deployment has no authenticated creation "
-        "receipts and no deletion evidence.",
+        "**Not reducer-conformant.** The detection mechanism this protocol requires "
+        "is selected but not implemented in this deployment.",
     ])
 
 

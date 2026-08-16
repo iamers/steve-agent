@@ -294,6 +294,17 @@ def run_self_test():
     # The fixture table is the grammar's, not a hand-kept copy of it: a family
     # added to MESSAGE_FIELDS without a fixture would otherwise be untested and
     # the suite would still pass.
+    # Section 3.5: a family name may not contain the character section 4.18 uses
+    # to separate the fields of a manifest record. Asserted over the table rather
+    # than over a copy of the current names, so it holds for families not yet
+    # written: such a family would be a valid envelope that the reducer's own
+    # memory could not represent. It runs before the coverage assertion below,
+    # which would otherwise fire first on a new family and hide this one.
+    assert not [name for name in MESSAGE_FIELDS if "/" in name], sorted(
+        name for name in MESSAGE_FIELDS if "/" in name
+    )
+    print("family names: none contains the manifest record separator")
+
     assert set(valid) == set(MESSAGE_FIELDS), sorted(
         set(valid) ^ set(MESSAGE_FIELDS)
     )

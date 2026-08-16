@@ -102,12 +102,15 @@ belong to the separate accepted decision section 2.3 requires.
 authority profile writes mutable projections or posts `ruling`, `expiration`, or
 `manifest` messages. A
 GitHub Action remains this repository's intended first reducer implementation,
-but no conforming deployment has been selected or implemented in version 0 as
-currently shipped.
+but no conforming *deployment* has been selected or implemented in version 0 as
+currently shipped. That is a separate statement from the detection mechanism
+below, which is selected: a selected mechanism that nothing implements still
+leaves every deployment non-conforming.
 
 Detection under section 2.2 requires the reducer to remember what it
-incorporated. This specification fixes what that memory MUST satisfy and does
-not select its mechanism:
+incorporated. This specification fixes what that memory MUST satisfy; the
+mechanism that satisfies it is selected further down this section, and the
+obligations below are what that selection had to meet:
 
 - **The memory MUST NOT be the mutable issue projection.** Section 2.6 makes
   the projection a rebuildable cache, so detection resting on the previous
@@ -168,7 +171,8 @@ recovery, and that mechanism MUST be implemented.
 **That decision now exists and this section records what it selected**:
 `docs/decisions/adr-20260816-detection-is-a-manifest-and-a-conditional-timeline-read.md`.
 The memory is the `manifest` message family of section 4.18, authored by a
-reducer principal, one comment per run that has something to record. Its
+reducer principal, one logical manifest per run that has something to record,
+which section 4.18 allows to be split across comments when it must. Its
 lifecycle is that rulings are written first, the manifest that records them
 second, and the projection last, so that the residue of an interrupted run is a
 memory that lags the log rather than a memory that accuses the log; recovery
@@ -351,6 +355,13 @@ comment are not protocol messages.
 - `open-table`: the literal `0`;
 - `message`: one message name from section 4;
 - `id`: an idempotency token matching `[A-Za-z0-9][A-Za-z0-9._-]{7,127}`.
+
+A message name MUST NOT contain `/`. This is a constraint on every future
+family, not a description of the current ones: section 4.18 uses `/` as the
+field separator inside a manifest record, so a family whose name contained one
+would be a valid envelope that the reducer's own memory could not represent.
+The reference implementation asserts this over its family table rather than
+restating the list.
 
 3.6. Boolean values are the lowercase literals `true` and `false`. `turn`,
 `sequence`, `turn-limit`, actor ids, numeric comment ids, repository ids, and
@@ -590,11 +601,14 @@ requirement rather than a structural one: an entry naming a family outside the
 domain is structurally well-formed. A digest is mandatory in every entry, and
 section 2.3 states why a memory of comment ids alone is not sufficient.
 
-The reducer posts at most one manifest per run, and posts none for a run with
-nothing to record. A run whose manifest would exceed the platform's comment size
-limit MUST split it across several manifest comments; section 7.6 defines the
-memory over the set of surviving manifests, so a split carries no meaning beyond
-its parts. A manifest MUST NOT be rewritten in place: it is inside the detection
+The reducer records one manifest per run that has something to record, and none
+for a run that has nothing. **That unit is the logical record, not a comment
+count**: a manifest whose text would exceed the platform's comment size limit
+MUST be split across several `manifest` comments, each a complete message with
+its own `id` under section 7.1, and each carrying the same
+`deletions-accounted`. Section 7.6 defines the memory over the set of surviving
+manifests, so the parts of a split are equivalent to the whole and a reader
+never has to know whether a split happened. A manifest MUST NOT be rewritten in place: it is inside the detection
 domain, section 2.2 keeps the log append-only, and an in-place rewrite is
 exactly the mutation this mechanism exists to notice.
 
