@@ -383,8 +383,11 @@ requirement record said the happy path was probably no longer free and declined
 to size the bill; this is the bill. It is bounded by runs rather than by
 messages, and a session that deliberates for an hour at the measured cadence of
 roughly one run per minute pays tens of comments, not hundreds. Whether that
-noise wants a fold, a single rewritten manifest, or a separate issue is a
-presentation question and is left open below.
+noise wants a fold or a home outside the deliberation issue is left open below.
+One tempting answer is not open: rewriting a single manifest in place is
+excluded, because the manifest is in the detection domain and section 2.2 keeps
+the log append-only, so an in-place rewrite is precisely the edit this mechanism
+exists to notice.
 
 **Determinism is preserved and section 2.5 is not weakened.** The reduction is
 still a pure function of its bundle. What is conditional is the adapter's
@@ -479,18 +482,23 @@ lost and no session is killed.
   cannot parse (`tools/open-table-reduce.py:257-258`). That is a real defect
   and it is not this mechanism's: the projection is outside the manifest's
   domain by section 2.6. It gets its own issue rather than being absorbed here.
-- **How manifest comments are presented.** Folding, rewriting a single manifest
-  in place, or moving them off the deliberation issue are all compatible with
-  everything decided above, and none of them is decided.
+- **How manifest comments are presented.** Folding them, or moving them off the
+  deliberation issue entirely, are both compatible with everything decided
+  above, and neither is decided. Rewriting one in place is not among the
+  options, for the reason given in the consequences.
 
 ## Alternatives considered
 
 **Read the timeline on every run** (the reviewer's original shape): rejected on
-cost and on the freeze. It raises the unconditional read groups from three to
-four for every run forever, including the all-clear case where no deletion ever
-occurred, and its unmatched-deletion rule freezes in-flight sources with no
-defined exit. The narrow trigger buys the same clause of section 2.3 and pays
-only on the branch that was already making network calls.
+cost. It raises the unconditional read groups from three to four for every run
+forever, including the all-clear case where no deletion ever occurred, while
+buying the same clause of section 2.3 that the narrow trigger buys on the branch
+that was already making network calls. The freeze that the requirement record
+also objected to is **not** part of this rejection, and saying so is the honest
+form of it: the exit defined in section 5 is separable and would fix the
+every-run shape just as well. What does not survive is paying for a read on
+every run of every session to reach a state that needs a pending
+permission-sensitive lookup to matter at all.
 
 **Read the timeline only when the manifest already disagrees with the
 inventory**: rejected, and it is the tempting one. It is strictly cheaper and
