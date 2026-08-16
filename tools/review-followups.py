@@ -105,8 +105,12 @@ def extract_follow_ups(text):
     # it is the only thing distinguishing a continuation line, which belongs to
     # the bullet above it, from a separate observation written as prose. The
     # boundary, decided in review: unindented prose anywhere fails closed, an
-    # empty bullet payload fails closed, and an indented line after a nonempty
-    # bullet is folded into that item.
+    # empty bullet payload fails closed, and an indented line that is not
+    # itself a bullet marker is folded into the item above it. The last clause
+    # said "an indented line" until an isolated empty marker was made to fail
+    # closed; indentation has never overridden bullet shape, so an indented
+    # `- x` was already a new item rather than a continuation, and the loop
+    # below is what that sentence has to match.
     kept = [ln.rstrip() for ln in body if ln.strip()]
     if not kept:
         return "missing", []
