@@ -183,7 +183,15 @@ def _emittable_statuses():
     try:
         source = source_path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=source_name)
-    except (OSError, SyntaxError) as error:
+    except OSError as error:
+        # Same reasoning as main()'s body-file read: str(OSError) carries the
+        # full path via error.filename, so only strerror is safe to print.
+        raise AssertionError(
+            "cannot read/parse {} to derive emittable statuses: {}".format(
+                source_name, error.strerror or "unreadable"))
+    except SyntaxError as error:
+        # ast.parse was called with filename=source_name (the basename), so
+        # str(SyntaxError) reports that name rather than the deployment path.
         raise AssertionError(
             "cannot read/parse {} to derive emittable statuses: {}".format(
                 source_name, error))
@@ -374,7 +382,16 @@ def parse_args():
 def main():
     args = parse_args()
     if args.self_test:
-        return run_self_test()
+        try:
+            return run_self_test()
+        except AssertionError as error:
+            # Every self-test check is a bare assert: left uncaught, the
+            # interpreter would print traceback lines carrying this file's
+            # deployment path before the message below, and self-test output
+            # is pasted verbatim into published review bodies. Catching here,
+            # once, covers every assertion instead of hardening each one.
+            print("self-test failed: {}".format(error), file=sys.stderr)
+            return 1
 
     try:
         text = Path(args.body_file).read_text(encoding="utf-8")
