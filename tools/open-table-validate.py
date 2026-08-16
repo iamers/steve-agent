@@ -17,6 +17,7 @@ from pathlib import Path
 
 from open_table_core import (
     MAX_PROTOCOL_INTEGER,
+    MESSAGE_FIELDS,
     REASON_CATALOG,
     ValidationError,
     canonical_digest,
@@ -278,7 +279,25 @@ def run_self_test():
             ("source-digest", "sha256:" + "0" * 64),
             ("decision", "awarded"),
         ],
+        "manifest": [
+            ("deletions-accounted", "2"),
+            (
+                "entries",
+                "301/sha256:{}/contribution,304/sha256:{}/settled/311".format(
+                    "a" * 64, "b" * 64
+                ),
+            ),
+            ("frozen", "307/2"),
+        ],
     }
+
+    # The fixture table is the grammar's, not a hand-kept copy of it: a family
+    # added to MESSAGE_FIELDS without a fixture would otherwise be untested and
+    # the suite would still pass.
+    assert set(valid) == set(MESSAGE_FIELDS), sorted(
+        set(valid) ^ set(MESSAGE_FIELDS)
+    )
+    print("family coverage: every section 4 family has a valid fixture")
 
     for message, fields in valid.items():
         header, prose = parse_comment(make_fixture(message, fields))
@@ -313,6 +332,22 @@ def run_self_test():
     )
     assert parse_comment(ipvfuture_artefact)[0]["message"] == "result"
     print("integrity fixture (uppercase IPvFuture authority): accepted")
+
+    accounting_only_manifest = make_fixture(
+        "manifest", [("deletions-accounted", "4")]
+    )
+    assert parse_comment(accounting_only_manifest)[0]["message"] == "manifest"
+    print("integrity fixture (manifest with neither entries nor frozen): accepted")
+
+    zero_count_manifest = make_fixture(
+        "manifest",
+        [
+            ("deletions-accounted", "0"),
+            ("entries", "301/sha256:{}/contribution".format("a" * 64)),
+        ],
+    )
+    assert parse_comment(zero_count_manifest)[0]["deletions-accounted"] == "0"
+    print("integrity fixture (manifest count of zero, no frozen): accepted")
 
     crlf_envelope = make_fixture(
         "contribution", [("phase", "dreamer"), ("turn", "1")]
@@ -447,6 +482,75 @@ def run_self_test():
         "bare carriage return": make_fixture(
             "contribution", [("phase", "dreamer"), ("turn", "1")]
         ).replace("turn: 1\n```", "turn: 1\r\r\n```"),
+        "manifest without its required count": make_fixture(
+            "manifest", [("entries", "301/sha256:{}/contribution".format("a" * 64))]
+        ),
+        "manifest count with a leading zero": make_fixture(
+            "manifest", [("deletions-accounted", "01")]
+        ),
+        "manifest count that is negative": make_fixture(
+            "manifest", [("deletions-accounted", "-1")]
+        ),
+        "manifest entry missing its family": make_fixture(
+            "manifest",
+            [
+                ("deletions-accounted", "0"),
+                ("entries", "301/sha256:" + "a" * 64),
+            ],
+        ),
+        "manifest entry with an unknown family": make_fixture(
+            "manifest",
+            [
+                ("deletions-accounted", "0"),
+                ("entries", "301/sha256:{}/checkpoint".format("a" * 64)),
+            ],
+        ),
+        "manifest entry with a truncated digest": make_fixture(
+            "manifest",
+            [
+                ("deletions-accounted", "0"),
+                ("entries", "301/sha256:{}/contribution".format("a" * 63)),
+            ],
+        ),
+        "manifest entry naming one comment twice": make_fixture(
+            "manifest",
+            [
+                ("deletions-accounted", "0"),
+                (
+                    "entries",
+                    "301/sha256:{}/contribution,301/sha256:{}/proposal".format(
+                        "a" * 64, "b" * 64
+                    ),
+                ),
+            ],
+        ),
+        "manifest entries with a trailing separator": make_fixture(
+            "manifest",
+            [
+                ("deletions-accounted", "0"),
+                ("entries", "301/sha256:{}/contribution,".format("a" * 64)),
+            ],
+        ),
+        "manifest entry ruling id that is not an id": make_fixture(
+            "manifest",
+            [
+                ("deletions-accounted", "0"),
+                ("entries", "301/sha256:{}/settled/none".format("a" * 64)),
+            ],
+        ),
+        "manifest frozen record without its watermark": make_fixture(
+            "manifest", [("deletions-accounted", "1"), ("frozen", "307")]
+        ),
+        "manifest frozen naming one comment twice": make_fixture(
+            "manifest", [("deletions-accounted", "1"), ("frozen", "307/1,307/1")]
+        ),
+        # Section 3.3 makes optionality a property of one family. Without this
+        # case the optional set could be read as globally permitted keys and
+        # every other family would silently accept them.
+        "contribution carrying a manifest optional field": make_fixture(
+            "contribution",
+            [("phase", "dreamer"), ("turn", "1"), ("frozen", "307/1")],
+        ),
     }
     for label, fixture in malformed.items():
         try:
@@ -1373,9 +1477,13 @@ def run_self_test():
     run_core_import_contract_test()
     run_external_cli_fixture_test()
 
+    # The first two counts are read from the tables themselves: a hand-kept copy
+    # of a list the code already has goes stale silently, and both of these did.
+    # The third has no collection to measure -- its cases are separate calls --
+    # so it stays a hand-maintained number and is marked as one.
     print(
-        "self-test: 14 valid families, 20 malformed fixtures, and 53 integrity "
-        "rules passed"
+        "self-test: {} valid families, {} malformed fixtures, and 55 integrity "
+        "rules passed".format(len(valid), len(malformed))
     )
 
 
