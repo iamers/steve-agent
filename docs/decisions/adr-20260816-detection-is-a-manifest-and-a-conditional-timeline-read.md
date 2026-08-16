@@ -264,6 +264,47 @@ creates, not a deployment property it inherits, and until it exists the
 mechanism's coverage of the erased-memory case rests on trigger 2 alone, whose
 gap is the cancellation window.
 
+**And it cannot be created by adding `schedule:` to the reducer workflow, which
+is what an earlier version of this record said.** That workflow is
+issue-event-shaped in three separate places, and a scheduled event carries no
+`github.event.issue` for any of them: the job runs only
+`if: contains(github.event.issue.labels.*.name, 'open-table/session')`
+(`:20`), the reduction is handed `ISSUE_NUMBER: ${{ github.event.issue.number }}`
+(`:25`), and the concurrency group is keyed on that same number (`:14-16`). A
+`schedule:` key on that file produces a run whose condition is false, whose
+issue number is empty, and whose concurrency key does not name any session. The
+sweep would be asserted rather than deployed.
+
+So the sweep's invocation boundary is decided here rather than left to the
+implementation:
+
+- **It is a separate scheduled workflow**, because the reducer workflow's own
+  shape is the obstacle above and widening it to serve both event and schedule
+  would put an issue-less branch inside the file whose every guard reads an
+  issue.
+- **It enumerates sessions rather than assuming one**: open issues carrying the
+  `open-table/session` label, paginated, which is the same label the reducer's
+  own job condition already uses as the definition of a session.
+- **It invokes one reduction per enumerated session, and each invocation
+  declares the same issue-keyed concurrency group string as the event-driven
+  workflow.** This is the load-bearing part. Concurrency group names are
+  repository-scoped rather than workflow-scoped, so a job in the sweep workflow
+  declaring `open-table-<repository-id>-<issue-number>` enters the *same*
+  serialisation domain as the event-driven run for that issue, and section 6's
+  prerequisite keeps holding across the two workflows. A sweep that serialises
+  only against itself would satisfy the letter of trigger 3 and break the
+  premise section 6 rests on.
+- **The two group expressions are a two-sided invariant, so they get a check.**
+  They live in different files and nothing makes them agree; a rename in one
+  splits the domain silently, and every deployment keeps working while the
+  guarantee is gone. The implementation carries a check that the two expressions
+  are byte-identical, and that check belongs in CI beside the other self-tests
+  rather than in a comment asking the next reader to be careful.
+
+The repository-scoped group namespace is documented platform behaviour that
+this record has not measured, and it is the one new assumption the sweep
+introduces. It joins the probe list below rather than being asserted here.
+
 ### 5. What the barrier does when it fires, and how the freeze ends
 
 The freeze is scoped, durable, and has a defined exit. All three are answers to
@@ -383,15 +424,18 @@ already says so. The timeline read is a REST `/issues/{n}/timeline` or GraphQL
 `timelineItems` read of the same issue the reducer is already reading, so no new
 scope is requested.
 
-**A probe is owed all the same, and this record does not get to skip it.** The
-requirement record's rule is that a field the implementation reads gets a probe
-in that implementation's CI, and this mechanism reads a surface nothing read
-before. Two things need measuring rather than asserting: that the workflow
-token can enumerate comment-deletion events on the session issue, which section
-2.3 states as documented rather than measured, and that the count is stable
-across reads of an unchanged issue, because an unstable count is a freeze that
-fires on nothing. Both belong to the implementation's CI, and until they pass,
-the barrier is a design and not a guarantee.
+**Probes are owed all the same, and this record does not get to skip them.**
+The requirement record's rule is that a field the implementation reads gets a
+probe in that implementation's CI, and this mechanism reads a surface nothing
+read before. Three things need measuring rather than asserting: that the
+workflow token can enumerate comment-deletion events on the session issue,
+which section 2.3 states as documented rather than measured; that the count is
+stable across reads of an unchanged issue, because an unstable count is a
+freeze that fires on nothing; and that two jobs in two different workflows
+declaring the same concurrency group string serialise against each other, which
+is what makes the sweep of section 4 re-enter the domain section 6 depends on.
+All three belong to the implementation's CI, and until they pass, the barrier
+and its backstop are a design and not a guarantee.
 
 ### What is now detected, and what is not
 
@@ -471,9 +515,13 @@ read. A replay bundle carries the complete timeline as before.
 detection is a trip-wire that fires on prose. After this, detection rests on
 records the reducer itself wrote and digests it computed under section 3.7,
 which is what the requirement record said the mechanism was permitted to lean
-on. The platform surfaces it leans on are two: the comment inventory, and the
-existence and count of timeline deletion events. The second is measured and not
-contractual, and section 4 makes its failure fail toward the barrier.
+on. The platform surfaces it leans on as *evidence* are two: the comment
+inventory, and the existence and count of timeline deletion events. The second
+is measured and not contractual, and section 4 makes its failure fail toward
+the barrier. A third platform property is load-bearing without being evidence,
+and is named here so it is not mistaken for a free assumption: the
+repository-scoped concurrency group namespace that lets the sweep serialise
+against the event-driven run for the same session.
 
 ### The specification revision this record authorises
 
@@ -523,27 +571,38 @@ fail before the implementation and pass after:
 6. a deletion that erased source, ruling and manifest entry, in a session where
    nothing permission-sensitive is pending, still produces a notice: this is the
    fixture for triggers 2 and 3, and without it the barrier alone would pass
-   every other fixture while missing the case a review had to find;
+   every other fixture while missing the case a review had to find. It is run
+   twice, once through the deletion-woken path and once through the sweep's
+   invocation path, because "the notice is produced" and "the trigger reaches
+   this session" are two claims and only the second one is about the sweep;
 7. a manifest carrying both a `frozen` marker and a ruling for the same source
    leaves that source frozen, which is the only observable consequence of the
-   race serialisation is meant to prevent.
+   race serialisation is meant to prevent;
+8. the two concurrency group expressions, in the reducer workflow and in the
+   sweep workflow, are byte-identical. This one is a workflow check rather than
+   a reducer fixture, and it exists because the invariant has two sides in two
+   files: the permissive side is a sweep that runs happily on its own key while
+   the guarantee section 6 rests on is already gone.
 
-The workflow also changes, and that is part of the implementation rather than a
-separate task: `.github/workflows/open-table.yml` gains the `schedule:` trigger
-it does not have today, keeping its existing per-issue `concurrency` group,
-because the sweep and the serialisation are both deployment properties this
-mechanism depends on.
+The deployment also changes, and that is part of the implementation rather than
+a separate task: a new scheduled workflow that enumerates open
+`open-table/session` issues and invokes one reduction per session under the
+issue-keyed concurrency group defined in section 4. `.github/workflows/open-table.yml`
+itself is **not** given a `schedule:` key, for the reason section 4 records.
 
-Plus the two live probes the minimum-permissions section says are owed, which
-are not fixtures because no fixture can answer them: the workflow token
-enumerating comment-deletion events on a real session issue, and the same count
-read twice over an unchanged issue.
+Plus the live probes that are not fixtures because no fixture can answer them:
+the two the minimum-permissions section owes, namely the workflow token
+enumerating comment-deletion events on a real session issue and the same count
+read twice over an unchanged issue, and one more the sweep introduces, that two
+jobs in two different workflows declaring the same concurrency group string do
+serialise against each other.
 
-Three of those seven are guards against this record being implemented in the
+Four of those eight are guards against this record being implemented in the
 wrong direction rather than against the platform, and they are the ones worth
 writing first: number 3 is where a permanent freeze would show up, number 4 is
-where a crash would be misread as tampering, and number 6 is where an
-implementation that kept only the barrier would look complete.
+where a crash would be misread as tampering, number 6 is where an implementation
+that kept only the barrier would look complete, and number 8 is where a sweep
+that serialises only against itself would look deployed.
 
 The live drill the requirement record asked for stands: a deletion of
 incorporated material mid-session, with the criterion that no contribution is
