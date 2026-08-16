@@ -4,8 +4,9 @@
 The pure ``reduce_session`` entry point maps a replay bundle and an explicit
 ``as_of`` timestamp to a JSON-serializable plan of issue writes. The GitHub
 adapter builds that bundle from authenticated API responses and applies the
-plan. This deployment deliberately has no creation receipts or deletion
-history and therefore never claims reducer conformance.
+plan. The detection mechanism section 2.3 requires is selected, in the
+`manifest` family of section 4.18, and is not implemented here, so this
+deployment never claims reducer conformance.
 
 Replay bundle shape (this is not the section 2.8 integrity-bundle schema):
 
@@ -57,6 +58,10 @@ RULING_REQUIRED = {
     "cancellation", "result", "review-request", "verdict",
 }
 DELIBERATION_MESSAGES = {"contribution", "proposal", "settled"}
+# Section 2.3: only a reducer principal may author these. This deployment does
+# not yet write a manifest, but a manifest-shaped comment from a participant is
+# already reducer-shaped prose and section 7.5 requires excluding it.
+REDUCER_OUTPUT_MESSAGES = {"ruling", "expiration", "manifest"}
 WRITE_PERMISSIONS = {"admin", "maintain", "write"}
 
 
@@ -199,8 +204,9 @@ def render_projection(status, phase, turn, settled, proposals, notices):
     lines = [
         "## Open Table projection",
         "",
-        "**Not reducer-conformant.** This deployment has no authenticated creation "
-        "receipts and no deletion evidence, so this session is not fully replayable.",
+        "**Not reducer-conformant.** The detection mechanism this protocol requires "
+        "is selected but not implemented in this deployment, so this session is not "
+        "fully replayable.",
         "",
         "- Protocol version: `0`",
         "- Session status: `{}`".format(status),
@@ -241,8 +247,8 @@ def render_unreplayable_projection(reason):
         "",
         "**Session unreplayable.** {}".format(reason),
         "",
-        "**Not reducer-conformant.** This deployment has no authenticated creation "
-        "receipts and no deletion evidence.",
+        "**Not reducer-conformant.** The detection mechanism this protocol requires "
+        "is selected but not implemented in this deployment.",
     ])
 
 
@@ -370,7 +376,7 @@ def normalize_events(bundle):
                 "reason": "invalid Open Table envelope",
             })
             continue
-        if header["message"] in {"ruling", "expiration"} and event["actor_id"] not in principals:
+        if header["message"] in REDUCER_OUTPUT_MESSAGES and event["actor_id"] not in principals:
             notices.append({
                 "comment_id": event["comment_id"],
                 "permalink": permalink(event),
@@ -1047,6 +1053,22 @@ def run_self_test():
     repost = reduce_session(malformed_repost, as_of)
     assert repost["unreplayable"] and "reused message id" in repost["reason"]
     print("invalid earliest envelope reserves its recoverable actor/message-id key")
+
+    participant_manifest = json.loads(json.dumps(bundle))
+    participant_manifest["ordered_events"] = participant_manifest["ordered_events"][:1]
+    participant_manifest["ordered_events"][0]["body"] = "\n".join([
+        "```open-table", "open-table: 0", "message: manifest",
+        "id: forged-manifest-0001", "deletions-accounted: 99",
+        "entries: 201/sha256:{}/contribution".format("a" * 64), "```", "",
+        "A participant claiming to be the reducer's memory.",
+    ])
+    forged = reduce_session(participant_manifest, as_of)
+    assert not forged["unreplayable"] and forged["writes"] == []
+    assert len(forged["notices"]) == 1
+    assert forged["notices"][0]["reason"] == (
+        "unauthorized reducer-shaped message excluded as prose"
+    )
+    print("participant-authored manifest: excluded as prose, not read as memory")
 
     assert trusted_last_edited_at({201: None}, 201) is None
     try:

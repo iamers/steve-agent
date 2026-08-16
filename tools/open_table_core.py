@@ -61,12 +61,17 @@ MESSAGE_FIELDS = {
         "target-actor-id", "message-id", "source-comment-id", "source-digest",
         "decision"
     },
+    "manifest": {"deletions-accounted"},
+}
+OPTIONAL_MESSAGE_FIELDS = {
+    "manifest": {"entries", "frozen"},
 }
 TOKEN_FIELDS = {"phase", "point"}
 TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
 KEY_RE = re.compile(r"^[a-z]+(?:-[a-z]+)*$")
 POSITIVE_ASCII_INTEGER_RE = re.compile(r"^[1-9][0-9]{0,19}$")
+COUNT_ASCII_INTEGER_RE = re.compile(r"^(?:0|[1-9][0-9]{0,19})$")
 MAX_PROTOCOL_INTEGER = 10 ** 20 - 1
 TIMESTAMP_RE = re.compile(
     r"^(?:[0-9]{4})-(?:0[1-9]|1[0-2])-"
@@ -108,13 +113,14 @@ CLOSING_RE = re.compile(r"^ {0,3}```[ \t]*(?:\r\n|\n)", re.MULTILINE)
 BLOCK_OPENING_RE = re.compile(
     r"^ {0,3}```open-table[ \t]*(?:\r\n|\n)", re.MULTILINE
 )
-REDUCER_OUTPUT_MESSAGES = {"ruling", "expiration"}
+REDUCER_OUTPUT_MESSAGES = {"ruling", "expiration", "manifest"}
 REDUCER_OUTPUT_MARKERS = {
     "ruling": {
         "target-actor-id", "message-id", "source-comment-id", "source-digest",
         "decision"
     },
     "expiration": {"expired-at"},
+    "manifest": {"deletions-accounted"},
 }
 RULING_REQUIRED_MESSAGES = {
     "configuration", "settled", "claim", "renewal", "release", "handoff",
@@ -535,6 +541,74 @@ def parse_header(header_text):
     return header
 
 
+def validate_manifest_entries(value):
+    """Validate the section 4.18 record syntax of a manifest entries value."""
+    seen = set()
+    for record in value.split(","):
+        parts = record.split("/")
+        if len(parts) not in (3, 4):
+            fail_invalid_field(
+                "entries record must be comment-id/digest/family with an optional "
+                "ruling comment id",
+                field="entries",
+            )
+        comment_id, digest, family = parts[0], parts[1], parts[2]
+        if not is_positive_ascii_integer(comment_id):
+            fail_invalid_field(
+                "entries comment id must be a positive numeric GitHub id",
+                field="entries",
+            )
+        if not DIGEST_RE.fullmatch(digest):
+            fail_invalid_field(
+                "entries digest must be a canonical sha256 digest", field="entries"
+            )
+        if family not in MESSAGE_FIELDS:
+            fail_invalid_field(
+                "entries family must name a section 4 message family",
+                field="entries",
+            )
+        if len(parts) == 4 and not is_positive_ascii_integer(parts[3]):
+            fail_invalid_field(
+                "entries ruling comment id must be a positive numeric GitHub id",
+                field="entries",
+            )
+        if comment_id in seen:
+            fail_invalid_field(
+                "entries names comment {} more than once".format(comment_id),
+                field="entries",
+            )
+        seen.add(comment_id)
+
+
+def validate_manifest_frozen(value):
+    """Validate the section 4.18 record syntax of a manifest frozen value."""
+    seen = set()
+    for record in value.split(","):
+        parts = record.split("/")
+        if len(parts) != 2:
+            fail_invalid_field(
+                "frozen record must be comment-id/deletions-accounted",
+                field="frozen",
+            )
+        comment_id, watermark = parts
+        if not is_positive_ascii_integer(comment_id):
+            fail_invalid_field(
+                "frozen comment id must be a positive numeric GitHub id",
+                field="frozen",
+            )
+        if not COUNT_ASCII_INTEGER_RE.fullmatch(watermark):
+            fail_invalid_field(
+                "frozen watermark must be a base-10 count of at least 0",
+                field="frozen",
+            )
+        if comment_id in seen:
+            fail_invalid_field(
+                "frozen names comment {} more than once".format(comment_id),
+                field="frozen",
+            )
+        seen.add(comment_id)
+
+
 def validate_header(header):
     """Validate common fields and the exact field set for one message family."""
     if header.get("open-table") != "0":
@@ -546,8 +620,9 @@ def validate_header(header):
             "unknown or missing message type: {}".format(message), field="message"
         )
 
-    expected = COMMON_FIELDS | MESSAGE_FIELDS[message]
-    missing = sorted(expected - set(header))
+    required = COMMON_FIELDS | MESSAGE_FIELDS[message]
+    expected = required | OPTIONAL_MESSAGE_FIELDS.get(message, set())
+    missing = sorted(required - set(header))
     unknown = sorted(set(header) - expected)
     if missing:
         fail_invalid_field("missing required field(s): {}".format(", ".join(missing)))
@@ -619,6 +694,20 @@ def validate_header(header):
         fail_invalid_field(
             "source-digest must be a canonical sha256 digest", field="source-digest"
         )
+
+    if "deletions-accounted" in header and not COUNT_ASCII_INTEGER_RE.fullmatch(
+        header["deletions-accounted"]
+    ):
+        fail_invalid_field(
+            "deletions-accounted must be a base-10 count of at least 0",
+            field="deletions-accounted",
+        )
+
+    if "entries" in header:
+        validate_manifest_entries(header["entries"])
+
+    if "frozen" in header:
+        validate_manifest_frozen(header["frozen"])
 
     if "artefact" in header and not (
         GITHUB_ARTEFACT_RE.fullmatch(header["artefact"])

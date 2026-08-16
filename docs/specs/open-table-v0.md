@@ -79,6 +79,15 @@ which GitHub permits to edit or delete any comment including the reducer's own
 output, it holds where the platform leaves a trace; section 2.3 declares the
 residual where it does not.
 
+The complete issue timeline is a *replay* input. A live adapter MAY defer
+fetching it for a given run, but only while the reduction provably does not
+consult it: the deferral condition MUST be a predicate over the comment
+inventory and the reducer's own memory alone, evaluable before the fetch, and it
+MUST NOT be able to change a fail-closed outcome. Section 2.3 names the
+conditions under which the accepted mechanism reads the timeline. A bundle
+offered as a replay bundle still carries the complete timeline as this paragraph
+requires.
+
 A detected mutation MUST open a supersede iteration. The iteration is scoped to
 the affected message and the state depending on it, never to the session: it
 names what changed or was lost and what that material backed, re-establishing
@@ -90,14 +99,18 @@ the transition semantics of a supersede iteration and the form its notice takes
 belong to the separate accepted decision section 2.3 requires.
 
 2.3. Only an issuer matching a reducer principal allowed by the selected
-authority profile writes mutable projections or posts `ruling` messages. A
+authority profile writes mutable projections or posts `ruling`, `expiration`, or
+`manifest` messages. A
 GitHub Action remains this repository's intended first reducer implementation,
-but no conforming deployment has been selected or implemented in version 0 as
-currently shipped.
+but no conforming *deployment* has been selected or implemented in version 0 as
+currently shipped. That is a separate statement from the detection mechanism
+below, which is selected: a selected mechanism that nothing implements still
+leaves every deployment non-conforming.
 
 Detection under section 2.2 requires the reducer to remember what it
-incorporated. This specification fixes what that memory MUST satisfy and does
-not select its mechanism:
+incorporated. This specification fixes what that memory MUST satisfy; the
+mechanism that satisfies it is selected further down this section, and the
+obligations below are what that selection had to meet:
 
 - **The memory MUST NOT be the mutable issue projection.** Section 2.6 makes
   the projection a rebuildable cache, so detection resting on the previous
@@ -138,14 +151,60 @@ implied:
   on its own comments there is no such residual, because such an account cannot
   reach what the reducer wrote. An adopter who does not accept this scope needs
   an authority profile that provides a ledger, and version 0 defines none.
+
+  This clause is where the deepest reachable case lands, and it is named rather
+  than left to be inferred. Deleting a source, its ruling, and the reducer's
+  memory of both removes every record that could say *which* comment was lost.
+  What survives is that something was deleted, so the loss MUST become visible
+  and unidentified rather than silent: the reducer names the deletions it cannot
+  account for and refuses, under the paragraph above, to rule anything pending
+  against current permissions. The residual against this actor is therefore a
+  denial of availability that declares itself, not a silent loss.
 - The deliberation log is not audit-grade history. It does not prove
   completeness, absence, or the exact text of a deleted comment.
 
 Before an Action deployment can claim reducer conformance, a separate accepted
 decision MUST select the mechanism meeting these obligations and define its
 lifecycle, minimum permissions, concurrent-write behavior, and fail-closed
-recovery, and that mechanism MUST be implemented. No such mechanism is selected
-today. Until that decision and implementation exist, work claims remain
+recovery, and that mechanism MUST be implemented.
+
+**That decision now exists and this section records what it selected**:
+`docs/decisions/adr-20260816-detection-is-a-manifest-and-a-conditional-timeline-read.md`.
+The memory is the `manifest` message family of section 4.18, authored by a
+reducer principal, one logical manifest per run that has something to record,
+which section 4.18 allows to be split across comments when it must. Its
+lifecycle is that rulings are written first, the manifest that records them
+second, and the projection last, so that the residue of an interrupted run is a
+memory that lags the log rather than a memory that accuses the log; recovery
+from that residue reads the surviving ruling and records the entry on the next
+run, without a fresh permission lookup. Its concurrent-write behavior is section
+7.6. Its fail-closed recovery is the rule that a manifest entry whose comment is
+absent from the inventory is an identified loss under section 9.1, and that a
+permission-sensitive source with neither a ruling nor an entry is resolved by
+reading the timeline: when the observed count of comment-deletion events equals
+the accounted watermark the source is new and is ruled as usual, and when the
+two disagree in either direction the source is frozen under section 4.18 and
+MUST NOT be ruled. Equality rather than inequality is required, so that a
+failure of the assumption that timeline events are undeletable presents as an
+unaccounted deletion rather than as an all-clear.
+
+The mechanism places two obligations on the deployment adapter rather than on
+the reduction, and a deployment that only subscribes to comment events satisfies
+neither:
+
+- **Runs for one session MUST NOT execute concurrently.** Section 7.6 makes
+  repeated writes harmless; it cannot make a concurrent write safe, because one
+  run can freeze a source while another, holding a stale watermark, performs the
+  current-permission lookup this section forbids. That lookup is an act, and no
+  later record undoes it.
+- **The adapter MUST read the timeline periodically**, independently of incoming
+  comment events, so that detection latency is bounded by a clock rather than by
+  the next incorporated message. A run woken by a comment-deletion event MUST
+  also read it. Without the periodic read, a session in which nothing
+  permission-sensitive is pending can absorb a deletion that the platform did
+  record and that nothing ever looks at.
+
+**The implementation does not exist yet.** Until it does, work claims remain
 advisory and this repository MUST NOT claim reducer conformance. A future Action deployment's
 authenticated issuer would be its token and its principal the bot account's
 positive numeric comment-author user id from trusted GitHub metadata. The
@@ -166,7 +225,10 @@ the declared event order.
     projection = reduce(ordered_events, trusted_context, authority_policy, as_of)
 
 `ordered_events` contains the complete declared GitHub issue timeline, including
-comment-deletion evidence when GitHub exposes it. `trusted_context` contains
+comment-deletion evidence when GitHub exposes it. That is a requirement on
+replay, and section 2.2 states when a live adapter MAY defer the fetch; the
+reduction itself is the same pure function either way, and two reducers given
+the same bundle and `as_of` still MUST agree. `trusted_context` contains
 authenticated GitHub metadata, including each event's actual author,
 `created_at`, `updated_at`, `lastEditedAt`, and recorded rulings. `updated_at`
 and `lastEditedAt` are auxiliary edit signals supplied when GitHub supplies
@@ -208,7 +270,17 @@ the slice holds no memory of what a reducer incorporated, so it cannot tell an
 edited body from the body that was ruled on, and sections 2.2 and 2.3 place
 that obligation on the reducer instead. A ruling whose bound `source-digest`
 disagrees with its source remains fatal here, because that comparison needs no
-memory beyond the bundle. Any first-occurrence comment from an allowed reducer principal
+memory beyond the bundle.
+
+A `manifest` supplied inside a bundle does not change that boundary, and the
+symmetry with the ruling above is deliberately not extended. The slice validates
+a manifest's envelope: its grammar, its record syntax, and that its author is an
+allowed principal. It MUST NOT treat a disagreement between an entry's digest
+and the current body of the comment it names as fatal. Such a disagreement is
+the ordinary edit of incorporated material, which section 2.2 requires to open a
+supersede iteration scoped to that message, and making it fatal here would
+restore, through this slice, the whole-session unreplayability that scoping
+exists to remove. Any first-occurrence comment from an allowed reducer principal
 that begins an `open-table` block but fails strict envelope, UTF-8 scalar, or
 event-local validation is also fatal; malformed participant input is instead
 excluded deterministically as section 7.5 requires. Exact retries are identified
@@ -262,7 +334,15 @@ one such block under the same indentation grammar.
 3.3. Each header line MUST be `key: value`. Keys MUST contain only lowercase
 ASCII letters and hyphens. A key MUST occur once. Values MUST be single-line,
 MUST have no leading or trailing whitespace, and MUST be non-empty. Unknown
-keys make the message invalid. Physical lines use LF or CRLF only. Bare carriage
+keys make the message invalid.
+
+A message family MAY declare a field *optional*. An omitted optional field is
+neither a missing required field nor an unknown key, and its meaning when
+omitted MUST be stated by the family. Every field of every family named in
+section 4 is required unless that family says otherwise; the only optional
+fields in version 0 are the two in section 4.18. Because a key occurs at most
+once, a field carrying a variable-length list encodes the whole list in one
+value, as `expected-actors` already does. Physical lines use LF or CRLF only. Bare carriage
 returns and Unicode line-separator characters such as U+0085 and U+2028 are
 invalid and MUST NOT be interpreted as header line endings.
 
@@ -276,11 +356,21 @@ comment are not protocol messages.
 - `message`: one message name from section 4;
 - `id`: an idempotency token matching `[A-Za-z0-9][A-Za-z0-9._-]{7,127}`.
 
+A message name MUST NOT contain `/`. This is a constraint on every future
+family, not a description of the current ones: section 4.18 uses `/` as the
+field separator inside a manifest record, so a family whose name contained one
+would be a valid envelope that the reducer's own memory could not represent.
+The reference implementation asserts this over its family table rather than
+restating the list.
+
 3.6. Boolean values are the lowercase literals `true` and `false`. `turn`,
 `sequence`, `turn-limit`, actor ids, numeric comment ids, repository ids, and
 pull-request numbers use ASCII digits `[0-9]` and are base-10 integers greater
 than or equal to 1. Their canonical text has no leading zero and contains at
-most 20 digits. Timestamps use RFC 3339 UTC in the exact form
+most 20 digits. A field this document defines as a *count* uses the same digits
+and the same canonical text but is greater than or equal to 0, because a count
+of nothing is a value and not an absence; the sole count in version 0 is
+`deletions-accounted` in section 4.18. Its canonical text for zero is `0`. Timestamps use RFC 3339 UTC in the exact form
 `YYYY-MM-DDTHH:MM:SSZ`. Phase and point identifiers match
 `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Enumerated values are case-sensitive.
 
@@ -472,6 +562,61 @@ trusted-context invalidation before any other ruling exists; it MUST be the sole
 ruling for its source. An edit after a ruling is not repairable by a second
 ruling and fails closed under section 7.
 
+4.18. `manifest` is the reducer's record of what it incorporated. It is
+authenticated reducer output: its actual author MUST match an allowed reducer
+principal, and a manifest-shaped comment from any other actor is untrusted prose
+with no protocol effect, excluded deterministically as section 7.5 requires. A
+manifest requires no ruling and is never itself ruled.
+
+It requires:
+
+- `deletions-accounted`: the count, as defined in section 3.6, of comment
+  deletion events in the issue timeline that the reducer has accounted for.
+
+It optionally carries:
+
+- `entries`: what this run incorporated. Omitted when the run incorporated
+  nothing;
+- `frozen`: the sources this run refused to rule. Omitted when it refused none.
+
+`entries` is a comma-separated, whitespace-free list of records. Each record is
+`<comment-id>/<digest>/<family>` for a source the reducer incorporated without
+appending a ruling, and `<comment-id>/<digest>/<family>/<ruling-comment-id>` for
+one it ruled. `<comment-id>` is the trusted numeric GitHub comment id of the
+incorporated message, `<digest>` its canonical digest under section 3.7 for the
+body that was incorporated, `<family>` its `message` value, and
+`<ruling-comment-id>` the trusted numeric comment id of the ruling that binds
+it. A comment id MUST occur at most once in one `entries` value. The separator
+is `/` because it occurs in no comment id, digest, or family name, so a record
+splits on positions rather than on a delimiter that its own fields could
+contain.
+
+`frozen` is a comma-separated, whitespace-free list of `<comment-id>/<count>`
+records, naming a source the reducer refused to rule and the
+`deletions-accounted` reading that froze it. A comment id MUST occur at most
+once in one `frozen` value.
+
+The domain the memory MUST cover is section 2.3's, and it is a contextual
+requirement rather than a structural one: an entry naming a family outside the
+domain is structurally well-formed. A digest is mandatory in every entry, and
+section 2.3 states why a memory of comment ids alone is not sufficient.
+
+The reducer records one manifest per run that has something to record, and none
+for a run that has nothing. **That unit is the logical record, not a comment
+count**: a manifest whose text would exceed the platform's comment size limit
+MUST be split across several `manifest` comments, each a complete message with
+its own `id` under section 7.1, and each carrying the same
+`deletions-accounted`. Section 7.6 defines the memory over the set of surviving
+manifests, so the parts of a split are equivalent to the whole and a reader
+never has to know whether a split happened. A manifest MUST NOT be rewritten in place: it is inside the detection
+domain, section 2.2 keeps the log append-only, and an in-place rewrite is
+exactly the mutation this mechanism exists to notice.
+
+A source named in `frozen` MUST NOT be ruled while it is frozen, and MUST NOT be
+unfrozen by a later manifest. It is re-established the way section 2.2
+re-establishes any material, by a new message with a new id, which is ruled on
+its own terms.
+
 ## 5. Deliberation turns and phases
 
 5.1. A session begins at phase `initial`, turn 1 when it has no configuration.
@@ -557,7 +702,39 @@ platform's memory of the comment, is what anchors decided history. A current
 body whose canonical digest differs from the digest its ruling pinned is a
 mutation of incorporated material: section 2.2 requires it to be detected,
 within the actor scope stated there, and the state depending on that ruling
-MUST fail closed, scoped to that dependent state. A deleted or missing source or ruling makes dependent state
+MUST fail closed, scoped to that dependent state.
+
+A ruling is not the only pin, and it cannot be: `contribution` and `proposal`
+require no ruling under section 4.17, yet a `contribution` advances phase and
+turn under section 5.2. A section 4.18 manifest entry is the pin for those, and
+it binds the same two things. The comparison and its consequence are therefore
+stated once for both:
+
+- a message in the domain whose current digest differs from the digest pinned
+  for it, by a ruling or by a manifest entry, has been edited after
+  incorporation, and the state depending on it MUST fail closed, scoped to that
+  dependent state, opening the supersede iteration of section 2.2;
+- a message with no pin of either kind carries no edit signal, because nothing
+  was incorporated to be changed. It is incorporated now, in the body it
+  currently has, and an edit before incorporation means exactly that. A reducer
+  MUST NOT treat such an edit as a fault, and MUST NOT let it affect any message
+  other than the one edited;
+- a comment that is not a protocol message is outside the domain and is ignored.
+
+The second rule is normative rather than permissive, and the reason is
+recorded: a reducer that fails the whole session on any edit signal denies
+service to a session through an edit to a comment it never read, which is
+[issue #144](https://github.com/iamers/steve-agent/issues/144).
+
+The interim reducer this repository ships, `tools/open-table-reduce.py`, does
+not satisfy this paragraph and the lag is declared here rather than left to be
+discovered: it rejects any comment whose trusted edit metadata is set, before
+asking whether that comment is a protocol message or whether anything was ever
+incorporated from it. The order is deliberate. That check is the only thing in
+the shipped deployment that reacts to an edit at all, so removing it before the
+memory of section 4.18 exists would replace an over-broad detection with none.
+It goes when the manifest arrives, in the same change, and section 1.7 already
+withholds any conformance claim in the meantime. A deleted or missing source or ruling makes dependent state
 unreplayable and MUST fail closed. A correction is a new message with a new id;
 it does not rewrite the invalidated history.
 
@@ -572,6 +749,32 @@ rules, reveal data, or execute tools. The reducer MUST deterministically exclude
 invalid and over-limit events from projections and MUST keep their text in data
 boundaries rather than agent instructions. Rate limits, hop limits, and circuit
 breaking are projection-enforcement principles; GitHub cannot prevent posting.
+
+7.6. A manifest is a message and is identified by the section 7.1 triple like
+any other. Because a run can write twice, after a partial failure or after being
+superseded once it had already posted, the reducer's memory is defined over the
+**set of surviving manifest comments** rather than over the most recent one:
+
+- **Entries are the union.** A source is remembered if any surviving manifest
+  records it. Two entries for the same comment id and digest are the same fact.
+  Two entries for the same comment id with different digests are an edit of that
+  message under section 7.3, not a conflict between manifests, and are handled
+  as one.
+- **`deletions-accounted` is the maximum.** Each reading was written by a
+  reducer principal that had accounted for those events, so the highest is the
+  true accounting. Taking the minimum would re-raise resolved deletions forever.
+- **`frozen` is the union**, and section 4.18 governs how a freeze ends.
+- **A freeze beats a ruling for the same source.** If the surviving set contains
+  both, the source stays frozen and the ruling is invalid: it recorded a
+  decision taken against current permissions at a moment when section 2.3
+  required failing closed, so it is the record that MUST lose.
+
+Taking the maximum is the permissive direction, and it is sound only because
+writing a manifest requires a reducer principal. A compromised principal can
+advance the watermark falsely exactly as it could already author false rulings,
+and that is the trust boundary section 2.3 states rather than a new exposure.
+Deleting the newest manifest lowers the effective watermark and removes its
+entries, which makes detection more conservative, not less.
 
 ## 8. Deliberation termination
 
@@ -615,7 +818,8 @@ preserve all text outside those markers. Inside them it writes, in this order:
 This projection is a cache under section 2.6 and is not the reducer's memory of
 what it incorporated. Its permalink citations are written for people, and
 section 2.3 excludes them from the detection role: a reducer MUST NOT read this
-region as its record of incorporated material.
+region as its record of incorporated material. That record is the `manifest`
+family of section 4.18, and the projection is written after it.
 
 9.3. For work under an authenticated work authority profile, the reducer writes
 only labels prefixed `open-table/` and the GitHub assignee list. It computes
