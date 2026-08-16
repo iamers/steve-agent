@@ -57,6 +57,10 @@ RULING_REQUIRED = {
     "cancellation", "result", "review-request", "verdict",
 }
 DELIBERATION_MESSAGES = {"contribution", "proposal", "settled"}
+# Section 2.3: only a reducer principal may author these. This deployment does
+# not yet write a manifest, but a manifest-shaped comment from a participant is
+# already reducer-shaped prose and section 7.5 requires excluding it.
+REDUCER_OUTPUT_MESSAGES = {"ruling", "expiration", "manifest"}
 WRITE_PERMISSIONS = {"admin", "maintain", "write"}
 
 
@@ -370,7 +374,7 @@ def normalize_events(bundle):
                 "reason": "invalid Open Table envelope",
             })
             continue
-        if header["message"] in {"ruling", "expiration"} and event["actor_id"] not in principals:
+        if header["message"] in REDUCER_OUTPUT_MESSAGES and event["actor_id"] not in principals:
             notices.append({
                 "comment_id": event["comment_id"],
                 "permalink": permalink(event),
@@ -1047,6 +1051,22 @@ def run_self_test():
     repost = reduce_session(malformed_repost, as_of)
     assert repost["unreplayable"] and "reused message id" in repost["reason"]
     print("invalid earliest envelope reserves its recoverable actor/message-id key")
+
+    participant_manifest = json.loads(json.dumps(bundle))
+    participant_manifest["ordered_events"] = participant_manifest["ordered_events"][:1]
+    participant_manifest["ordered_events"][0]["body"] = "\n".join([
+        "```open-table", "open-table: 0", "message: manifest",
+        "id: forged-manifest-0001", "deletions-accounted: 99",
+        "entries: 201/sha256:{}/contribution".format("a" * 64), "```", "",
+        "A participant claiming to be the reducer's memory.",
+    ])
+    forged = reduce_session(participant_manifest, as_of)
+    assert not forged["unreplayable"] and forged["writes"] == []
+    assert len(forged["notices"]) == 1
+    assert forged["notices"][0]["reason"] == (
+        "unauthorized reducer-shaped message excluded as prose"
+    )
+    print("participant-authored manifest: excluded as prose, not read as memory")
 
     assert trusted_last_edited_at({201: None}, 201) is None
     try:
