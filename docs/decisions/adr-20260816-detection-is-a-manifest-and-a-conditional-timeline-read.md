@@ -3,7 +3,7 @@ status: accepted
 date: 2026-08-16
 ---
 
-# Detection memory is a run manifest, and the ambiguity barrier reads the timeline only when a ruling is missing
+# Detection memory is a run manifest, and the timeline is read on three triggers rather than on every run
 
 ## Context
 
@@ -175,7 +175,7 @@ That residual is not left uncovered. A source ruled in the crashed run whose
 ruling is then deleted has neither ruling nor manifest entry, which is precisely
 the state section 4's timeline read exists to resolve.
 
-### 4. The ambiguity barrier reads the timeline only when a permission-sensitive lookup is pending
+### 4. The ambiguity barrier, and the three triggers that read the timeline
 
 This is the decision the requirement record deferred, and it is taken in the
 narrow form. It is the residual case, so the general rule comes first.
@@ -200,7 +200,7 @@ source in a section 4.17 family that has no ruling in the inventory:
 2. **No surviving manifest entry records it.** The source is either genuinely
    new or its manifest entry was removed with its ruling. These two states are
    indistinguishable from the inventory, which is the ambiguity, so the
-   timeline is read here and only here.
+   timeline is read.
    - **Observed comment-deletion count equals `deletions-accounted`.** No loss
      is visible. The source is new: it is ruled, one permission lookup happens
      as today, and the entry is recorded.
@@ -223,9 +223,46 @@ barrier, not past it.**
 The trigger is stated as a predicate over the inventory and the manifest alone,
 with no reference to the timeline, and that is deliberate: a live adapter can
 evaluate it before deciding whether to fetch the timeline, and when it is false
-the reduction provably does not consult the timeline at all, so omitting it
-cannot change the result. Section 2.5's determinism is untouched, and a replay
-bundle still carries the complete timeline as section 2.2 requires.
+the reduction provably does not consult the timeline for *this* purpose, so
+omitting it cannot change the fail-closed outcome. Section 2.5's determinism is
+untouched, and a replay bundle still carries the complete timeline as section
+2.2 requires.
+
+**The barrier is not the only reason to read the timeline, and an earlier draft
+of this record made exactly that mistake.** A barrier trigger alone leaves a
+mutation that section 2.2 requires to be detected undetected for as long as
+nothing permission-sensitive is pending: delete a source, its ruling and the
+manifest comment recording it, and in a `deliberation-only` session, or in any
+session with no ruling owed, nothing ever looks. The platform left a trace and
+the mechanism walked past it. So the timeline is read on **three** triggers, and
+the barrier is only the first:
+
+1. **A pending permission-sensitive lookup with neither ruling nor entry**, as
+   above. This one must fail closed, and it is the only one whose result can
+   refuse to rule.
+2. **Any run woken by a comment-deletion event.** The deployed workflow already
+   subscribes to it: `.github/workflows/open-table.yml` triggers on
+   `issue_comment: [created, edited, deleted]`, and the reducer already reads
+   `action == "deleted"` from the webhook payload
+   (`tools/open-table-reduce.py:861-863`). What it does with it today is scoped
+   to the one comment in that payload; what this record adds is that such a run
+   reads the timeline and reconciles the accounting, whether or not anything is
+   pending.
+3. **A periodic sweep**, because trigger 2 can be dropped. Runs for one issue
+   serialise (see section 6), so a deletion-triggered run can be superseded in
+   the queue while a later event's run takes its place, and the #143 cancellation
+   window is exactly that. A sweep bounds detection latency by a clock instead of
+   by the next incorporated message.
+
+**Trigger 3 does not exist today, and that is measured rather than assumed.**
+The requirement record speaks of a scheduled daily pass as something that
+survives its revision; `.github/workflows/open-table.yml` has no `schedule:`
+key, and no workflow in this repository has one (`grep -rn "schedule:"
+.github/workflows/` returns nothing, against a positive control on
+`issue_comment`). So the sweep is an implementation obligation this record
+creates, not a deployment property it inherits, and until it exists the
+mechanism's coverage of the erased-memory case rests on trigger 2 alone, whose
+gap is the cancellation window.
 
 ### 5. What the barrier does when it fires, and how the freeze ends
 
@@ -256,10 +293,31 @@ objection to the barrier's original shape. What it costs is that the same
 deletion event cannot freeze anything twice, which is correct: it has been
 adjudicated once, in the open.
 
-### 6. Concurrent writes: union the entries, take the highest watermark
+### 6. Serialisation is a prerequisite, and the merge rules are for repeated writes rather than for a race
 
-Two runs can overlap in the #143 debounce and cancellation window, so the
-mechanism is defined over the set of surviving manifest comments rather than
+**The deployed adapter serialises, and an earlier draft of this record claimed
+the opposite.** `.github/workflows/open-table.yml:14-16` declares
+`concurrency: { group: open-table-<repository-id>-<issue-number>,
+cancel-in-progress: false }`, so two runs for the same session issue do not
+execute at the same time: a second run queues, and a third supersedes the queued
+one. The #143 window is about a queued run being **dropped**, which is a missed
+trigger (section 4 point 3), not two reducers writing at once. The corrected
+citation matters because the whole of this section was resting on it.
+
+**So serialisation per session is a prerequisite of this mechanism, stated as
+one.** An adapter that runs two reducers over the same session concurrently must
+not deploy this mechanism as specified: the rules below make repeated writes
+harmless, and they cannot make a concurrent write safe, because the damage there
+is an action, not a record. Concretely, on a non-serialising adapter one run can
+observe an unaccounted deletion and freeze source `S` while another, holding a
+stale count, performs the current-permission lookup for `S` and posts a ruling.
+The merge rules below decide which record wins; **the forbidden lookup has
+already happened**, and nothing after the fact undoes it. That is a residual of
+running without serialisation, and it is declared rather than argued away.
+
+What the merge rules do cover is the same run writing twice: a retry after a
+partial failure, or a run superseded after it had already posted. The mechanism
+is therefore defined over the set of surviving manifest comments rather than
 over the latest one.
 
 - **Entries are the union.** A source is remembered if any surviving manifest
@@ -273,6 +331,13 @@ over the latest one.
   events forever, which is the permanent freeze again wearing a different hat.
 - **`frozen` is the union**, and a frozen source is unfrozen only by the
   supersede iteration of section 5, never by a later manifest.
+- **A freeze beats a ruling for the same source.** If the surviving set ever
+  contains both, the source stays frozen and the ruling that crossed the freeze
+  is invalid: it is a decision taken against current permissions at a moment when
+  section 9.1 required failing closed, so it is the record that must lose. This
+  rule exists for the case serialisation is supposed to prevent, and it is
+  written down because "cannot happen" and "has no defined outcome" are the two
+  halves of every defect this project has paid for.
 
 The maximum is the permissive direction, and it is safe only because writing a
 manifest requires a reducer principal, whose compromise is out of scope under
@@ -334,7 +399,7 @@ the barrier is a design and not a guarantee.
 |---|---|---|
 | Ruling deleted, source alive | Silent fresh ruling against current permissions | Identified loss, fail closed under 9.1, no lookup |
 | Source and its ruling deleted together | Zero trace | Identified loss: the manifest entry survives both |
-| Source, ruling and manifest entry all deleted | Zero trace | Visible and unidentified: the barrier freezes pending lookups and names the unaccounted deletion |
+| Source, ruling and manifest entry all deleted | Zero trace | Visible and unidentified: the deletion-woken run or the sweep names the unaccounted deletion, and the barrier freezes any pending lookup |
 | Incorporated body edited | Whole session unreplayable | Scoped supersede iteration for that message |
 | Never-incorporated body edited | Whole session unreplayable (#144) | Ignored, and incorporated as it now reads |
 | Projection content overwritten | Silently rebuilt | Unchanged: it is a cache under 2.6 and carries no evidentiary value |
@@ -360,23 +425,31 @@ that moved and the one that did not.
 
 ## Consequences
 
-**The happy path is free, and this is a narrower claim than it sounds.** A run
-that brings no new permission-sensitive material pays nothing new: three read
-groups, as today. A run that does bring some pays one additional paginated
-timeline read, once, regardless of how many such sources it carries, and it
-pays it on the same path that was already about to make N collaborator
-permission lookups over the network. So the honest statement is not "only
-anomalies pay". It is that the cost attaches to the branch that was already the
-expensive one, and never to the ordinary comment traffic that makes up most
-runs.
+**The ordinary run stays free, and the claim is narrower than "only anomalies
+pay".** Priced against the measured baseline of three unconditional read groups
+per run:
 
-The cheaper trigger was available and does not qualify. Reading the timeline
+| Run | Timeline read | Why |
+|---|---|---|
+| A comment created or edited, nothing permission-sensitive owed | none | three read groups, as today |
+| New permission-sensitive material with no ruling and no entry | one, once per run | trigger 1, on the branch already making N permission lookups |
+| Woken by a comment deletion | one, once per run | trigger 2, and deletions are rare by construction |
+| The periodic sweep | one per session per interval | trigger 3, the backstop for a dropped trigger 2 |
+
+So the cost attaches to runs that were already doing something expensive or
+unusual, and never to the ordinary comment traffic that makes up most runs. The
+mechanism as a whole is not free, and an earlier draft of this record used that
+word for the whole while it held only for one row of the table: it had a single
+trigger, and the detection gap that left was the actual price of the cheaper
+design. It was larger than the reads it saved.
+
+The cheapest trigger was available and does not qualify. Reading the timeline
 only when the manifest already disagrees with the inventory would cost nothing
 outside a real anomaly, and it cannot see a loss that removed the manifest
 entry along with the ruling. Section 2.3 requires the fail-closed outcome to be
 reachable *including where the loss is visible but does not identify the
 affected comment*, and unidentified loss is by construction invisible in the
-manifest. The extra read buys exactly that clause and nothing else.
+manifest.
 
 **Reducer output grows by one comment per run with new material.** The
 requirement record said the happy path was probably no longer free and declined
@@ -413,13 +486,18 @@ before an Action deployment can claim reducer conformance:
   the table above folded into the insider clause that already covers it.
 - **Section 2.2 and 2.5**: state that the complete timeline is a *replay*
   input, and that a live adapter may defer fetching it while the reduction
-  provably does not consult it. Without this the conditional read reads as a
-  violation of a MUST that was written for replay.
+  provably does not consult it, with the three triggers of section 4 as the
+  condition. Without this the conditional read reads as a violation of a MUST
+  that was written for replay.
+- **Section 2.3, second entry**: the deployment obligations the mechanism
+  creates, namely per-session serialisation and a periodic sweep. Both are
+  requirements on the adapter rather than on the reduction, and neither is
+  satisfied by a deployment that only subscribes to comment events.
 - **Section 4**: the `manifest` family, its fields, and the rule that only a
   reducer principal may author one, alongside the section 3.2 one-block
   constraint.
 - **Section 7**: manifest idempotency under the section 7.1 triple, and the
-  union and maximum rules of section 6 above.
+  union, maximum and freeze-beats-ruling rules of section 6 above.
 - **Section 9.1**: unchanged in its words. What changes is that the clause
   becomes reachable.
 - **Issue [#130](https://github.com/iamers/steve-agent/issues/130)**: the
@@ -441,17 +519,31 @@ fail before the implementation and pass after:
 4. a manifest written by a crashed run, absent while its rulings exist, is
    recovered on the next run with no false accusation and no fresh lookup;
 5. an edited comment that is not in the domain changes nothing, which is #144's
-   regression guard.
+   regression guard;
+6. a deletion that erased source, ruling and manifest entry, in a session where
+   nothing permission-sensitive is pending, still produces a notice: this is the
+   fixture for triggers 2 and 3, and without it the barrier alone would pass
+   every other fixture while missing the case a review had to find;
+7. a manifest carrying both a `frozen` marker and a ruling for the same source
+   leaves that source frozen, which is the only observable consequence of the
+   race serialisation is meant to prevent.
+
+The workflow also changes, and that is part of the implementation rather than a
+separate task: `.github/workflows/open-table.yml` gains the `schedule:` trigger
+it does not have today, keeping its existing per-issue `concurrency` group,
+because the sweep and the serialisation are both deployment properties this
+mechanism depends on.
 
 Plus the two live probes the minimum-permissions section says are owed, which
 are not fixtures because no fixture can answer them: the workflow token
 enumerating comment-deletion events on a real session issue, and the same count
 read twice over an unchanged issue.
 
-Two of those five are guards against this record being implemented in the wrong
-direction rather than against the platform, and they are the ones worth writing
-first: number 3 is where a permanent freeze would show up, and number 4 is
-where a crash would be misread as tampering.
+Three of those seven are guards against this record being implemented in the
+wrong direction rather than against the platform, and they are the ones worth
+writing first: number 3 is where a permanent freeze would show up, number 4 is
+where a crash would be misread as tampering, and number 6 is where an
+implementation that kept only the barrier would look complete.
 
 The live drill the requirement record asked for stands: a deletion of
 incorporated material mid-session, with the criterion that no contribution is
@@ -490,15 +582,16 @@ lost and no session is killed.
 ## Alternatives considered
 
 **Read the timeline on every run** (the reviewer's original shape): rejected on
-cost. It raises the unconditional read groups from three to four for every run
-forever, including the all-clear case where no deletion ever occurred, while
-buying the same clause of section 2.3 that the narrow trigger buys on the branch
-that was already making network calls. The freeze that the requirement record
-also objected to is **not** part of this rejection, and saying so is the honest
-form of it: the exit defined in section 5 is separable and would fix the
-every-run shape just as well. What does not survive is paying for a read on
-every run of every session to reach a state that needs a pending
-permission-sensitive lookup to matter at all.
+cost, and the margin is now smaller than the first draft of this record claimed.
+It raises the unconditional read groups from three to four for every run
+forever, including the all-clear case where no deletion ever occurred; the three
+triggers of section 4 reach the same coverage while leaving ordinary created and
+edited traffic at three. The freeze that the requirement record also objected to
+is **not** part of this rejection, and saying so is the honest form of it: the
+exit defined in section 5 is separable and would fix the every-run shape just as
+well. What does not survive is paying for a read on every ordinary comment in
+every session when deletions are the only thing the read is looking for, and
+deletions already have a trigger of their own.
 
 **Read the timeline only when the manifest already disagrees with the
 inventory**: rejected, and it is the tempting one. It is strictly cheaper and
@@ -563,9 +656,9 @@ proposal's digest and the extra field would be a second copy of a binding that
 exists. Left open rather than decided, under the section 3.2 and `invalidated`
 constraints.
 
-*What does the barrier do in a session with no permission-sensitive families at
-all?* A `deliberation-only` session never triggers it, so an unaccounted
-deletion in such a session produces no freeze and no notice at the time it
-happens. Detection of identified loss still works through the manifest, and
-whether the unidentified case deserves a notice with nothing to freeze is a
-presentation question this record does not settle.
+*How often does the sweep of trigger 3 run?* The requirement record speaks of a
+daily pass. Daily bounds the erased-memory case at one day and costs one read
+per session per day; anything shorter buys latency the product has not asked
+for. The interval is left to the implementation, which states the number it
+chose and the latency it therefore promises, because a backstop whose period is
+unstated is a backstop whose guarantee is unstated.
