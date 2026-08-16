@@ -285,25 +285,42 @@ implementation:
 - **It enumerates sessions rather than assuming one**: open issues carrying the
   `open-table/session` label, paginated, which is the same label the reducer's
   own job condition already uses as the definition of a session.
-- **It invokes one reduction per enumerated session, and each invocation
-  declares the same issue-keyed concurrency group string as the event-driven
-  workflow.** This is the load-bearing part. Concurrency group names are
-  repository-scoped rather than workflow-scoped, so a job in the sweep workflow
-  declaring `open-table-<repository-id>-<issue-number>` enters the *same*
-  serialisation domain as the event-driven run for that issue, and section 6's
-  prerequisite keeps holding across the two workflows. A sweep that serialises
-  only against itself would satisfy the letter of trigger 3 and break the
-  premise section 6 rests on.
-- **The two group expressions are a two-sided invariant, so they get a check.**
-  They live in different files and nothing makes them agree; a rename in one
-  splits the domain silently, and every deployment keeps working while the
-  guarantee is gone. The implementation carries a check that the two expressions
-  are byte-identical, and that check belongs in CI beside the other self-tests
-  rather than in a comment asking the next reader to be careful.
+- **It invokes one reduction per enumerated session, and every invocation, from
+  either trigger, resolves to the same group key `open-table-<repository-id>-<issue-number>`
+  for the same session.** This is the load-bearing part. Concurrency group names
+  are repository-scoped rather than workflow-scoped, so a sweep invocation that
+  resolves to that key enters the *same* serialisation domain as the
+  event-driven run for that issue, and section 6's prerequisite keeps holding
+  across the two entry points. A sweep that serialises only against itself would
+  satisfy the letter of trigger 3 and break the premise section 6 rests on.
+- **The key is constructed in exactly one place, so there is no invariant to
+  keep in sync.** The reduction moves behind a single reusable workflow taking
+  the issue number as an explicit input, and that workflow is where both the
+  concurrency group and the reduction's `ISSUE_NUMBER` are built from it. The
+  event-driven workflow calls it with `github.event.issue.number`; the sweep
+  calls it with the number its enumeration produced. What is *not* unified is
+  each caller's own guard, which is context-specific by nature: the event-driven
+  caller keeps its label condition on `github.event.issue`, and the sweep has
+  the enumeration instead.
 
-The repository-scoped group namespace is documented platform behaviour that
-this record has not measured, and it is the one new assumption the sweep
-introduces. It joins the probe list below rather than being asserted here.
+**An earlier version of this record got that last point exactly backwards, and
+the way it was wrong is worth keeping.** It asked for a check that the two
+group expressions be byte-identical. They cannot be: a scheduled event has no
+`github.event.issue`, so the sweep's expression must read a matrix value or a
+workflow input, and a sweep that copied the event-driven expression verbatim
+would evaluate the issue component as empty and land back in exactly the
+issue-less failure this section exists to fix. **The check would have enforced
+the defect it was written to prevent**, and it would have passed while doing so,
+because two identical strings agree whether or not either is correct. The
+invariant is equality of the *resolved, non-empty* key for a given repository
+and issue, and the honest way to hold it is to have one construction site rather
+than a check over two.
+
+The load-bearing platform property is now narrower and more specific: that a
+called workflow's concurrency group, built from its inputs, shares the
+repository-wide namespace with the group of any other workflow. It is documented
+behaviour this record has not measured, and it joins the probe list below rather
+than being asserted here.
 
 ### 5. What the barrier does when it fires, and how the freeze ends
 
@@ -431,9 +448,11 @@ read before. Three things need measuring rather than asserting: that the
 workflow token can enumerate comment-deletion events on the session issue,
 which section 2.3 states as documented rather than measured; that the count is
 stable across reads of an unchanged issue, because an unstable count is a
-freeze that fires on nothing; and that two jobs in two different workflows
-declaring the same concurrency group string serialise against each other, which
-is what makes the sweep of section 4 re-enter the domain section 6 depends on.
+freeze that fires on nothing; and that a called workflow's concurrency group,
+built from its inputs, shares the repository-wide namespace with a caller's, so
+that a sweep invocation and an event-driven run for the same session serialise
+against each other, which is what makes the sweep of section 4 re-enter the
+domain section 6 depends on.
 All three belong to the implementation's CI, and until they pass, the barrier
 and its backstop are a design and not a guarantee.
 
@@ -520,8 +539,9 @@ inventory, and the existence and count of timeline deletion events. The second
 is measured and not contractual, and section 4 makes its failure fail toward
 the barrier. A third platform property is load-bearing without being evidence,
 and is named here so it is not mistaken for a free assumption: the
-repository-scoped concurrency group namespace that lets the sweep serialise
-against the event-driven run for the same session.
+repository-scoped concurrency group namespace that lets a called workflow's
+group, built from its inputs, serialise against an event-driven run for the same
+session.
 
 ### The specification revision this record authorises
 
@@ -574,35 +594,45 @@ fail before the implementation and pass after:
    every other fixture while missing the case a review had to find. It is run
    twice, once through the deletion-woken path and once through the sweep's
    invocation path, because "the notice is produced" and "the trigger reaches
-   this session" are two claims and only the second one is about the sweep;
+   this session" are two claims and only the second one is about the sweep. The
+   sweep leg has to drive the real enumeration-to-invocation path: a second
+   direct call to the reducer restates the first claim and proves nothing about
+   reachability;
 7. a manifest carrying both a `frozen` marker and a ruling for the same source
    leaves that source frozen, which is the only observable consequence of the
    race serialisation is meant to prevent;
-8. the two concurrency group expressions, in the reducer workflow and in the
-   sweep workflow, are byte-identical. This one is a workflow check rather than
-   a reducer fixture, and it exists because the invariant has two sides in two
-   files: the permissive side is a sweep that runs happily on its own key while
-   the guarantee section 6 rests on is already gone.
+8. both entry points resolve to `open-table-<repository-id>-<issue-number>` for
+   the same session, and the enumerated issue number is what the sweep's
+   reduction receives as `ISSUE_NUMBER`. This one is a workflow check rather
+   than a reducer fixture, and it checks the **resolved** key for representative
+   values rather than the source expressions, which necessarily differ between
+   the two event contexts. It also refuses a second construction site: no
+   workflow outside the reusable one may declare an `open-table-` group, because
+   the moment there are two, the check is back to comparing strings that can
+   agree while both are wrong.
 
 The deployment also changes, and that is part of the implementation rather than
-a separate task: a new scheduled workflow that enumerates open
-`open-table/session` issues and invokes one reduction per session under the
-issue-keyed concurrency group defined in section 4. `.github/workflows/open-table.yml`
-itself is **not** given a `schedule:` key, for the reason section 4 records.
+a separate task: the reduction moves behind one reusable workflow taking the
+issue number as an input and building the concurrency group and `ISSUE_NUMBER`
+from it, and a new scheduled workflow enumerates open `open-table/session`
+issues and calls it once per session. `.github/workflows/open-table.yml` keeps
+its event triggers and its own label guard, becomes a caller, and is **not**
+given a `schedule:` key, for the reason section 4 records.
 
 Plus the live probes that are not fixtures because no fixture can answer them:
 the two the minimum-permissions section owes, namely the workflow token
 enumerating comment-deletion events on a real session issue and the same count
-read twice over an unchanged issue, and one more the sweep introduces, that two
-jobs in two different workflows declaring the same concurrency group string do
-serialise against each other.
+read twice over an unchanged issue, and one more the sweep introduces, that a
+called workflow's group built from its inputs does serialise against a caller's
+group with the same resolved name.
 
 Four of those eight are guards against this record being implemented in the
 wrong direction rather than against the platform, and they are the ones worth
 writing first: number 3 is where a permanent freeze would show up, number 4 is
 where a crash would be misread as tampering, number 6 is where an implementation
 that kept only the barrier would look complete, and number 8 is where a sweep
-that serialises only against itself would look deployed.
+that serialises only against itself would look deployed, which is what the
+previous version of that very check would have guaranteed.
 
 The live drill the requirement record asked for stands: a deletion of
 incorporated material mid-session, with the criterion that no contribution is
