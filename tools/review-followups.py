@@ -175,13 +175,18 @@ def _emittable_statuses():
     silently reaching report() and exiting 0.
     """
     source_path = Path(__file__)
+    # Named by basename, never by path: self-test output is pasted into
+    # published review bodies, and the deployment path of this file is the
+    # class of value that must not travel with it -- the same reason
+    # main() reports a body-file failure without its location.
+    source_name = source_path.name
     try:
         source = source_path.read_text(encoding="utf-8")
-        tree = ast.parse(source, filename=str(source_path))
+        tree = ast.parse(source, filename=source_name)
     except (OSError, SyntaxError) as error:
         raise AssertionError(
             "cannot read/parse {} to derive emittable statuses: {}".format(
-                source_path, error))
+                source_name, error))
 
     func_node = None
     for node in ast.walk(tree):
@@ -191,7 +196,7 @@ def _emittable_statuses():
     if func_node is None:
         raise AssertionError(
             "extract_follow_ups not found in {}; cannot derive its "
-            "emittable statuses".format(source_path))
+            "emittable statuses".format(source_name))
 
     statuses = set()
     for node in ast.walk(func_node):
@@ -202,13 +207,13 @@ def _emittable_statuses():
             raise AssertionError(
                 "{}:{}: extract_follow_ups has a return that is not a "
                 "(status, items) tuple; cannot derive its status".format(
-                    source_path, node.lineno))
+                    source_name, node.lineno))
         first = value.elts[0]
         if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
             raise AssertionError(
                 "{}:{}: extract_follow_ups returns a first element that is "
                 "not a string literal; cannot derive its status".format(
-                    source_path, node.lineno))
+                    source_name, node.lineno))
         statuses.add(first.value)
     return statuses
 
