@@ -322,6 +322,17 @@ of judging it from memory:
   required section. This is a review-process defect, not silence to pass
   through: say so in the topic instead of assuming there was nothing to
   report, and treat it the same as any other missing verify (§4 pitfall #2).
+- **`status: mixed`** (exit 2) — the section mixes bullets with prose (or has
+  an empty bullet payload), so an observation would be dropped if the tool
+  reported it. This is a review-process defect too: say so in the topic,
+  name it as `mixed` so the reviewer who wrote the section knows exactly
+  which malformed shape to fix, and do not attempt to extract the bullets
+  it could parse.
+- **`status: not_closing`** (exit 2) — a heading follows the Follow-ups
+  section, so it is not the review's closing section the policy requires.
+  Also a review-process defect: say so in the topic, name it as
+  `not_closing` so the reviewer knows to move the section to the end rather
+  than fix its content.
 
 This step is orchestrator prose today, not a script, because the reviewer
 skill that authors the review body lives outside this repo and Steve is
@@ -775,5 +786,6 @@ task.
       `items` -> open one GitHub issue per item, NOT a board card (§4: a card
       cannot be held before the dispatcher may claim it), and say in the topic
       that the admin was NOT individually notified; `none` -> nothing to do;
-      `missing` -> flag it as a review-process defect, not silence (§4,
-      pitfall #28).
+      `missing`, `mixed`, `not_closing` -> flag each as a review-process
+      defect, not silence, naming which of the three it is so the reviewer
+      knows what to fix (§4, pitfall #28).

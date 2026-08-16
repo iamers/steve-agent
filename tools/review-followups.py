@@ -22,16 +22,36 @@ Usage:
   python3 tools/review-followups.py --self-test
 
 Exit codes:
-  0  an explicit answer was found: "none" or one or more "items"
-  2  no explicit answer: the section is missing or has no parseable content
-     (a review process defect to flag, not silence to pass through)
+  0  an explicit answer was found: "items" (one or more bullets) or "none"
+     (the section reads the literal line "None.")
+  2  every other status -- "missing" (no section, or one with no parseable
+     content), "mixed" (bullets and prose both present, so an item would be
+     dropped if it were reported), "not_closing" (a heading follows the
+     section, so it is not the review's closing section) -- is a review
+     process defect to flag, not silence to pass through. See STATUS_EXITS
+     below for the routing this tool commits to.
 """
 import argparse
+import ast
 import re
 import sys
 from pathlib import Path
 
 TRUST_FAILURE = 2
+
+# The single routing declaration: every status extract_follow_ups can return
+# is a key here, mapped to the exit code report() gives it. --self-test
+# derives the status set straight from extract_follow_ups's own Return nodes
+# (see _emittable_statuses) and asserts it equals set(STATUS_EXITS), so an
+# emittable status this map does not route fails the self-test instead of
+# silently exiting 0.
+STATUS_EXITS = {
+    "items": 0,
+    "none": 0,
+    "missing": TRUST_FAILURE,
+    "mixed": TRUST_FAILURE,
+    "not_closing": TRUST_FAILURE,
+}
 
 HEADING_RE = re.compile(r"^#{1,6}\s")
 FOLLOW_UPS_HEADING_RE = re.compile(r"^#{1,6}\s*Follow-ups:?\s*$", re.IGNORECASE)
@@ -46,10 +66,15 @@ def extract_follow_ups(text):
     """Classify the Follow-ups section of a review body.
 
     Returns (status, items):
-      ("none", [])       -- section present, explicitly says None.
-      ("items", [...])   -- section present, one or more bullet items
-      ("missing", [])    -- no Follow-ups section, or one with no
-                            parseable content (neither None. nor bullets)
+      ("none", [])          -- section present, explicitly says None.
+      ("items", [...])      -- section present, one or more bullet items
+      ("missing", [])       -- no Follow-ups section, or one with no
+                               parseable content (neither None. nor bullets)
+      ("mixed", [])         -- section present but mixes bullets with prose,
+                               or has an empty bullet payload, so an item
+                               would be dropped if it were reported
+      ("not_closing", [])   -- a heading follows the Follow-ups section, so
+                               it is not the review's closing section
     """
     lines = text.splitlines()
     section = None
@@ -115,24 +140,77 @@ def extract_follow_ups(text):
 
 
 def report(status, items):
-    """Print the classification and return the process exit code."""
+    """Print the classification and return the process exit code.
+
+    The exit code is looked up in STATUS_EXITS rather than decided here, so
+    that a status the map does not know how to route fails loudly instead of
+    silently falling through to whichever branch happens to run last.
+    """
     print("status: {}".format(status))
     if status == "items":
         print("count: {}".format(len(items)))
         for i, item in enumerate(items, start=1):
             print("{}. {}".format(i, item))
-        return 0
-    if status == "none":
-        return 0
-    if status == "mixed":
+    elif status == "mixed":
         print("the Follow-ups section mixes bullets with prose, so an "
               "observation would be dropped: the policy is one bullet per "
               "observation")
-        return TRUST_FAILURE
-    if status == "not_closing":
+    elif status == "not_closing":
         print("the review does not end with its Follow-ups section: a heading "
               "follows it, so it is not the closing section the policy requires")
-    return TRUST_FAILURE
+    if status not in STATUS_EXITS:
+        raise ValueError("unrouted status: {!r}".format(status))
+    return STATUS_EXITS[status]
+
+
+def _emittable_statuses():
+    """Derive, from this file's own source, every status extract_follow_ups
+    can return.
+
+    A hand-maintained list of statuses would only ever catch drift someone
+    remembered to update by hand -- the same failure this check exists to
+    close. Parsing the function's own Return nodes ties the assertion to the
+    code that actually decides routing, so a status added here without being
+    routed in STATUS_EXITS (or vice versa) fails --self-test instead of
+    silently reaching report() and exiting 0.
+    """
+    source_path = Path(__file__)
+    try:
+        source = source_path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(source_path))
+    except (OSError, SyntaxError) as error:
+        raise AssertionError(
+            "cannot read/parse {} to derive emittable statuses: {}".format(
+                source_path, error))
+
+    func_node = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "extract_follow_ups":
+            func_node = node
+            break
+    if func_node is None:
+        raise AssertionError(
+            "extract_follow_ups not found in {}; cannot derive its "
+            "emittable statuses".format(source_path))
+
+    statuses = set()
+    for node in ast.walk(func_node):
+        if not isinstance(node, ast.Return):
+            continue
+        value = node.value
+        if not isinstance(value, ast.Tuple) or not value.elts:
+            raise AssertionError(
+                "{}:{}: extract_follow_ups has a return that is not a "
+                "(status, items) tuple; cannot derive its status".format(
+                    source_path, node.lineno))
+        first = value.elts[0]
+        if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
+            raise AssertionError(
+                "{}:{}: extract_follow_ups returns a first element that is "
+                "not a string literal; cannot derive its status".format(
+                    source_path, node.lineno))
+        statuses.add(first.value)
+    return statuses
 
 
 def run_self_test():
@@ -250,13 +328,20 @@ def run_self_test():
     ], "expected the trailing section (no closing heading) to still parse"
     print("ok: Follow-ups section with no trailing heading (EOF) -> 1 item")
 
-    exit_code = report("items", ["x"])
-    assert exit_code == 0, "'items' must exit 0 -- it is an explicit answer"
-    exit_code = report("none", [])
-    assert exit_code == 0, "'none' must exit 0 -- it is an explicit answer"
-    exit_code = report("missing", [])
-    assert exit_code == TRUST_FAILURE, "'missing' must exit {}".format(TRUST_FAILURE)
-    print("ok: exit codes -- items/none 0, missing {}".format(TRUST_FAILURE))
+    emittable = _emittable_statuses()
+    assert emittable == set(STATUS_EXITS), (
+        "extract_follow_ups can emit {!r} but STATUS_EXITS routes {!r} -- "
+        "the sets must be equal".format(emittable, set(STATUS_EXITS)))
+    print("ok: every status extract_follow_ups can emit is routed in "
+          "STATUS_EXITS, and vice versa -- {}".format(sorted(emittable)))
+
+    for status, expected_exit in sorted(STATUS_EXITS.items()):
+        exit_code = report(status, ["x"] if status == "items" else [])
+        assert exit_code == expected_exit, (
+            "report({!r}, ...) returned {}, expected {}".format(
+                status, exit_code, expected_exit))
+    print("ok: report() exit code matches STATUS_EXITS for every routed "
+          "status -- {}".format(sorted(STATUS_EXITS.items())))
 
     print("self-test ok")
     return 0
