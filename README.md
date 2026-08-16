@@ -80,7 +80,10 @@ The separate interim `deliberation-only` reducer is
 `.github/workflows/open-table.yml`. It uses the validator's single-comment mode,
 implements contextual reduction outside this core, and explicitly remains
 non-conformant because the detection mechanism sections 2.2 and 2.3 require is
-neither selected nor implemented. The accepted deployment boundary is recorded in
+selected but not implemented. The mechanism is the `manifest` family of section
+4.18, selected in
+`docs/decisions/adr-20260816-detection-is-a-manifest-and-a-conditional-timeline-read.md`.
+The accepted deployment boundary is recorded in
 `docs/decisions/adr-20260804-open-table-reducer-is-deliberation-only-and-not-conformant.md`.
 
 ## Built on Hermes Agent
