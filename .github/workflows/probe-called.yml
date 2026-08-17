@@ -1,0 +1,31 @@
+# One-shot measurement, deleted before this branch opens a pull request.
+#
+# The called half of probe 3: a reusable workflow whose concurrency group is
+# built from its own input. The question is whether that group shares the
+# repository-wide namespace with a group declared by an ordinary job, which is
+# the platform property the sweep's serialisation rests on and which the
+# mechanism's record documented without measuring.
+name: probe called
+
+on:
+  workflow_call:
+    inputs:
+      key:
+        required: true
+        type: string
+
+jobs:
+  hold:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: probe-namespace-${{ github.repository_id }}-${{ inputs.key }}
+      cancel-in-progress: false
+    steps:
+      - name: Hold the group
+        run: |
+          set -euo pipefail
+          printf 'CALLED  group=probe-namespace-%s-%s\n' "${GITHUB_REPOSITORY_ID:-unset}" "${{ inputs.key }}"
+          printf 'CALLED  start %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          sleep 40
+          printf 'CALLED  end   %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
