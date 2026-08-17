@@ -53,8 +53,14 @@ jobs:
           # A zero on the live session alone would be indistinguishable from an
           # enumeration that reads nothing at all.
           control = reducer.deletion_event_count(repository, deleted, token)
+          control_again = reducer.deletion_event_count(repository, deleted, token)
           print("PROBE 1 control: #{} comment_deleted = {}".format(deleted, control))
           print("PROBE 1 control: nonzero = {}".format(control > 0))
+          # Stability is asserted on the nonzero issue as well as on the live
+          # one. Two reads that both return zero are stable in a way a broken
+          # enumeration is also stable, so on its own that proves very little.
+          print("PROBE 2 control: second read = {}, equal = {}".format(
+              control_again, control == control_again))
 
           first = reducer.deletion_event_count(repository, live, token)
           second = reducer.deletion_event_count(repository, live, token)
@@ -68,7 +74,7 @@ jobs:
           failures = []
           if control <= 0:
               failures.append("the enumeration found no deletion where one happened")
-          if first != second:
+          if first != second or control != control_again:
               failures.append("the count disagreed with itself across two reads")
           if live not in sessions:
               failures.append("the enumeration did not reach the live session")
