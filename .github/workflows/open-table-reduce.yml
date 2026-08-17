@@ -65,7 +65,12 @@ jobs:
             --repository "$GITHUB_REPOSITORY"
             --issue "$ISSUE_NUMBER"
             --principal "$REDUCER_PRINCIPAL")
-          if [ "$PERIODIC" = "true" ]; then
-            args+=(--periodic)
-          fi
+          # Refused rather than defaulted. A boolean input that arrived as
+          # anything but these two would silently drop --periodic, and the sweep
+          # would run, read no timeline, and look exactly like a sweep that did.
+          case "$PERIODIC" in
+            true) args+=(--periodic) ;;
+            false) ;;
+            *) printf 'unexpected periodic input: %s\n' "$PERIODIC" >&2; exit 1 ;;
+          esac
           python3 /tmp/open-table-reduce.py "${args[@]}"

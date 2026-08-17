@@ -68,6 +68,8 @@ def triggers_of(workflow):
     alone sees no triggers in any real workflow file and then agrees with
     everything, which is the failure mode this function exists to avoid.
     """
+    if not isinstance(workflow, dict):
+        return set()
     block = workflow.get("on", workflow.get(True))
     if isinstance(block, dict):
         return set(block)
@@ -77,6 +79,8 @@ def triggers_of(workflow):
 
 
 def jobs_of(workflow):
+    if not isinstance(workflow, dict):
+        return []
     jobs = workflow.get("jobs")
     if not isinstance(jobs, dict):
         return []
@@ -187,6 +191,18 @@ def entry_point_bindings(workflow, job, complaints, label):
 def check_workflows(workflows):
     """Return the complaints. An empty list means the invariant holds."""
     complaints = []
+    # A file here that is not a mapping is empty or broken. Skipping it quietly
+    # is how a deployment half of which failed to parse still reads as checked.
+    malformed = sorted(
+        name for name, workflow in workflows.items() if not isinstance(workflow, dict)
+    )
+    if malformed:
+        return [
+            "not a YAML mapping, so nothing in it can be checked: {}".format(
+                ", ".join(malformed)
+            )
+        ]
+
     reusable_name, reusable = reusable_workflow(workflows)
     if reusable is None:
         return [
@@ -220,6 +236,15 @@ def check_workflows(workflows):
     points = entry_points(workflows)
     if not points:
         return complaints + ["no workflow calls {}".format(REUSABLE_CALL)]
+    # Without this, a sweep whose job stops being an entry point at all -- a
+    # renamed path, a malformed jobs block -- leaves the event-driven caller
+    # passing every assertion below, and the check agrees that a deployment
+    # with no clock in it is correct.
+    if not any("schedule" in triggers_of(workflow) for _, workflow, _, _ in points):
+        complaints.append(
+            "no entry point is on a clock, so nothing calls the reduction "
+            "periodically and detection latency is bounded by traffic again"
+        )
 
     expected = "{}{}-{}".format(GROUP_PREFIX, REPOSITORY_ID, SESSION_ISSUE)
     resolved = {}
@@ -450,6 +475,18 @@ def run_self_test():
         fixture(**{"aardvark.yml": REUSABLE_FIXTURE.replace(
             "open-table-", "unrelated-",
         )}),
+    )
+    expect_refused(
+        "a deployment whose only entry point is the event-driven one",
+        parse_workflows({
+            "open-table-reduce.yml": REUSABLE_FIXTURE, "open-table.yml": EVENT_FIXTURE,
+        }),
+        "no entry point is on a clock",
+    )
+    expect_refused(
+        "a workflow file that is empty",
+        dict(fixture(), **{"empty.yml": None}),
+        "not a YAML mapping",
     )
     expect_refused(
         "the reduction's reusable workflow missing entirely",

@@ -13,6 +13,10 @@ on:
       key:
         required: true
         type: string
+      flag:
+        required: false
+        default: true
+        type: boolean
 
 jobs:
   hold:
@@ -21,7 +25,16 @@ jobs:
     concurrency:
       group: probe-namespace-${{ github.repository_id }}-${{ inputs.key }}
       cancel-in-progress: false
+    env:
+      FLAG: ${{ inputs.flag }}
     steps:
+      - name: Show how a boolean input reaches a shell
+        # The sweep turns this rendering into --periodic or nothing. If it is
+        # not the literal `true`, that flag is dropped in silence.
+        run: |
+          set -euo pipefail
+          printf 'BOOLEAN env=%q  test-equals-true=%s\n' "$FLAG" \
+            "$([ "$FLAG" = "true" ] && echo yes || echo no)"
       - name: Hold the group
         run: |
           set -euo pipefail
