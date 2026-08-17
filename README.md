@@ -78,9 +78,12 @@ not claim reducer conformance.
 The separate interim `deliberation-only` reducer is
 `tools/open-table-reduce.py`, with its GitHub Action in
 `.github/workflows/open-table.yml`. It uses the validator's single-comment mode,
-implements contextual reduction outside this core, and explicitly remains
-non-conformant because the detection mechanism sections 2.2 and 2.3 require is
-selected but not implemented. The mechanism is the `manifest` family of section
+implements contextual reduction outside this core, and now implements the
+detection mechanism sections 2.2 and 2.3 require. It explicitly remains
+non-conformant all the same, because that mechanism also places two obligations
+on the deployment adapter and only one of them is met: runs for a session
+serialise, and the periodic timeline read that bounds detection latency by a
+clock is not deployed. The mechanism is the `manifest` family of section
 4.18, selected in
 `docs/decisions/adr-20260816-detection-is-a-manifest-and-a-conditional-timeline-read.md`.
 The accepted deployment boundary is recorded in

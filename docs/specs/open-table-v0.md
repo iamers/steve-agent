@@ -204,7 +204,14 @@ neither:
   permission-sensitive is pending can absorb a deletion that the platform did
   record and that nothing ever looks at.
 
-**The implementation does not exist yet.** Until it does, work claims remain
+**The reduction implements this mechanism; the deployment does not yet meet
+both adapter obligations.** `tools/open-table-reduce.py` reads and writes the
+section 4.18 family, holds the commit point stated above, applies the barrier,
+and reads the timeline on the first two of the three conditions named here: a
+pending permission-sensitive source with neither a ruling nor an entry, and a
+run woken by a comment-deletion event. The periodic read is not deployed, so
+detection latency is still bounded by the next incorporated message rather than
+by a clock. Until it is, work claims remain
 advisory and this repository MUST NOT claim reducer conformance. A future Action deployment's
 authenticated issuer would be its token and its principal the bot account's
 positive numeric comment-author user id from trusted GitHub metadata. The
@@ -726,15 +733,22 @@ recorded: a reducer that fails the whole session on any edit signal denies
 service to a session through an edit to a comment it never read, which is
 [issue #144](https://github.com/iamers/steve-agent/issues/144).
 
-The interim reducer this repository ships, `tools/open-table-reduce.py`, does
-not satisfy this paragraph and the lag is declared here rather than left to be
-discovered: it rejects any comment whose trusted edit metadata is set, before
-asking whether that comment is a protocol message or whether anything was ever
-incorporated from it. The order is deliberate. That check is the only thing in
-the shipped deployment that reacts to an edit at all, so removing it before the
-memory of section 4.18 exists would replace an over-broad detection with none.
-It goes when the manifest arrives, in the same change, and section 1.7 already
-withholds any conformance claim in the meantime. A deleted or missing source or ruling makes dependent state
+The interim reducer this repository ships, `tools/open-table-reduce.py`, now
+holds the comparison above. The blanket check that used to reject any comment
+whose trusted edit metadata was set, before asking whether that comment was a
+protocol message at all, is gone; it went in the change that brought the section
+4.18 memory, which is what made removing it something other than replacing an
+over-broad detection with none.
+
+One lag remains and is declared here rather than left to be discovered. State
+that depends on a *ruling* does fail closed scoped, because a source whose
+ruling was lost is never ruled again, so nothing it would have authorized takes
+effect. State that depends on an *edited* message is named and not yet withheld:
+the reducer reports the edit and continues to derive from the inventory it was
+given. What a supersede iteration then does to that state is the transition
+semantics section 2.2 assigns to a separate accepted decision, which does not
+exist yet, and section 1.7 withholds any conformance claim in the meantime.
+A deleted or missing source or ruling makes dependent state
 unreplayable and MUST fail closed. A correction is a new message with a new id;
 it does not rewrite the invalidated history.
 
@@ -812,8 +826,22 @@ preserve all text outside those markers. Inside them it writes, in this order:
 - protocol version and session status (`open` or `terminated`);
 - current phase and turn;
 - settled points with disposition and permalinks to settling comments;
-- open proposals with permalinks to proposal comments; and
-- invalid or duplicate message notices with comment permalinks and reasons.
+- open proposals with permalinks to proposal comments;
+- invalid or duplicate message notices with comment permalinks and reasons; and
+- detection notices under section 2.3, each naming the affected comment and
+  whether it was lost, edited, frozen, or whether deletions remain unaccounted
+  for. A reducer writes this section whenever it has such a notice, including in
+  a session that has no authorized configuration and therefore nothing else to
+  project, because section 2.2 requires that a mutation not be lost silently.
+
+When a reduction fails closed at a point where it cannot write its notice into
+the marker region, because that region is precisely what it cannot parse, the
+diagnosis would otherwise exist only in the adapter's logs. The reducer MUST
+then apply the label `open-table/reduction-failed` to the issue, and MUST remove
+it as soon as a reduction no longer leaves its diagnosis invisible. The label
+carries no protocol state and is not detection memory: it is the visible half of
+a failure, and section 9.3's rule that a reducer MUST NOT remove unrelated
+labels applies to it unchanged.
 
 This projection is a cache under section 2.6 and is not the reducer's memory of
 what it incorporated. Its permalink citations are written for people, and
