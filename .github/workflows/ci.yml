@@ -1,6 +1,6 @@
 # CI for iamers/steve-agent
 #
-# One lightweight job (target < 2 minutes). Twelve checks in sequence:
+# One lightweight job (target < 2 minutes). Thirteen checks in sequence:
 #   1. tools/pr-brief.py self-test (deterministic review triage)
 #   2. tools/open-table-validate.py self-test (integrity rules)
 #   3. tools/open-table-reduce.py self-test (deliberation-only reducer)
@@ -9,12 +9,14 @@
 #   6. tools/acl-check.py self-test (Telegram command tiering, access-control
 #      env keys, worker/reviewer credential isolation, against
 #      .steve/acl-policy.yaml -- no identity, only publishable facts)
-#   7. instance/smoke.sh listener verdict self-test
-#   8. instance/merge-gate.sh self-test (deterministic merge decision logic)
-#   9. instance/merge-gate-scan.sh self-test (merge gate scanner formatter)
-#   10. syntax check (bash -n) on all tracked shell scripts
-#   11. shellcheck at warning severity on the same scripts
-#   12. gitleaks (manually downloaded binary, NOT the official action, which
+#   7. tools/workflow-check.py self-test (both Open Table entry points resolve
+#      to one concurrency group, from one construction site)
+#   8. instance/smoke.sh listener verdict self-test
+#   9. instance/merge-gate.sh self-test (deterministic merge decision logic)
+#   10. instance/merge-gate-scan.sh self-test (merge gate scanner formatter)
+#   11. syntax check (bash -n) on all tracked shell scripts
+#   12. shellcheck at warning severity on the same scripts
+#   13. gitleaks (manually downloaded binary, NOT the official action, which
 #       requires a license for organizations) on the working copy
 #
 # Note about check_privacy.sh: in CI it is a no-op by design -- the local
@@ -57,6 +59,9 @@ jobs:
 
       - name: acl-check self-test
         run: python3 tools/acl-check.py --self-test
+
+      - name: workflow-check self-test
+        run: python3 tools/workflow-check.py --self-test
 
       - name: smoke listener self-test
         run: ./instance/smoke.sh --self-test

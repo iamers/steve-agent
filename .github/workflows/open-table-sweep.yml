@@ -1,0 +1,69 @@
+# Open Table periodic sweep, the clock-driven entry point.
+#
+# The mechanism's second adapter obligation is that the timeline is read
+# periodically, independently of incoming comment events, so that detection
+# latency is bounded by a clock rather than by the next incorporated message.
+# This file is that clock.
+#
+# Interval and the latency it promises: hourly, at minute 17. A session that
+# absorbs a deletion is therefore looked at within roughly an hour of it,
+# plus whatever delay GitHub's scheduler adds under load, which is why the
+# minute is off the hour where that delay is worst. The number is stated here
+# because a backstop whose period is unstated is a backstop whose guarantee is
+# unstated. Scheduled workflows are also suspended in repositories with no
+# activity for 60 days, and that is a real gap in the promise rather than a
+# footnote: a dormant repository stops sweeping.
+#
+# `workflow_dispatch` is here so the sweep can be forced without waiting for the
+# hour, which is the only way to observe it on demand.
+name: Open Table periodic sweep
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+jobs:
+  enumerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: read
+    outputs:
+      sessions: ${{ steps.list.outputs.sessions }}
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - name: Load the enumeration from the trusted default-branch revision
+        # Only the reducer file: `--list-sessions` reads the issues endpoint and
+        # touches neither the validator nor the shared core.
+        run: |
+          curl -fsSLo /tmp/open-table-reduce.py \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open-table-reduce.py"
+      - name: Enumerate the open sessions
+        id: list
+        # Asked of GitHub rather than kept in a list here: the label is the
+        # definition of a session, and a hand-maintained copy would be wrong the
+        # moment a session is opened or closed. An empty answer is printed too,
+        # because a sweep over nothing must not read as a sweep that ran.
+        run: |
+          set -euo pipefail
+          sessions="$(python3 /tmp/open-table-reduce.py --list-sessions \
+            --repository "$GITHUB_REPOSITORY")"
+          printf 'enumerated sessions: %s\n' "$sessions"
+          printf 'sessions=%s\n' "$sessions" >> "$GITHUB_OUTPUT"
+
+  sweep:
+    needs: enumerate
+    if: needs.enumerate.outputs.sessions != '' && needs.enumerate.outputs.sessions != '[]'
+    permissions:
+      issues: write
+    strategy:
+      fail-fast: false
+      matrix:
+        issue_number: ${{ fromJSON(needs.enumerate.outputs.sessions) }}
+    uses: ./.github/workflows/open-table-reduce.yml
+    with:
+      issue_number: ${{ matrix.issue_number }}
+      periodic: true

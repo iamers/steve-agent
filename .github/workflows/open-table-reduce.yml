@@ -1,0 +1,71 @@
+# The Open Table reduction, behind one reusable workflow.
+#
+# This file is the only place that builds the per-session concurrency group and
+# the reduction's ISSUE_NUMBER, and it builds both from the same input. Two
+# entry points call it: open-table.yml on comment events, open-table-sweep.yml
+# on a clock. Concurrency group names are repository-scoped rather than
+# workflow-scoped, so every invocation for one session resolves to the same
+# group and enters the same serialisation domain, which is what the mechanism's
+# first adapter obligation rests on.
+#
+# The temptation this file exists to remove is a second site building the same
+# group: two expressions can agree while both are wrong, and a sweep copying
+# the event-driven expression verbatim resolves its issue component to empty.
+# tools/workflow-check.py refuses a second site rather than comparing two.
+#
+# Protocol decisions live in tools/open-table-reduce.py, not in this workflow.
+name: Open Table reduction
+
+on:
+  workflow_call:
+    inputs:
+      issue_number:
+        description: The session issue this reduction reads and writes.
+        required: true
+        type: number
+      periodic:
+        description: >-
+          True when the caller is the clock rather than a comment event. It
+          makes the reduction read the timeline on a session where nothing is
+          pending, which is the whole reason the sweep exists.
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  issues: write
+
+concurrency:
+  group: open-table-${{ github.repository_id }}-${{ inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  reduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      REDUCER_PRINCIPAL: "41898282"
+      ISSUE_NUMBER: ${{ inputs.issue_number }}
+      PERIODIC: ${{ inputs.periodic }}
+      SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - name: Load reducer from the trusted default-branch revision
+        run: |
+          curl -fsSLo /tmp/open-table-reduce.py \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open-table-reduce.py"
+          curl -fsSLo /tmp/open-table-validate.py \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open-table-validate.py"
+          curl -fsSLo /tmp/open_table_core.py \
+            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open_table_core.py"
+      - name: Reduce the session
+        run: |
+          set -euo pipefail
+          args=(--github
+            --repository "$GITHUB_REPOSITORY"
+            --issue "$ISSUE_NUMBER"
+            --principal "$REDUCER_PRINCIPAL")
+          if [ "$PERIODIC" = "true" ]; then
+            args+=(--periodic)
+          fi
+          python3 /tmp/open-table-reduce.py "${args[@]}"
