@@ -112,9 +112,10 @@ settled points, open proposals, or to the context of any ruling the reducer
 computes afterwards. It is not re-incorporated in its new body.
 
 This is section 7.3's fail-closed, made real for the half of the domain where
-it was declared and not applied. It replaces four measured behaviours with one
-rule: today an edit is equivalent to a withholding for a ruled message, a no-op
-for an unruled one, and a deletion is a withholding for both.
+it was declared and not applied. It replaces four measured cases with one rule:
+today an edit is equivalent to a withholding for a ruled message, a no-op for an
+unruled one, and a deletion is a withholding for both. Four cases, three
+behaviours, one obligation.
 
 Section 7.3's other rule is untouched and the boundary between them is the pin:
 a message with **no** pin of either kind carries no edit signal, is incorporated
@@ -228,8 +229,10 @@ Three consequences follow, and they are decided here rather than left:
   current header may not even parse: an edit that breaks the envelope excludes
   the comment from the records under section 7.5 while leaving its body
   perfectly digestible.
-- **This is the only new state the transition introduces.** Everything else in
-  this record is derivation.
+
+**That second digest is the only new state this transition introduces.**
+Everything else decided in this record is derivation over records that already
+exist.
 
 One corner is declared rather than solved. Where the current body has no
 computable canonical digest under section 3.7, there is nothing to bind and no
