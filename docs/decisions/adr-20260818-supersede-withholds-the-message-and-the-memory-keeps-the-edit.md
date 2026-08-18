@@ -444,8 +444,10 @@ iteration was undefined until now; the other eleven are in the self-test. It is 
 re-establishing message is discarded with `deliberation message follows terminal
 settlement`.
 
-Seven more correspond to the numbered decisions of this record, each of which must fail before the
-implementation and pass after:
+Seven more correspond to the numbered decisions of this record. **Six of them
+must fail before the implementation and pass after. The seventh, number 6, is a
+different kind of test and is stated separately below**, because a list that
+promises every item is red makes its one green item read as a failure:
 
 1. an edited `proposal` behind a terminal settlement is withheld, the session
    reopens, and the projection carries a notice whose subject is the withdrawn
@@ -463,14 +465,25 @@ implementation and pass after:
    value, which is the guard against a withholding that over-reaches;
 6. a message with **no** pin that is edited is incorporated in its current body
    and affects no other message, which is #144's regression guard restated
-   against the new rule, because decision 1 is the change most likely to
-   reintroduce it;
+   against the new rule;
 7. a second mutation of an already-withheld message records no further entry
    and changes no derived value.
 
-Number 3 and number 6 are the two worth writing first. Number 3 is where a
-cheaper implementation looks complete, and number 6 is where this record's own
-change would reintroduce the defect it is built beside.
+**Number 6 is a regression guard and it is green today.** Measured against the
+reducer as installed: an in-domain `contribution` carrying no ruling and no
+manifest entry, edited after it was posted, produces no detection notice, is
+incorporated at the digest its current body now carries, advances the turn, and
+leaves the session replayable. Section 7.3's no-pin rule is already implemented,
+and the shipped self-test already asserts it as `edit signal on an unpinned
+message: incorporated as it now reads, not fatal`. It belongs in this list
+because decision 1 is the change most likely to break it: withholding a *pinned*
+edited message is one line away from withholding an *unpinned* one, and the
+fixture that would notice is one that was already passing before anyone touched
+anything.
+
+Number 3 and number 6 are the two worth attending to first, for opposite
+reasons. Number 3 is the red one where a cheaper implementation looks complete;
+number 6 is the green one this record's own change would turn red.
 
 The live drill the requirement record asked for stands unchanged: a deletion of
 incorporated material mid-session, with the criterion that no contribution is
