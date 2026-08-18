@@ -447,28 +447,29 @@ iteration was undefined until now; the other eleven are in the self-test. It is 
 re-establishing message is discarded with `deliberation message follows terminal
 settlement`.
 
-Seven fixtures follow, and the one just named is among them, as number 2. **Six
-of them must fail before the implementation and pass after. Number 6 is
+Seven fixtures follow, and the requirement record's fourth is among them. **Six
+must fail before the implementation and pass after. The no-pin guard is
 different in kind, and its own entry says how**, because a list that promises
 every item is red makes its one green item read as a failure:
 
 1. an edited `proposal` behind a terminal settlement is withheld, the session
    reopens, and the projection carries a notice whose subject is the withdrawn
    termination;
-2. the same session then accepts a re-establishing message and re-terminates on
-   it, which is the requirement record's fourth fixture;
-3. an edit that is **reverted** to the exact incorporated body leaves the
-   message withheld and the notice standing, which is the fixture for decision
-   4 and the one an implementation that stores a single digest would pass every
-   other test while failing;
+2. **the completion fixture**: the same session then accepts a re-establishing
+   message and re-terminates on it. This is the requirement record's fourth;
+3. **the reverted-edit fixture**: an edit reverted to the exact incorporated
+   body leaves the message withheld and the notice standing. This is decision
+   4's fixture, and the one an implementation that stores a single digest would
+   pass every other test while failing;
 4. a superseded `configuration` withholds the deliberation plane, derives no
    termination and no settled point, and a replacement configuration does not
    restore it;
 5. withholding a message whose turn carries another message changes no derived
    value, which is the guard against a withholding that over-reaches;
-6. a message with **no** pin that is edited is incorporated in its current body
-   and affects no other message, which is #144's regression guard restated
-   against the new rule. **This one is green today and must stay green.**
+6. **the no-pin guard**: a message with no pin that is edited is incorporated in
+   its current body and affects no other message, which is #144's regression
+   guard restated against the new rule. **This one is green today and must stay
+   green.**
    Measured against the reducer as installed: an in-domain `contribution`
    carrying no ruling and no manifest entry, edited after it was posted,
    produces no detection notice, is incorporated at the digest its current body
@@ -482,9 +483,10 @@ every item is red makes its one green item read as a failure:
 7. a second mutation of an already-withheld message records no further entry
    and changes no derived value.
 
-Number 3 and number 6 are the two worth attending to first, for opposite
-reasons. Number 3 is the red one where a cheaper implementation looks complete;
-number 6 is the green one this record's own change would turn red.
+The reverted-edit fixture and the no-pin guard are the two worth attending to
+first, for opposite reasons. The reverted-edit fixture is the red one a cheaper
+implementation would look complete without; the no-pin guard is the green one
+this record's own change would turn red.
 
 The live drill the requirement record asked for stands unchanged: a deletion of
 incorporated material mid-session, with the criterion that no contribution is
