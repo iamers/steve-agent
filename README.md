@@ -81,7 +81,7 @@ The separate interim `deliberation-only` reducer is
 implements contextual reduction outside this core, and now implements the
 detection mechanism sections 2.2 and 2.3 require, with both of the obligations
 that mechanism places on the deployment adapter met: runs for a session
-serialise, and the periodic timeline read that section requires is deployed as
+serialise, and the periodic timeline read section 2.3 requires is deployed as
 an hourly scheduled sweep, whose period is a target rather than an upper bound. It explicitly remains
 non-conformant all the same, because section 1.7 makes reducer conformance the
 conjunction of every reducer requirement, and meeting these two is necessary

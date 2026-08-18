@@ -204,16 +204,16 @@ neither:
   permission-sensitive is pending can absorb a deletion that the platform did
   record and that nothing ever looks at.
 
-**The reduction implements this mechanism, and the deployment meets both
-adapter obligations.** `tools/open-table-reduce.py` reads and writes the section
+**The reduction implements this mechanism, and both adapter obligations are now
+deployed.** `tools/open-table-reduce.py` reads and writes the section
 4.18 family, holds the commit point stated above, applies the barrier, and reads
 the timeline on all three of the conditions named here: a pending
 permission-sensitive source with neither a ruling nor an entry, a run woken by a
 comment-deletion event, and a periodic run that declares itself one. The
 periodic read is deployed as a scheduled workflow that enumerates the open
 session issues and calls the same reduction once per session, hourly, so the
-read happens whether or not the conversation moves, which is what the obligation
-above requires of an adapter. Both entry points build their concurrency group at a
+read happens whether or not the conversation moves, which is the action the
+obligation above states. Both entry points build their concurrency group at a
 single site, so a swept run and an event-driven run for the same session
 serialise against each other, which is what the first obligation requires.
 
@@ -223,14 +223,18 @@ workflows on a best-effort basis and suspends them in repositories inactive for
 60 days, and the first scheduled run of this sweep executed one hour, forty-one
 minutes and fifty-one seconds after the workflow reached the default branch,
 against a nominal hourly period. So the deployment shortens the window in which
-a recorded deletion goes unexamined and does not bound it. The three claims are
-distinct and are separated here on purpose: the obligation is the periodic read
-itself, independent of incoming comment events, and this deployment meets it;
-the bound its rationale describes is approximated by this platform rather than
-guaranteed; and an adopter who needs that bound realised needs an adapter whose
-clock it controls.
+a recorded deletion goes unexamined and does not bound it. **Whether that counts
+as satisfying the obligation is deliberately not settled here.** The obligation
+is stated as a periodic read whose rationale is a bound; this deployment
+performs the read and does not realise the bound, and reading the rationale as
+normative or as explanatory gives opposite answers. The wording predates any
+deployment, so nothing had to answer it until now, and the question belongs to a
+decision of its own rather than to the paragraph that first ran into it: it is
+recorded as issue 178 of this repository. An
+adopter who needs the bound realised needs an adapter whose clock it controls,
+which this one is not.
 
-**Meeting both adapter obligations is not reducer conformance**, and the two
+**Deploying both adapter obligations is not reducer conformance**, and the two
 were tied together in the previous wording of this paragraph. Section 1.7 makes
 reducer conformance the conjunction of every reducer requirement in this
 document, so meeting these is necessary rather than sufficient: work claims
