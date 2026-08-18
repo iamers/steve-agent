@@ -463,6 +463,20 @@ derive those values from free prose. The reference integrity slice MAY validate
 a partial comment-event set without configuration, but that does not make the
 set a reducer-conformant replay bundle under section 2.5.
 
+A session that lost its configuration is not a configuration-free session, and a
+reducer MUST NOT derive one as the other. Configuration-free mode is a session
+that never had a configuration and so has no authoritative rulings in its log; a
+session whose configuration was superseded under section 7.3 has them already,
+and deriving it as configuration-free would lift the constraints of section 5.4
+from exactly the material the configuration excluded. Such a session withholds
+its whole deliberation plane: no settled point and no termination are derived, no
+deliberation message is ruled, and the projection says why under section 9.2. The
+material cannot be re-established inside the session, because this section
+requires every configuration to precede every deliberation message, so a
+replacement posted after deliberation began is ruled `unauthorized`. The
+session is not ended, participants may keep posting, and its forward path is a
+new session.
+
 4.2. The deliberation family contains `contribution`, `proposal`, and `settled`.
 All deliberation messages require `phase` and `turn` in addition to the common
 fields.
@@ -643,6 +657,21 @@ requirement rather than a structural one: an entry naming a family outside the
 domain is structurally well-formed. A digest is mandatory in every entry, and
 section 2.3 states why a memory of comment ids alone is not sufficient.
 
+On first observing that a message in the domain no longer matches the digest
+pinned for it under section 7.3, the reducer records one **additional** entry for
+that comment id, carrying the digest it now reads and the family the first entry
+carried rather than the family the current header claims: an edit can change the
+`message` value, and one that breaks the envelope leaves no header to read while
+the body stays perfectly digestible. At most one such entry is ever recorded per
+comment id, because the message is withheld from that point on and a further
+mutation has nothing to record. None is recorded for a deletion, where there is
+no body to digest and the original entry already binds the loss permanently, and
+none where the current body has no canonical digest under section 3.7, where
+there is nothing to bind and the message stays withheld for as long as the body
+stays unreadable. Section 7.6 reads the two entries as an edit of that message,
+which is what makes the withholding survive a body restored to what was
+incorporated.
+
 The reducer records one manifest per run that has something to record, and none
 for a run that has nothing. **That unit is the logical record, not a comment
 count**: a manifest whose text would exceed the platform's comment size limit
@@ -775,16 +804,30 @@ protocol message at all, is gone; it went in the change that brought the section
 4.18 memory, which is what made removing it something other than replacing an
 over-broad detection with none.
 
-One lag remains and is declared here rather than left to be discovered. State
-that depends on a *ruling* does fail closed scoped, because a source whose
-ruling was lost is never ruled again, so nothing it would have authorized takes
-effect. State that depends on an *edited* message is named and not yet withheld:
-the reducer reports the edit and continues to derive from the inventory it was
-given. What a supersede iteration then does to that state is decided by
-`docs/decisions/adr-20260818-supersede-withholds-the-message-and-the-memory-keeps-the-edit.md`, which withholds a superseded message from the
-derivation entirely. The lag above is what this reducer does until that decision
-is implemented, and section 1.7 withholds any conformance claim in the
-meantime.
+The lag this section used to declare is closed, and what closed it is
+`docs/decisions/adr-20260818-supersede-withholds-the-message-and-the-memory-keeps-the-edit.md`.
+A message in the domain is **superseded** when it is absent from the comment inventory, or
+when its current body's canonical digest differs from a digest pinned for it by
+a ruling or by a manifest entry. A superseded message is **withheld from the
+derivation**: it contributes nothing to phase, turn, settled points, open
+proposals, or to the context of any ruling the reducer computes afterwards, and
+it is not re-incorporated in its new body. This is the same withholding for an
+edit as for a deletion.
+
+The scope of a withholding is not chosen, it is what the deliberation makes it:
+where another message occupies the same turn, withholding one changes nothing at
+all; where the withheld message was the only one at its turn, section 5.2's
+transition rule breaks the chain and later messages become invalid until new
+material re-establishes it. Re-establishing the material is deliberation like any
+other, under section 2.2.
+
+A superseded `configuration` is the exception, and section 4.1 states it:
+withholding one is not monotone, because it would lift the constraints of
+section 5.4 from material the configuration excluded, so it withholds the whole
+deliberation plane of its session instead. Section 1.7 still withholds any
+conformance claim, because conformance is the conjunction of every reducer
+requirement and this is one of them.
+
 A deleted or missing source or ruling makes dependent state
 unreplayable and MUST fail closed. A correction is a new message with a new id;
 it does not rewrite the invalidated history.
@@ -840,6 +883,19 @@ The author of that settlement is the person or agent that declares termination.
 remain governed by the work state; deliberation termination does not silently
 cancel active work.
 
+Termination is derived, not stored. A terminal settlement whose closure is
+superseded under section 7.3 stops terminating, and the invalidity of later
+deliberation messages then attaches to whatever the derivation says is terminal,
+which may be nothing: messages posted after a withdrawn termination are
+ordinary deliberation, ruled on their own terms. No temporal exception exists and none is needed. In particular there
+is no rule about messages posted "after the reopen", because the reduction is a
+pure function of its replay bundle under section 2.5 and has no notion of when a
+reopen happened. Section 8.1's *earliest* is what makes the durable record of
+section 4.18 load-bearing here: if a superseded message could stop being
+superseded, the settlement behind it would become valid again and, being
+earliest, would terminate the session retroactively, invalidating every message
+the recovery deliberation had posted.
+
 ## 9. Reducer projections and rulings
 
 9.1. On first processing a permission-sensitive source, an authenticated
@@ -866,9 +922,15 @@ preserve all text outside those markers. Inside them it writes, in this order:
 - open proposals with permalinks to proposal comments;
 - invalid or duplicate message notices with comment permalinks and reasons; and
 - detection notices under section 2.3, each naming the affected comment and
-  whether it was lost, edited, frozen, or whether deletions remain unaccounted
-  for. A reducer writes this section whenever it has such a notice, including in
-  a session that has no authorized configuration and therefore nothing else to
+  whether it was lost, edited, frozen, whether a terminal settlement stopped
+  terminating because material it depended on was superseded, whether the
+  deliberation plane of the session is withheld because a `configuration` was
+  superseded, or whether deletions remain unaccounted for. The two supersede
+  notices are what section 7.3's withholding and section 4.1's exception owe a
+  reader: without them a reopen is a session status that reads differently than
+  it did on the run before, and a withheld plane is indistinguishable from a
+  configuration-free session. A reducer writes this section whenever it has
+  such a notice, including in a session that has no authorized configuration and therefore nothing else to
   project, because section 2.2 requires that a mutation not be lost silently.
 
 When a reduction fails closed at a point where it cannot write its notice into
