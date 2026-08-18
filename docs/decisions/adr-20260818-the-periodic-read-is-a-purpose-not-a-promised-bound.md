@@ -95,20 +95,31 @@ of its clauses are reversed and are marked in that record:
 - decision 4 point 3, *"A sweep bounds detection latency by a clock instead of by
   the next incorporated message"* — a sweep bounds it only where the clock is
   controlled, which that record did not distinguish;
-- its open-questions answer on the sweep interval, which asked the implementation
-  to state *"the latency it therefore promises"* — an implementation states the
-  period it runs on, and promises a latency only under point 3 above.
+- its open-questions answer on the sweep interval, in two sentences rather than
+  one: *"Daily bounds the erased-memory case at one day"*, which derives a
+  temporal bound straight from a period, and the instruction to state *"the
+  latency it therefore promises"*. An implementation states the period it runs
+  on, and bounds anything only under point 3 above.
 
 The requirement record `adr-20260807-mutations-are-detected-and-superseded.md`
 carries the same derivation in its own words — the scheduled pass *"is what
 bounds detection latency when event-driven runs are cancelled"* — and is amended
 in the same way and for the same reason.
 
-All three sentences were written before any deployment existed, which is why
-none of them had to separate the period from the promise. Finding them took a
-predicate built from what could be written rather than from what I remembered
-writing; the first pass of this record searched for the phrases it had itself
-used, and missed the one that says the same thing differently.
+All four sentences were written before any deployment existed, which is why none
+of them had to separate the period from the promise.
+
+**Finding all four took three passes, and the reason is worth recording.** The
+first searched for the phrases this record had itself used and found only those.
+The second was widened by hand and found a third sentence in another record. The
+one that closed the set does not search for phrases at all: it pairs a
+detection-domain stem (`detect`, `latenc`, `erased`, `delet`, `timeline`,
+`sweep`, `periodic`, `backstop`, …) with an assurance-or-time stem (`bound`,
+`guarante`, `promis`, `window`, `deadline`, `within`, `maximum`, `daily`,
+`hourly`, `period`, `clock`, …) **in either order**, and accepts the resulting
+noise: 95 matching lines to find the one that mattered. A partial amendment has
+to be looked for that way, because the sentence that repeats a claim in someone
+else's wording is exactly the one a phrase-led predicate cannot reach.
 
 ## Consequences
 

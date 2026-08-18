@@ -756,7 +756,10 @@ daily pass. Daily bounds the erased-memory case at one day and costs one read
 per session per day; anything shorter buys latency the product has not asked
 for. The interval is left to the implementation, which states the number it
 chose and the latency it therefore promises, because a backstop whose period is
-unstated is a backstop whose guarantee is unstated. **Amended 2026-08-18**: an
-implementation states the period it runs on, and promises a latency only by
-making the conditioned claim of
-`adr-20260818-the-periodic-read-is-a-purpose-not-a-promised-bound.md`.
+unstated is a backstop whose guarantee is unstated. **Amended 2026-08-18**, both
+sentences: a daily pass bounds the erased-memory case at one day only where the
+adapter controls the clock it runs on, and an implementation states the period
+it runs on and promises a latency only by making the conditioned claim of
+`adr-20260818-the-periodic-read-is-a-purpose-not-a-promised-bound.md`. Where it
+does not control the clock, the period is a request and the case is bounded by
+nothing.
