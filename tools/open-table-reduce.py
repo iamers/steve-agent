@@ -226,10 +226,9 @@ def render_projection(status, phase, turn, settled, proposals, notices, detectio
     lines = [
         "## Open Table projection",
         "",
-        "**Not reducer-conformant.** The detection mechanism of section 2.3 is "
-        "implemented and both adapter obligations it places are deployed. "
-        "Section 1.7 makes conformance the conjunction of every reducer "
-        "requirement, so these are necessary rather than sufficient.",
+        "**Not reducer-conformant.** Section 1.7 makes conformance the "
+        "conjunction of every reducer requirement, and this deployment does not "
+        "satisfy all of them.",
         "",
         "- Protocol version: `0`",
         "- Session status: `{}`".format(status),

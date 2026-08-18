@@ -211,19 +211,23 @@ the timeline on all three of the conditions named here: a pending
 permission-sensitive source with neither a ruling nor an entry, a run woken by a
 comment-deletion event, and a periodic run that declares itself one. The
 periodic read is deployed as a scheduled workflow that enumerates the open
-session issues and calls the same reduction once per session, hourly, so
-detection latency is bounded by that interval rather than by the next
-incorporated message. Both entry points build their concurrency group at a
+session issues and calls the same reduction once per session, hourly, so the
+read happens whether or not the conversation moves, which is what the obligation
+above requires of an adapter. Both entry points build their concurrency group at a
 single site, so a swept run and an event-driven run for the same session
 serialise against each other, which is what the first obligation requires.
 
-The interval is a target rather than a guarantee, and the first observation says
-so: the platform queues scheduled workflows on a best-effort basis and suspends
-them in repositories inactive for 60 days, and the first scheduled run of this
-sweep executed one hour and forty-two minutes after the workflow reached the
-default branch, against a nominal hourly period. The deployment therefore
-shortens the window in which a recorded deletion goes unexamined without
-bounding it, and an adopter who needs a bounded window needs an adapter whose
+**What that does not buy is an upper bound**, and the first observation is the
+reason to say so rather than to imply one. The platform queues scheduled
+workflows on a best-effort basis and suspends them in repositories inactive for
+60 days, and the first scheduled run of this sweep executed one hour, forty-one
+minutes and fifty-one seconds after the workflow reached the default branch,
+against a nominal hourly period. So the deployment shortens the window in which
+a recorded deletion goes unexamined and does not bound it. The three claims are
+distinct and are separated here on purpose: the obligation is the periodic read
+itself, independent of incoming comment events, and this deployment meets it;
+the bound its rationale describes is approximated by this platform rather than
+guaranteed; and an adopter who needs that bound realised needs an adapter whose
 clock it controls.
 
 **Meeting both adapter obligations is not reducer conformance**, and the two
