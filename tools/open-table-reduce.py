@@ -226,9 +226,9 @@ def render_projection(status, phase, turn, settled, proposals, notices, detectio
     lines = [
         "## Open Table projection",
         "",
-        "**Not reducer-conformant.** The detection mechanism of section 2.3 is "
-        "implemented, but this deployment does not yet read the issue timeline "
-        "periodically as that section requires of an adapter.",
+        "**Not reducer-conformant.** Section 1.7 makes conformance the "
+        "conjunction of every reducer requirement, and this deployment does not "
+        "satisfy all of them.",
         "",
         "- Protocol version: `0`",
         "- Session status: `{}`".format(status),
@@ -282,8 +282,9 @@ def render_unreplayable_projection(reason):
         "",
         "**Session unreplayable.** {}".format(reason),
         "",
-        "**Not reducer-conformant.** This deployment does not yet read the issue "
-        "timeline periodically as section 2.3 requires of an adapter.",
+        "**Not reducer-conformant.** Section 1.7 makes conformance the "
+        "conjunction of every reducer requirement, and this deployment does not "
+        "satisfy all of them.",
     ])
 
 

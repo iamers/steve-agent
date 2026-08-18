@@ -79,11 +79,15 @@ The separate interim `deliberation-only` reducer is
 `tools/open-table-reduce.py`, with its GitHub Action in
 `.github/workflows/open-table.yml`. It uses the validator's single-comment mode,
 implements contextual reduction outside this core, and now implements the
-detection mechanism sections 2.2 and 2.3 require. It explicitly remains
-non-conformant all the same, because that mechanism also places two obligations
-on the deployment adapter and only one of them is met: runs for a session
-serialise, and the periodic timeline read that bounds detection latency by a
-clock is not deployed. The mechanism is the `manifest` family of section
+detection mechanism sections 2.2 and 2.3 require, with both of the obligations
+that mechanism places on the deployment adapter now deployed: runs for a session
+serialise, and the periodic timeline read section 2.3 requires runs as an hourly
+scheduled sweep, whose period is a target rather than an upper bound. Whether a
+period that is not an upper bound counts as satisfying that obligation is left
+open by section 2.3 and recorded as issue 178. It explicitly remains
+non-conformant either way, because section 1.7 makes reducer conformance the
+conjunction of every reducer requirement, and these two are necessary rather
+than sufficient. The mechanism is the `manifest` family of section
 4.18, selected in
 `docs/decisions/adr-20260816-detection-is-a-manifest-and-a-conditional-timeline-read.md`.
 The accepted deployment boundary is recorded in
