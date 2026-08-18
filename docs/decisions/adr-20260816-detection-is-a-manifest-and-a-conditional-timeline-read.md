@@ -646,7 +646,9 @@ lost and no session is killed.
 
 ### What this record does not decide
 
-- **The supersede transition.** The event family, the dependency closure, the
+- **The supersede transition**, **decided 2026-08-18** by
+  `adr-20260818-supersede-withholds-the-message-and-the-memory-keeps-the-edit.md`.
+  The event family, the dependency closure, the
   state effect, the idempotency key, the completion conditions, and the
   interaction with section 8.3, with the correction the requirement record
   already recorded as an obligation: reopen whenever the computed closure
@@ -660,7 +662,9 @@ lost and no session is killed.
   gone, and `docs/decisions/README.md` asks for the evidence before the
   decision. Deciding the transition here would be reasoning from a blank page
   about questions a second spike answers, which is the exact move the
-  requirement record refused.
+  requirement record refused. **That spike was run and the transition decided on
+  2026-08-18** by
+  `adr-20260818-supersede-withholds-the-message-and-the-memory-keeps-the-edit.md`.
 - **The audit profile.** Named, not designed, and still where an adopter who
   does not accept the actor scoping of property 2 is sent.
 - **Marker corruption diagnosability.** The spike measured that a duplicated
