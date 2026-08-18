@@ -1094,25 +1094,32 @@ def withdrawn_terminations(records, withheld, rulings, configuration, superseded
     nothing and gets no notice: losing the section 8.1 race to an earlier
     terminal settlement is not a withdrawal.
 
-    A terminal settlement deleted outright is outside this. What the memory keeps
-    of it is a section 4.18 entry whose family is `settled`, which does not say it
-    was terminal, so its loss is named by its own detection notice and no
-    withdrawal is claimed on evidence the reducer does not have.
+    A terminal settlement that is itself superseded, deleted or edited, is
+    outside this. What the memory keeps of it is a section 4.18 entry whose
+    family is `settled`, and that does not say it declared termination; the only
+    thing that would is the body, which is gone or is the edited one. Its loss is
+    named by its own detection notice, and no withdrawal is claimed on evidence
+    the reducer does not have.
     """
     pinned_loss = set(superseded) | set(identified_loss)
     notices = []
     for record in records:
         header = record["header"]
         comment_id = record["comment_id"]
-        if header["message"] != "settled" or header.get("terminal") != "true":
+        # A withheld record's header is the edited one, so nothing in it is
+        # authority for what the message was. Checking the recorded family here
+        # was half a guard: section 4.18 records the family and never records
+        # that a settlement declared termination, so `terminal` and
+        # `proposal-comment-id` were still being read off the edited body. An
+        # incorporated non-terminal `settled`, edited afterwards to claim
+        # `terminal: true`, then withdrew a termination that never existed.
+        # A superseded settlement is therefore in the same position as a deleted
+        # one: the memory cannot say it was terminal, so nothing claims it was.
+        # A record the derivation used needs no such check, because it is the
+        # material the derivation ran on.
+        if comment_id in withheld:
             continue
-        # A withheld record's header is the edited one, so it is read only where
-        # the memory agrees the comment was incorporated as a settlement. Without
-        # that check an actor editing its own incorporated comment into a
-        # terminal-settlement header would mint a notice about a settlement that
-        # never existed. A record the derivation used needs no such check: it is
-        # the material the derivation ran on.
-        if comment_id in withheld and superseded.get(comment_id) != "settled":
+        if header["message"] != "settled" or header.get("terminal") != "true":
             continue
         if comment_id == terminated_by:
             continue
@@ -2534,6 +2541,51 @@ def detection_fixture_every_ruling_had_an_authorised_lookup():
     print("detection: every ruling this run makes was a lookup the adapter was allowed")
 
 
+def detection_fixture_a_recorded_family_is_not_a_recorded_termination():
+    """Found by the factory review of this change: the same defect, one field over.
+
+    Section 4.18 records a comment's family and nothing else about its body, so a
+    manifest entry saying `settled` does not say the settlement declared
+    termination. Checking the recorded family before reading a superseded
+    message's header was therefore half a guard: `terminal` and
+    `proposal-comment-id` were still being read off the edited body, and a
+    `settled` incorporated as non-terminal, edited afterwards to claim
+    `terminal: true`, withdrew a termination the session never had.
+
+    A superseded settlement is in the same position as a deleted one, and for the
+    same reason: the memory cannot say it was terminal, so nothing claims it was.
+    Its supersede is named by its own detection notice.
+    """
+    plain = TERMINAL_SETTLED.replace("terminal: true", "terminal: false")
+    never_terminal = terminal_bundle(False)
+    for event in never_terminal["ordered_events"]:
+        if event["comment_id"] == 414:
+            event["body"] = plain
+        elif event["comment_id"] == 415:
+            event["body"] = detection_ruling(
+                414, plain, "terminal-settled-0001", 101, "authorized"
+            )
+        elif event["comment_id"] == 416:
+            event["body"] = detection_manifest("terminal-manifest-0001", 0, entries=[
+                "411/{}/configuration/412".format(canonical_digest(TERMINAL_CONFIGURATION)),
+                "413/{}/proposal".format(canonical_digest(TERMINAL_PROPOSAL)),
+                "414/{}/settled/415".format(canonical_digest(plain)),
+            ])
+    control = reduce_session(never_terminal, DETECTION_AS_OF)
+    assert detection_notices(control, "termination_withdrawn") == []
+    assert "- Session status: `open`" in projection_body(control)
+    promoted = reduce_session(
+        with_edited_comment(never_terminal, 414, TERMINAL_SETTLED), DETECTION_AS_OF
+    )
+    assert not promoted["unreplayable"]
+    assert [
+        notice["comment_id"]
+        for notice in detection_notices(promoted, "incorporated_message_edited")
+    ] == [414]
+    assert detection_notices(promoted, "termination_withdrawn") == []
+    print("supersede: a recorded family is not a recorded termination")
+
+
 SHARED_TURN_CONFIGURATION = "\n".join([
     "```open-table", "open-table: 0", "message: configuration",
     "id: shared-turn-configuration-0001", "phase: observation", "sequence: 1",
@@ -2898,6 +2950,7 @@ def detection_fixture_a_forged_header_does_not_widen_a_supersede():
         (entry["comment_id"], entry["family"])
         for entry in manifest_write(reshaped)["entries"]
     ] == [(413, "proposal")]
+
     print("supersede: a forged header does not widen the supersede of its own comment")
 
 
@@ -2929,6 +2982,7 @@ DETECTION_FIXTURES = (
     detection_fixture_an_unpinned_edit_is_incorporated_as_it_reads,
     detection_fixture_a_second_mutation_records_nothing_further,
     detection_fixture_a_forged_header_does_not_widen_a_supersede,
+    detection_fixture_a_recorded_family_is_not_a_recorded_termination,
 )
 
 
