@@ -172,9 +172,9 @@ direction, and a different one applies:
   Configuration-free mode under section 4.1 is a session that never had one and
   therefore has no authoritative rulings, termination, work award, or
   projection. A session that had one and lost it has authoritative rulings in
-  its log already. The reducer MUST NOT silently treat the second as the first,
-  which is what it does today: `t8` projects a *terminated* deliberation with no
-  configuration behind it.
+  its log already. The reducer MUST NOT silently treat a session that lost its
+  configuration as one that never had one, which is what it does today: `t8`
+  projects a *terminated* deliberation with no configuration behind it.
 - **The material cannot be re-established, and this is the availability
   residual of this record.** Section 4.1's ordering rule makes a replacement
   configuration `unauthorized`. The session is not ended, participants may keep
@@ -328,8 +328,8 @@ Two things this record does add:
   subject is the termination being withdrawn, naming the terminal settlement and
   the superseded message that withdrew it. A decision leaving the log unremarked
   is the shape of defect this project keeps paying for.
-- **Decision 4 is what makes the reopen safe**, and this is the second reason it
-  is load-bearing. Section 8.1 makes the *earliest* contextually valid terminal
+- **Decision 4 is what makes the reopen safe**, which is its second
+  load-bearing role after the revert case that decided it. Section 8.1 makes the *earliest* contextually valid terminal
   settlement the one that ends the deliberation. If a superseded message could
   become un-superseded by having its body restored, the original settlement
   would become valid again, and being earliest it would terminate the session
@@ -439,24 +439,25 @@ Scoped to the transition.
 
 The implementation comes after this record, per `docs/decisions/README.md`.
 
-**The missing fixture is unblocked.** The requirement record named four
-fixtures, and the fourth is *"a supersede of the proposal behind a terminal
-settlement must be able to complete its iteration"*. Of the twelve the detection
-record counted, it is the one that could not be written, because completing an
-iteration was undefined until now; the other eleven are in the self-test. It is `t3` of the spike, which today fails: the
-re-establishing message is discarded with `deliberation message follows terminal
-settlement`.
+**The missing fixture is unblocked.** Among the four the requirement record
+named is *"a supersede of the proposal behind a terminal settlement must be able
+to complete its iteration"*, called the completion fixture here. Of the twelve
+the detection record counted, it is the one that could not be written, because
+completing an iteration was undefined until now; the other eleven are in the
+self-test. It is `t3` of the spike, which today fails: the re-establishing
+message is discarded with `deliberation message follows terminal settlement`.
 
-Seven fixtures follow, and the requirement record's fourth is among them. **Six
-must fail before the implementation and pass after. The no-pin guard is
-different in kind, and its own entry says how**, because a list that promises
-every item is red makes its one green item read as a failure:
+Seven fixtures follow, and the completion fixture is among them. **Six must fail
+before the implementation and pass after. The no-pin guard is different in kind,
+and its own entry says how**, because a list that promises every item is red
+makes its one green item read as a failure:
 
 1. an edited `proposal` behind a terminal settlement is withheld, the session
    reopens, and the projection carries a notice whose subject is the withdrawn
    termination;
 2. **the completion fixture**: the same session then accepts a re-establishing
-   message and re-terminates on it. This is the requirement record's fourth;
+   message and re-terminates on it. This is the one the requirement record named
+   and no earlier record could write;
 3. **the reverted-edit fixture**: an edit reverted to the exact incorporated
    body leaves the message withheld and the notice standing. This is decision
    4's fixture, and the one an implementation that stores a single digest would
