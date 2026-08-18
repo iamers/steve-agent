@@ -198,22 +198,26 @@ neither:
   current-permission lookup this section forbids. That lookup is an act, and no
   later record undoes it.
 - **The adapter MUST read the timeline periodically**, independently of incoming
-  comment events, so that detection latency is bounded by a clock rather than by
-  the next incorporated message. A run woken by a comment-deletion event MUST
-  also read it. Without the periodic read, a session in which nothing
-  permission-sensitive is pending can absorb a deletion that the platform did
-  record and that nothing ever looks at.
+  comment events, so that detection stops depending on the next incorporated
+  message arriving. A run woken by a comment-deletion event MUST also read it.
+  Without the periodic read, a session in which nothing permission-sensitive is
+  pending can absorb a deletion that the platform did record and that nothing
+  ever looks at. **The adapter MUST state the period it runs on**, and MUST NOT
+  present that period as an upper bound on detection latency unless it controls
+  the clock that produces it: punctuality is a property of that clock, which
+  this specification cannot reach. An adopter who needs a bounded window needs
+  an adapter whose clock it controls.
 
-**The reduction implements this mechanism, and both adapter obligations are now
-deployed.** `tools/open-table-reduce.py` reads and writes the section
+**The reduction implements this mechanism, and the deployment meets both
+adapter obligations.** `tools/open-table-reduce.py` reads and writes the section
 4.18 family, holds the commit point stated above, applies the barrier, and reads
 the timeline on all three of the conditions named here: a pending
 permission-sensitive source with neither a ruling nor an entry, a run woken by a
 comment-deletion event, and a periodic run that declares itself one. The
 periodic read is deployed as a scheduled workflow that enumerates the open
 session issues and calls the same reduction once per session, hourly, so the
-read happens whether or not the conversation moves, which is the action the
-obligation above states. Both entry points build their concurrency group at a
+read happens whether or not the conversation moves, which is what the
+obligation above requires. Both entry points build their concurrency group at a
 single site, so a swept run and an event-driven run for the same session
 serialise against each other, which is what the first obligation requires.
 
@@ -223,19 +227,16 @@ workflows on a best-effort basis and suspends them in repositories inactive for
 60 days, and the first scheduled run of this sweep executed one hour, forty-one
 minutes and fifty-one seconds after the workflow reached the default branch,
 against a nominal hourly period. So the deployment shortens the window in which
-a recorded deletion goes unexamined and does not bound it. **Whether that counts
-as satisfying the obligation is deliberately not settled here.** The obligation
-is stated as a periodic read whose rationale is a bound; this deployment
-performs the read and does not realise the bound, and reading the rationale as
-normative or as explanatory gives opposite answers. The wording predates any
-deployment, so nothing had to answer it until now, and the question belongs to a
-decision of its own rather than to the paragraph that first ran into it: it is
-recorded as issue 178 of this repository. An
-adopter who needs the bound realised needs an adapter whose clock it controls,
-which this one is not.
+a recorded deletion goes unexamined and does not bound it, and the obligation
+above no longer asks it to. That clause once read *so that detection latency is
+bounded by a clock*, which promised something no adapter can deliver by being
+written better, because punctuality belongs to whatever clock it runs on;
+`docs/decisions/adr-20260818-the-periodic-read-is-a-purpose-not-a-promised-bound.md`
+narrowed it to a purpose. So this deployment satisfies the obligation, states
+its period as that decision requires, and does not present it as an upper
+bound.
 
-**Deploying both adapter obligations is not reducer conformance**, and the two
-were tied together in the previous wording of this paragraph. Section 1.7 makes
+**Meeting both adapter obligations is not reducer conformance.** Section 1.7 makes
 reducer conformance the conjunction of every reducer requirement in this
 document, so these are necessary rather than sufficient: work claims
 remain advisory and this repository MUST NOT claim reducer conformance. A future Action deployment's
