@@ -237,7 +237,7 @@ which this one is not.
 **Deploying both adapter obligations is not reducer conformance**, and the two
 were tied together in the previous wording of this paragraph. Section 1.7 makes
 reducer conformance the conjunction of every reducer requirement in this
-document, so meeting these is necessary rather than sufficient: work claims
+document, so these are necessary rather than sufficient: work claims
 remain advisory and this repository MUST NOT claim reducer conformance. A future Action deployment's
 authenticated issuer would be its token and its principal the bot account's
 positive numeric comment-author user id from trusted GitHub metadata. The
