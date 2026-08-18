@@ -80,14 +80,13 @@ The separate interim `deliberation-only` reducer is
 `.github/workflows/open-table.yml`. It uses the validator's single-comment mode,
 implements contextual reduction outside this core, and now implements the
 detection mechanism sections 2.2 and 2.3 require, with both of the obligations
-that mechanism places on the deployment adapter now deployed: runs for a session
+that mechanism places on the deployment adapter met: runs for a session
 serialise, and the periodic timeline read section 2.3 requires runs as an hourly
-scheduled sweep, whose period is a target rather than an upper bound. Whether a
-period that is not an upper bound counts as satisfying that obligation is left
-open by section 2.3 and recorded as issue 178. It explicitly remains
-non-conformant either way, because section 1.7 makes reducer conformance the
-conjunction of every reducer requirement, and these two are necessary rather
-than sufficient. The mechanism is the `manifest` family of section
+scheduled sweep. That period is stated rather than promised: section 2.3 lets an
+adapter claim a bounded detection window only with the failure model that holds
+it up, and this one makes no such claim, because it does not own the clock. It explicitly remains non-conformant all the same, because section 1.7
+makes reducer conformance the conjunction of every reducer requirement, and
+these two are necessary rather than sufficient. The mechanism is the `manifest` family of section
 4.18, selected in
 `docs/decisions/adr-20260816-detection-is-a-manifest-and-a-conditional-timeline-read.md`.
 The accepted deployment boundary is recorded in

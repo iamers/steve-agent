@@ -1,6 +1,7 @@
 ---
 status: accepted
 date: 2026-08-16
+amended-by: adr-20260818-the-periodic-read-is-a-purpose-not-a-promised-bound.md
 ---
 
 # Detection memory is a run manifest, and the timeline is read on three triggers rather than on every run
@@ -252,7 +253,10 @@ the barrier is only the first:
    serialise (see section 6), so a deletion-triggered run can be superseded in
    the queue while a later event's run takes its place, and the #143 cancellation
    window is exactly that. A sweep bounds detection latency by a clock instead of
-   by the next incorporated message.
+   by the next incorporated message. **Amended 2026-08-18**: a sweep bounds it
+   only where the adapter controls that clock, which this record did not
+   distinguish; see
+   `adr-20260818-the-periodic-read-is-a-purpose-not-a-promised-bound.md`.
 
 **Trigger 3 does not exist today, and that is measured rather than assumed.**
 The requirement record speaks of a scheduled daily pass as something that
@@ -752,4 +756,10 @@ daily pass. Daily bounds the erased-memory case at one day and costs one read
 per session per day; anything shorter buys latency the product has not asked
 for. The interval is left to the implementation, which states the number it
 chose and the latency it therefore promises, because a backstop whose period is
-unstated is a backstop whose guarantee is unstated.
+unstated is a backstop whose guarantee is unstated. **Amended 2026-08-18**, both
+sentences: a daily pass bounds the erased-memory case at one day only where the
+adapter controls the clock it runs on, and an implementation states the period
+it runs on and promises a latency only by making the conditioned claim of
+`adr-20260818-the-periodic-read-is-a-purpose-not-a-promised-bound.md`. Where it
+does not control the clock, the period is a request and the case is bounded by
+nothing.
