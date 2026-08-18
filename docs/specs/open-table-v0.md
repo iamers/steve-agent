@@ -884,8 +884,9 @@ remain governed by the work state; deliberation termination does not silently
 cancel active work.
 
 Termination is derived, not stored. A terminal settlement whose closure is
-superseded under section 7.3 stops terminating, and the rule above then applies
-to whatever the derivation says is terminal, which may be nothing: messages
+superseded under section 7.3 stops terminating, and the invalidity of later
+deliberation messages then attaches to whatever the derivation says is terminal,
+which may be nothing: messages
 posted after a withdrawn termination are ordinary deliberation, ruled on their
 own terms. No temporal exception exists and none is needed. In particular there
 is no rule about messages posted "after the reopen", because the reduction is a
