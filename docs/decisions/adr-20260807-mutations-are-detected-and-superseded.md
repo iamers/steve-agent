@@ -2,7 +2,9 @@
 status: accepted
 date: 2026-08-07
 supersedes: adr-20260805-checkpoints-are-a-partial-receipt-store.md
-amended-by: adr-20260818-the-periodic-read-is-a-purpose-not-a-promised-bound.md
+amended-by:
+  - adr-20260818-the-periodic-read-is-a-purpose-not-a-promised-bound.md
+  - adr-20260818-supersede-withholds-the-message-and-the-memory-keeps-the-edit.md
 ---
 
 # Mutations of incorporated material are detected and superseded, and point I dissolves
@@ -238,6 +240,10 @@ the non-guarantees below say in full.
 
 ### The supersede iteration, and what the implementation record owes it
 
+**Decided 2026-08-18** by `adr-20260818-supersede-withholds-the-message-and-the-memory-keeps-the-edit.md`,
+on the evidence of a second spike. All six items below are answered there; the
+requirement they are answered against is unchanged.
+
 A supersede iteration is a protocol event, not an apology. The affected
 material degrades, scoped to the affected message and what depends on it, never
 the session; the notice names what was lost or changed and what it backed;
@@ -364,7 +370,8 @@ that nothing is dropped by being moved:
   chain, met again in another shape; the implementation decision either solves
   it or declares it in the same plain words used above.
 - **The supersede transition**, with the closure and termination correction
-  already recorded as an obligation.
+  already recorded as an obligation. **Decided 2026-08-18** by
+  `adr-20260818-supersede-withholds-the-message-and-the-memory-keeps-the-edit.md`.
 - **Whether an ambiguity barrier is the right shape for the fail-closed
   obligation.** The reviewer's proposal, treating every otherwise-unruled
   permission-sensitive source ordered before an unmatched deletion event as
@@ -404,7 +411,12 @@ revision may be done in two passes rather than held hostage to it:
   half-encode them**: the memory's wire encoding, the `superseded` notice
   family with its closure and completion rules, the section 8.3 termination
   exception, and the tombstone encoding under the section 3.2 one-block
-  constraint and the `invalidated` sole-ruling constraint.
+  constraint and the `invalidated` sole-ruling constraint. **The first is
+  decided** by `adr-20260816-detection-is-a-manifest-and-a-conditional-timeline-read.md`
+  and **the second and third 2026-08-18** by
+  `adr-20260818-supersede-withholds-the-message-and-the-memory-keeps-the-edit.md`,
+  which reads "notice family" as section 9.2's kind of notice and finds the
+  termination exception unnecessary. The tombstone encoding stays open.
 - **Audit profile**: named as a future authority-profile extension for
   adopters who need a ledger (external witness repository, the Certificate
   Transparency shape, or both prior designs revived). It is also where an

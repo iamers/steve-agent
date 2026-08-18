@@ -96,7 +96,8 @@ throughout. No act on the comment stream ends a session. What a lost source or
 ruling still costs is the scoped unreplayability of section 9.1. Section 2.3
 states the obligations detection MUST meet and the guarantees it does not make;
 the transition semantics of a supersede iteration and the form its notice takes
-belong to the separate accepted decision section 2.3 requires.
+belong to a separate accepted decision, and that decision is
+`docs/decisions/adr-20260818-supersede-withholds-the-message-and-the-memory-keeps-the-edit.md`.
 
 2.3. Only an issuer matching a reducer principal allowed by the selected
 authority profile writes mutable projections or posts `ruling`, `expiration`, or
@@ -779,9 +780,11 @@ that depends on a *ruling* does fail closed scoped, because a source whose
 ruling was lost is never ruled again, so nothing it would have authorized takes
 effect. State that depends on an *edited* message is named and not yet withheld:
 the reducer reports the edit and continues to derive from the inventory it was
-given. What a supersede iteration then does to that state is the transition
-semantics section 2.2 assigns to a separate accepted decision, which does not
-exist yet, and section 1.7 withholds any conformance claim in the meantime.
+given. What a supersede iteration then does to that state is decided by
+`docs/decisions/adr-20260818-supersede-withholds-the-message-and-the-memory-keeps-the-edit.md`, which withholds a superseded message from the
+derivation entirely. The lag above is what this reducer does until that decision
+is implemented, and section 1.7 withholds any conformance claim in the
+meantime.
 A deleted or missing source or ruling makes dependent state
 unreplayable and MUST fail closed. A correction is a new message with a new id;
 it does not rewrite the invalidated history.
