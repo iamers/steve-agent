@@ -204,15 +204,33 @@ neither:
   permission-sensitive is pending can absorb a deletion that the platform did
   record and that nothing ever looks at.
 
-**The reduction implements this mechanism; the deployment does not yet meet
-both adapter obligations.** `tools/open-table-reduce.py` reads and writes the
-section 4.18 family, holds the commit point stated above, applies the barrier,
-and reads the timeline on the first two of the three conditions named here: a
-pending permission-sensitive source with neither a ruling nor an entry, and a
-run woken by a comment-deletion event. The periodic read is not deployed, so
-detection latency is still bounded by the next incorporated message rather than
-by a clock. Until it is, work claims remain
-advisory and this repository MUST NOT claim reducer conformance. A future Action deployment's
+**The reduction implements this mechanism, and the deployment meets both
+adapter obligations.** `tools/open-table-reduce.py` reads and writes the section
+4.18 family, holds the commit point stated above, applies the barrier, and reads
+the timeline on all three of the conditions named here: a pending
+permission-sensitive source with neither a ruling nor an entry, a run woken by a
+comment-deletion event, and a periodic run that declares itself one. The
+periodic read is deployed as a scheduled workflow that enumerates the open
+session issues and calls the same reduction once per session, hourly, so
+detection latency is bounded by that interval rather than by the next
+incorporated message. Both entry points build their concurrency group at a
+single site, so a swept run and an event-driven run for the same session
+serialise against each other, which is what the first obligation requires.
+
+The interval is a target rather than a guarantee, and the first observation says
+so: the platform queues scheduled workflows on a best-effort basis and suspends
+them in repositories inactive for 60 days, and the first scheduled run of this
+sweep executed one hour and forty-two minutes after the workflow reached the
+default branch, against a nominal hourly period. The deployment therefore
+shortens the window in which a recorded deletion goes unexamined without
+bounding it, and an adopter who needs a bounded window needs an adapter whose
+clock it controls.
+
+**Meeting both adapter obligations is not reducer conformance**, and the two
+were tied together in the previous wording of this paragraph. Section 1.7 makes
+reducer conformance the conjunction of every reducer requirement in this
+document, so meeting these is necessary rather than sufficient: work claims
+remain advisory and this repository MUST NOT claim reducer conformance. A future Action deployment's
 authenticated issuer would be its token and its principal the bot account's
 positive numeric comment-author user id from trusted GitHub metadata. The
 principal remains per-repository deployment configuration, not a global
