@@ -447,16 +447,16 @@ iteration was undefined until now; the other eleven are in the self-test. It is 
 re-establishing message is discarded with `deliberation message follows terminal
 settlement`.
 
-Seven more correspond to the numbered decisions of this record. **Six of them
-must fail before the implementation and pass after. The seventh, number 6, is a
-different kind of test and is stated separately below**, because a list that
-promises every item is red makes its one green item read as a failure:
+Seven fixtures follow, and the one just named is among them, as number 2. **Six
+of them must fail before the implementation and pass after. Number 6 is
+different in kind, and its own entry says how**, because a list that promises
+every item is red makes its one green item read as a failure:
 
 1. an edited `proposal` behind a terminal settlement is withheld, the session
    reopens, and the projection carries a notice whose subject is the withdrawn
    termination;
 2. the same session then accepts a re-establishing message and re-terminates on
-   it, which is the requirement record's fourth fixture and the missing one;
+   it, which is the requirement record's fourth fixture;
 3. an edit that is **reverted** to the exact incorporated body leaves the
    message withheld and the notice standing, which is the fixture for decision
    4 and the one an implementation that stores a single digest would pass every
@@ -468,21 +468,19 @@ promises every item is red makes its one green item read as a failure:
    value, which is the guard against a withholding that over-reaches;
 6. a message with **no** pin that is edited is incorporated in its current body
    and affects no other message, which is #144's regression guard restated
-   against the new rule;
+   against the new rule. **This one is green today and must stay green.**
+   Measured against the reducer as installed: an in-domain `contribution`
+   carrying no ruling and no manifest entry, edited after it was posted,
+   produces no detection notice, is incorporated at the digest its current body
+   now carries, advances the turn, and leaves the session replayable. Section
+   7.3's no-pin rule is already implemented, and the shipped self-test already
+   asserts it as `edit signal on an unpinned message: incorporated as it now
+   reads, not fatal`. It belongs in this list because decision 1 is the change
+   most likely to break it: withholding a *pinned* edited message is one line
+   away from withholding an *unpinned* one, and the fixture that would notice is
+   one that was already passing before anyone touched anything;
 7. a second mutation of an already-withheld message records no further entry
    and changes no derived value.
-
-**Number 6 is a regression guard and it is green today.** Measured against the
-reducer as installed: an in-domain `contribution` carrying no ruling and no
-manifest entry, edited after it was posted, produces no detection notice, is
-incorporated at the digest its current body now carries, advances the turn, and
-leaves the session replayable. Section 7.3's no-pin rule is already implemented,
-and the shipped self-test already asserts it as `edit signal on an unpinned
-message: incorporated as it now reads, not fatal`. It belongs in this list
-because decision 1 is the change most likely to break it: withholding a *pinned*
-edited message is one line away from withholding an *unpinned* one, and the
-fixture that would notice is one that was already passing before anyone touched
-anything.
 
 Number 3 and number 6 are the two worth attending to first, for opposite
 reasons. Number 3 is the red one where a cheaper implementation looks complete;
