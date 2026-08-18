@@ -449,7 +449,19 @@ namespace.
 A session uses either one `configuration` message per phase or no configuration
 messages. Configuration-free mode is limited to participant-conformance,
 advisory `deliberation-only` messages: it has no authoritative rulings,
-termination, work award, or reducer projection.
+termination, work award, or reducer projection. A reducer-conformant session
+MUST include configuration messages and derive its authority profile from them;
+the top-level replay `authority_policy` MUST match that declared profile. Each
+configuration is a protocol event with trusted metadata and MUST precede every
+deliberation message. Configuration MUST NOT be inferred from the mutable issue
+body. Sequence values MUST be unique and contiguous from 1, phase identifiers
+MUST be unique, and every configuration in one session MUST select the same
+authority profile. The phase with `sequence: 1` is initial. Each configuration
+requires an `authorized` ruling. This grammar is the only source of phase names,
+order, expected actors, turn limits, and authority profile; reducers MUST NOT
+derive those values from free prose. The reference integrity slice MAY validate
+a partial comment-event set without configuration, but that does not make the
+set a reducer-conformant replay bundle under section 2.5.
 
 A session that lost its configuration is not a configuration-free session, and a
 reducer MUST NOT derive one as the other. Configuration-free mode is a session
@@ -463,19 +475,7 @@ material cannot be re-established inside the session, because this section
 requires every configuration to precede every deliberation message, so a
 replacement posted after deliberation began is ruled `unauthorized`. The
 session is not ended, participants may keep posting, and its forward path is a
-new session. A reducer-conformant session
-MUST include configuration messages and derive its authority profile from them;
-the top-level replay `authority_policy` MUST match that declared profile. Each
-configuration is a protocol event with trusted metadata and MUST precede every
-deliberation message. Configuration MUST NOT be inferred from the mutable issue
-body. Sequence values MUST be unique and contiguous from 1, phase identifiers
-MUST be unique, and every configuration in one session MUST select the same
-authority profile. The phase with `sequence: 1` is initial. Each configuration
-requires an `authorized` ruling. This grammar is the only source of phase names,
-order, expected actors, turn limits, and authority profile; reducers MUST NOT
-derive those values from free prose. The reference integrity slice MAY validate
-a partial comment-event set without configuration, but that does not make the
-set a reducer-conformant replay bundle under section 2.5.
+new session.
 
 4.2. The deliberation family contains `contribution`, `proposal`, and `settled`.
 All deliberation messages require `phase` and `turn` in addition to the common
@@ -806,7 +806,7 @@ over-broad detection with none.
 
 The lag this section used to declare is closed, and what closed it is
 `docs/decisions/adr-20260818-supersede-withholds-the-message-and-the-memory-keeps-the-edit.md`.
-A message is **superseded** when it is absent from the comment inventory, or
+A message in the domain is **superseded** when it is absent from the comment inventory, or
 when its current body's canonical digest differs from a digest pinned for it by
 a ruling or by a manifest entry. A superseded message is **withheld from the
 derivation**: it contributes nothing to phase, turn, settled points, open
@@ -886,9 +886,8 @@ cancel active work.
 Termination is derived, not stored. A terminal settlement whose closure is
 superseded under section 7.3 stops terminating, and the invalidity of later
 deliberation messages then attaches to whatever the derivation says is terminal,
-which may be nothing: messages
-posted after a withdrawn termination are ordinary deliberation, ruled on their
-own terms. No temporal exception exists and none is needed. In particular there
+which may be nothing: messages posted after a withdrawn termination are
+ordinary deliberation, ruled on their own terms. No temporal exception exists and none is needed. In particular there
 is no rule about messages posted "after the reopen", because the reduction is a
 pure function of its replay bundle under section 2.5 and has no notion of when a
 reopen happened. Section 8.1's *earliest* is what makes the durable record of
@@ -930,9 +929,8 @@ preserve all text outside those markers. Inside them it writes, in this order:
   notices are what section 7.3's withholding and section 4.1's exception owe a
   reader: without them a reopen is a session status that reads differently than
   it did on the run before, and a withheld plane is indistinguishable from a
-  configuration-free session. A reducer writes this section whenever it has such
-  a notice, including in
-  a session that has no authorized configuration and therefore nothing else to
+  configuration-free session. A reducer writes this section whenever it has
+  such a notice, including in a session that has no authorized configuration and therefore nothing else to
   project, because section 2.2 requires that a mutation not be lost silently.
 
 When a reduction fails closed at a point where it cannot write its notice into
