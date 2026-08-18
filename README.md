@@ -82,9 +82,9 @@ implements contextual reduction outside this core, and now implements the
 detection mechanism sections 2.2 and 2.3 require, with both of the obligations
 that mechanism places on the deployment adapter met: runs for a session
 serialise, and the periodic timeline read section 2.3 requires runs as an hourly
-scheduled sweep. That period is stated rather than promised: it is a target, not
-an upper bound, because punctuality belongs to a clock this deployment does not
-control. It explicitly remains non-conformant all the same, because section 1.7
+scheduled sweep. That period is stated rather than promised: section 2.3 lets an
+adapter claim a bounded detection window only with the failure model that holds
+it up, and this one makes no such claim, because it does not own the clock. It explicitly remains non-conformant all the same, because section 1.7
 makes reducer conformance the conjunction of every reducer requirement, and
 these two are necessary rather than sufficient. The mechanism is the `manifest` family of section
 4.18, selected in

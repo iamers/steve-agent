@@ -2,20 +2,23 @@
 #
 # The mechanism's second adapter obligation is that the timeline is read
 # periodically, independently of incoming comment events, so that detection
-# latency is bounded by a clock rather than by the next incorporated message.
-# This file is that clock.
+# stops depending on the next incorporated message arriving. This file is that
+# clock.
 #
-# Interval and the latency it promises: hourly, at minute 17. A session that
-# absorbs a deletion is therefore looked at within roughly an hour of it,
-# plus whatever delay GitHub's scheduler adds under load, which is why the
-# minute is off the hour where that delay is worst. The number is stated here
-# because a backstop whose period is unstated is a backstop whose guarantee is
-# unstated. Scheduled workflows are also suspended in repositories with no
-# activity for 60 days, and that is a real gap in the promise rather than a
-# footnote: a dormant repository stops sweeping.
+# PERIOD, which section 2.3 requires this file to state: hourly. That is the
+# period requested, and it is NOT a bound on detection latency. Section 2.3
+# allows an adapter to claim a bounded window only with the failure model that
+# holds it up, and this adapter cannot: it does not own the clock.
 #
-# `workflow_dispatch` is here so the sweep can be forced without waiting for the
-# hour, which is the only way to observe it on demand.
+# Measured on 2026-08-18, six scheduled runs: gaps of 48, 54, 54, 78 and 50
+# minutes around a nominal 60, and the declared minute honoured zero times out
+# of six. The cron below asks for minute 17 because a cron must ask for some
+# minute, not because that minute means anything to the scheduler. GitHub also
+# suspends scheduled workflows in repositories with no activity for 60 days, so
+# a dormant repository stops sweeping altogether.
+#
+# `workflow_dispatch` is here so the sweep can be forced without waiting, which
+# is the only way to observe it on demand.
 name: Open Table periodic sweep
 
 on:

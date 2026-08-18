@@ -202,11 +202,15 @@ neither:
   message arriving. A run woken by a comment-deletion event MUST also read it.
   Without the periodic read, a session in which nothing permission-sensitive is
   pending can absorb a deletion that the platform did record and that nothing
-  ever looks at. **The adapter MUST state the period it runs on**, and MUST NOT
-  present that period as an upper bound on detection latency unless it controls
-  the clock that produces it: punctuality is a property of that clock, which
-  this specification cannot reach. An adopter who needs a bounded window needs
-  an adapter whose clock it controls.
+  ever looks at. **The adapter MUST state the period it runs on**: a backstop
+  whose period is unstated is a backstop whose value is unstated. Whether that
+  period is also an upper bound on detection latency depends on the clock the
+  adapter runs on, which varies by deployment, so this specification does not
+  assume it: **an adapter MAY claim a bounded detection window, and one that
+  does MUST state the bound and the failure model under which it holds**, naming
+  what the bound rests on and what suspends or exceeds it. An adapter that does
+  not control its clock MUST NOT present its period as a bound, and still owes
+  the period.
 
 **The reduction implements this mechanism, and the deployment meets both
 adapter obligations.** `tools/open-table-reduce.py` reads and writes the section
@@ -227,14 +231,17 @@ workflows on a best-effort basis and suspends them in repositories inactive for
 60 days, and the first scheduled run of this sweep executed one hour, forty-one
 minutes and fifty-one seconds after the workflow reached the default branch,
 against a nominal hourly period. So the deployment shortens the window in which
-a recorded deletion goes unexamined and does not bound it, and the obligation
-above no longer asks it to. That clause once read *so that detection latency is
-bounded by a clock*, which promised something no adapter can deliver by being
-written better, because punctuality belongs to whatever clock it runs on;
+a recorded deletion goes unexamined and does not bound it. Six scheduled runs on
+2026-08-18 ran 48, 54, 54, 78 and 50 minutes apart against a nominal hourly
+period, and **not one of them fired at the declared minute**, so this adapter
+demonstrably does not control its clock. It therefore makes no bounded-window
+claim, which
 `docs/decisions/adr-20260818-the-periodic-read-is-a-purpose-not-a-promised-bound.md`
-narrowed it to a purpose. So this deployment satisfies the obligation, states
-its period as that decision requires, and does not present it as an upper
-bound.
+allows an adapter to make only with its failure model attached. That record
+amended the obligation above, which until then derived a bound from the act for
+every adapter; it now requires the act, requires the period to be stated, and
+leaves the bound to whoever can state what holds it up. This deployment states
+its period and does not present it as a bound.
 
 **Meeting both adapter obligations is not reducer conformance.** Section 1.7 makes
 reducer conformance the conjunction of every reducer requirement in this
