@@ -793,6 +793,7 @@ def scan_deliberation(records, rulings, configuration, stop_order=None, notices=
         "turn": None,
         "sequence": None,
         "terminated": False,
+        "terminated_by": None,
         "proposals_by_comment": {},
         "proposals_by_point": {},
         "settled": {},
@@ -856,6 +857,7 @@ def scan_deliberation(records, rulings, configuration, stop_order=None, notices=
             })
             if header["terminal"] == "true":
                 state["terminated"] = True
+                state["terminated_by"] = record["comment_id"]
     return state
 
 
@@ -938,6 +940,10 @@ def derive_deliberation(records, rulings, configuration, notices):
         current_turn,
         state["settled"],
         state["proposals_by_point"],
+        # Which settlement terminated, so that section 8.3's reopen can be
+        # announced against the settlement it withdrew rather than inferred from
+        # a status that reads differently than it did on the run before.
+        state["terminated_by"],
     )
 
 
@@ -960,10 +966,18 @@ def detect_mutations(inventory, records, memory, unbound, issue_url):
     is the only pin `contribution` and `proposal` ever get, and a ruling, which
     binds its source's comment id and digest. A message with neither carries no
     edit signal, because nothing was incorporated to be changed.
+
+    Besides the notices it returns what section 7.3 supersedes, as a map from
+    comment id to the family that was *incorporated*, which decides both what
+    decision 1 withholds and whether decision 3's `configuration` exception
+    applies. The incorporated family is the entry's rather than the current
+    header's: an edit can change the `message` value, and one that breaks the
+    envelope leaves no readable header at all.
     """
     present = {record["comment_id"]: record for record in records}
     found = {}
     edited = set()
+    superseded = {}
 
     def report(code, comment_id, **fields):
         # One fact about one comment is one notice. A deleted source is reported
@@ -983,6 +997,7 @@ def detect_mutations(inventory, records, memory, unbound, issue_url):
     for comment_id in sorted(memory["entries"]):
         entry = memory["entries"][comment_id]
         if comment_id not in inventory:
+            superseded[comment_id] = entry["family"]
             report(
                 "incorporated_message_deleted", comment_id, family=entry["family"],
                 ruling_comment_id=None,
@@ -1005,6 +1020,7 @@ def detect_mutations(inventory, records, memory, unbound, issue_url):
                 len(entry["digests"] | {body_digest(inventory[comment_id])}) > 1
             ):
                 edited.add(comment_id)
+                superseded[comment_id] = entry["family"]
                 report(
                     "incorporated_message_edited", comment_id, family=family,
                     ruling_comment_id=None,
@@ -1023,6 +1039,14 @@ def detect_mutations(inventory, records, memory, unbound, issue_url):
 
     for kind, source_id, ruling in unbound:
         family = present[source_id]["header"]["message"] if source_id in present else None
+        # A ruling pins what no entry may have recorded yet, so it can be the
+        # only evidence that a message was incorporated. It records no family,
+        # though, and the current header is the edited one: taking the family
+        # from there would let an actor editing its own comment claim it had been
+        # a `configuration` and withhold the whole deliberation plane of the
+        # session. An unrecorded family is unknown, and unknown is not
+        # `configuration`. Where an entry exists it was set above and wins.
+        superseded.setdefault(source_id, None)
         if kind == "source_deleted":
             report(
                 "incorporated_message_deleted", source_id, family=family,
@@ -1044,7 +1068,83 @@ def detect_mutations(inventory, records, memory, unbound, issue_url):
     }
     return [
         found[key] for key in sorted(found, key=lambda key: (order[key[0]], key[1]))
-    ], edited
+    ], edited, superseded
+
+
+def withdrawn_terminations(records, withheld, rulings, configuration, superseded,
+                           identified_loss, lost_configurations, terminated_by,
+                           issue_url):
+    """Name every terminal settlement that stopped terminating under the closure.
+
+    Decision 7 of the transition record: a session reopens when the terminal
+    settlement's derived validity or effect differs under the closure, and the
+    reopen is announced. Before this the reopen was a side effect of a reference
+    check failing, and the only thing that said so was a session status reading
+    differently than it had on the run before.
+
+    What implicates a settlement is the superseded material it depended on:
+    itself, when it was superseded or the ruling pinned for it is gone; the
+    proposal it refers to, when that was superseded; every superseded
+    `configuration`, when decision 3 withheld the deliberation plane; and any
+    withheld message whose restoration on its own would make it terminate again,
+    which is decision 2's closure and is computable for an edit but not for a
+    deletion, because a deleted body cannot be restored to compare against.
+
+    A settlement that fails for a reason that is not a supersede implicates
+    nothing and gets no notice: losing the section 8.1 race to an earlier
+    terminal settlement is not a withdrawal.
+
+    A terminal settlement deleted outright is outside this. What the memory keeps
+    of it is a section 4.18 entry whose family is `settled`, which does not say it
+    was terminal, so its loss is named by its own detection notice and no
+    withdrawal is claimed on evidence the reducer does not have.
+    """
+    pinned_loss = set(superseded) | set(identified_loss)
+    notices = []
+    for record in records:
+        header = record["header"]
+        comment_id = record["comment_id"]
+        if header["message"] != "settled" or header.get("terminal") != "true":
+            continue
+        # A withheld record's header is the edited one, so it is read only where
+        # the memory agrees the comment was incorporated as a settlement. Without
+        # that check an actor editing its own incorporated comment into a
+        # terminal-settlement header would mint a notice about a settlement that
+        # never existed. A record the derivation used needs no such check: it is
+        # the material the derivation ran on.
+        if comment_id in withheld and superseded.get(comment_id) != "settled":
+            continue
+        if comment_id == terminated_by:
+            continue
+        implicated = ({comment_id} | {int(header["proposal-comment-id"])}) & pinned_loss
+        if lost_configurations:
+            implicated |= set(lost_configurations)
+        elif configuration is not None:
+            for candidate in sorted(withheld - implicated):
+                restored = [
+                    item for item in records
+                    if item["comment_id"] not in withheld - {candidate}
+                ]
+                if scan_deliberation(
+                    restored, rulings, configuration
+                )["terminated_by"] == comment_id:
+                    implicated.add(candidate)
+        if not implicated:
+            continue
+        notices.append({
+            "code": "termination_withdrawn",
+            "comment_id": comment_id,
+            "family": "settled",
+            "withdrawn_by": sorted(implicated),
+            "permalink": detection_permalink(issue_url, comment_id),
+            "detail": "this terminal settlement no longer terminates the session, "
+                      "because it depended on superseded material: {}".format(
+                          ", ".join(
+                              "comment {}".format(item) for item in sorted(implicated)
+                          )
+                      ),
+        })
+    return notices
 
 
 def reduce_session(bundle, as_of):
@@ -1064,8 +1164,29 @@ def reduce_session(bundle, as_of):
             event["comment_id"]: event["body"] for event in bundle["ordered_events"]
         }
         issue_url = bundle["issue"].get("html_url", "")
-        detection, edited = detect_mutations(
+        detection, edited, superseded = detect_mutations(
             inventory, records, memory, unbound, issue_url
+        )
+
+        # Decision 1: a superseded message is withheld from the derivation, for
+        # an edit exactly as for a deletion. A deleted one is already absent from
+        # `records`; an edited one is present and has to be taken out, which is
+        # what section 7.3 promised for the whole domain and applied to the half
+        # of it that happens to carry a ruling.
+        withheld = set(edited)
+        derivation = [
+            record for record in records if record["comment_id"] not in withheld
+        ]
+
+        # Decision 3: withholding is not monotone for `configuration`. Measured
+        # in the spike: withholding one grants effect to material it excluded,
+        # because the derivation degrades to configuration-free mode. So a
+        # superseded configuration withholds the whole deliberation plane, and a
+        # session that lost its configuration is never derived as one that never
+        # had one.
+        lost_configurations = sorted(
+            comment_id for comment_id, family in superseded.items()
+            if family == "configuration"
         )
 
         observed = bundle.get("deletions_observed")
@@ -1128,7 +1249,24 @@ def reduce_session(bundle, as_of):
             and entry["ruling_comment_id"] not in inventory
         }
 
-        active_configuration = configuration_context(records, rulings)
+        for comment_id in lost_configurations:
+            detection.append({
+                "code": "configuration_superseded",
+                "comment_id": comment_id,
+                "family": "configuration",
+                "permalink": detection_permalink(issue_url, comment_id),
+                "detail": "the deliberation plane of this session is withheld: a "
+                          "configuration it incorporated was superseded, and "
+                          "section 4.1 rules a replacement posted after "
+                          "deliberation began unauthorized, so the forward path "
+                          "is a new session",
+            })
+
+        active_configuration = configuration_context(derivation, rulings)
+        # The derivation runs on what was not superseded; this grammar check runs
+        # on what was *declared*, which a supersede does not undeclare. Reading
+        # it off the derivation instead would let superseding the original make
+        # room for a replacement, which is exactly what decision 3 refuses.
         configurations_valid = configuration_declarations_valid(records)
         ruling_writes = []
         new_frozen = {}
@@ -1166,10 +1304,16 @@ def reduce_session(bundle, as_of):
                 continue
             if comment_id in edited:
                 continue
-            if message != "configuration" and active_configuration is None:
+            # Decision 3: no deliberation message is ruled while the plane is
+            # withheld. A `configuration` is still ruled, which is how the
+            # replacement gets the `unauthorized` section 4.1 requires of it
+            # instead of passing unremarked.
+            if message != "configuration" and (
+                lost_configurations or active_configuration is None
+            ):
                 continue
             decision, reason = decision_for(
-                record, records, rulings, active_configuration, configurations_valid
+                record, derivation, rulings, active_configuration, configurations_valid
             )
             rulings[comment_id] = decision
             ruled_here.add(comment_id)
@@ -1179,12 +1323,12 @@ def reduce_session(bundle, as_of):
                 "body": ruling_body(record, decision, reason),
             })
             if message == "configuration":
-                active_configuration = configuration_context(records, rulings)
+                active_configuration = configuration_context(derivation, rulings)
 
         for comment_id, watermark_value in new_frozen.items():
             frozen[comment_id] = watermark_value
 
-        configuration = configuration_context(records, rulings)
+        configuration = configuration_context(derivation, rulings)
         # A loss must not be silent, so detection alone is enough to make this
         # run publish a projection even where a configuration-free session would
         # otherwise write nothing at all.
@@ -1222,6 +1366,43 @@ def reduce_session(bundle, as_of):
                 "ruling_of_source": comment_id if comment_id in ruled_here else None,
             })
 
+        # Decision 4: on first observing that a message no longer matches its
+        # pin, record the digest now read as an additional section 4.18 entry.
+        # This is the only new state the transition introduces, and it is what
+        # makes the withholding durable: with one pinned digest an edit that is
+        # reverted becomes indistinguishable from an edit that never happened,
+        # and section 2.2 admits no exception for the actor that can do exactly
+        # that. Section 7.6 already reads two digests for one comment id as an
+        # edit; only the writer was missing.
+        #
+        # At most one, ever, per comment id: the message is already withheld, so
+        # a further mutation changes nothing, and recording every observed digest
+        # would let an edit loop grow the manifest once per run. The loop above
+        # skips an edited comment, so no comment id can reach one `entries` value
+        # twice, which section 4.18 forbids.
+        for comment_id in sorted(edited):
+            entry = memory["entries"].get(comment_id)
+            if entry is None or len(entry["digests"]) != 1:
+                continue
+            digest = body_digest(inventory[comment_id])
+            if digest is None:
+                # Section 3.7 gives this body no canonical digest, so there is
+                # nothing to bind. The message stays withheld for as long as the
+                # body stays unreadable, because a body that cannot be digested
+                # cannot match the pin either.
+                continue
+            entries.append({
+                "comment_id": comment_id,
+                "digest": digest,
+                # The family the first entry carried, not what the current header
+                # claims. An edit can change the `message` value, and one that
+                # breaks the envelope leaves no header to read at all, while the
+                # body stays perfectly digestible.
+                "family": entry["family"],
+                "ruling_comment_id": entry["ruling_comment_id"],
+                "ruling_of_source": None,
+            })
+
         writes = ruling_writes
         if entries or new_frozen or watermark != accounted:
             writes.append({
@@ -1234,9 +1415,21 @@ def reduce_session(bundle, as_of):
             })
 
         if renders_projection:
-            status, phase, turn, settled, open_proposals = derive_deliberation(
-                records, rulings, configuration, notices
+            # Decision 3 again: the plane is withheld by deriving over no
+            # deliberation records at all, not by handing the derivation a
+            # missing configuration. The second is configuration-free mode, which
+            # would grant effect to the material the lost configuration excluded;
+            # the notice above is what keeps the two distinguishable to a reader.
+            status, phase, turn, settled, open_proposals, terminated_by = (
+                derive_deliberation(
+                    [] if lost_configurations else derivation,
+                    rulings, configuration, notices,
+                )
             )
+            detection.extend(withdrawn_terminations(
+                records, withheld, rulings, configuration, superseded,
+                identified_loss, lost_configurations, terminated_by, issue_url,
+            ))
             projection = render_projection(
                 status, phase, turn, settled, open_proposals, notices, detection
             )
@@ -2656,6 +2849,58 @@ def detection_fixture_a_second_mutation_records_nothing_further():
     print("supersede: a second mutation of a withheld message records and changes nothing")
 
 
+def detection_fixture_a_forged_header_does_not_widen_a_supersede():
+    """Found adversarially from the CLI: decision 4's family rule, applied twice.
+
+    Decision 4 says the family of a superseded message is what the reducer read,
+    not what the current header claims. The header of a superseded message is by
+    definition the edited one, so reading it as authority would hand an actor
+    acting only on its own comments two widenings of its own supersede: claiming
+    the comment had been a `configuration`, which withholds the whole
+    deliberation plane of the session, and claiming it had been a terminal
+    settlement, which mints a withdrawn-termination notice for a settlement that
+    never existed. Both are refused by the recorded family, and where nothing
+    recorded one the family is unknown, which is not `configuration` either.
+    """
+    forged_configuration = "\n".join([
+        "```open-table", "open-table: 0", "message: configuration",
+        "id: terminal-settled-0001", "phase: observation", "sequence: 1",
+        "expected-actors: 101", "authority-profile: deliberation-only",
+        "turn-limit: 3", "```", "", "Not a configuration.",
+    ])
+    # The manifest is dropped, so the ruling is the only pin and no entry records
+    # a family. This is the crashed-run residue the detection record describes.
+    unrecorded = with_edited_comment(
+        without_comments(terminal_bundle(False), 416), 414, forged_configuration
+    )
+    plan = reduce_session(unrecorded, DETECTION_AS_OF)
+    assert not plan["unreplayable"]
+    assert detection_notices(plan, "configuration_superseded") == []
+    assert "- Current phase: `observation`" in projection_body(plan)
+    # No entry recorded that 414 was a settlement either, so no withdrawal is
+    # claimed on evidence the reducer does not have.
+    assert detection_notices(plan, "termination_withdrawn") == []
+
+    forged_settlement = "\n".join([
+        "```open-table", "open-table: 0", "message: settled",
+        "id: terminal-proposal-0001", "phase: observation", "turn: 1",
+        "point: decision", "proposal-comment-id: 413", "disposition: accepted",
+        "terminal: true", "```", "", "Not a settlement.",
+    ])
+    recorded = with_edited_comment(terminal_bundle(False), 413, forged_settlement)
+    reshaped = reduce_session(recorded, DETECTION_AS_OF)
+    assert not reshaped["unreplayable"]
+    assert [
+        notice["comment_id"]
+        for notice in detection_notices(reshaped, "termination_withdrawn")
+    ] == [414]
+    assert [
+        (entry["comment_id"], entry["family"])
+        for entry in manifest_write(reshaped)["entries"]
+    ] == [(413, "proposal")]
+    print("supersede: a forged header does not widen the supersede of its own comment")
+
+
 DETECTION_FIXTURES = (
     detection_fixture_lost_ruling_is_identified,
     detection_fixture_paired_deletion_is_identified,
@@ -2683,6 +2928,7 @@ DETECTION_FIXTURES = (
     detection_fixture_withholding_does_not_over_reach,
     detection_fixture_an_unpinned_edit_is_incorporated_as_it_reads,
     detection_fixture_a_second_mutation_records_nothing_further,
+    detection_fixture_a_forged_header_does_not_widen_a_supersede,
 )
 
 
