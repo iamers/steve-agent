@@ -5,9 +5,10 @@ The pure ``reduce_session`` entry point maps a replay bundle and an explicit
 ``as_of`` timestamp to a JSON-serializable plan of issue writes. The GitHub
 adapter builds that bundle from authenticated API responses and applies the
 plan. The detection mechanism section 2.3 selects, the `manifest` family of
-section 4.18, is implemented here; the deployment obligation of a periodic
-timeline read is not deployed yet, so this deployment still claims no reducer
-conformance.
+section 4.18, is implemented here. Section 2.3's periodic read is a deployment
+obligation rather than a reduction one, and the piece of it that belongs to this
+tool is ``--list-sessions``: the enumeration the scheduled sweep drives, which
+names the sessions the sweep calls one reduction for.
 
 Replay bundle shape (this is not the section 2.8 integrity-bundle schema):
 
@@ -41,6 +42,7 @@ from pathlib import Path
 START_MARKER = "<!-- open-table:start -->"
 END_MARKER = "<!-- open-table:end -->"
 PROFILE = "deliberation-only"
+SESSION_LABEL = "open-table/session"
 VALIDATOR = Path(__file__).with_name("open-table-validate.py")
 VALIDATOR_PREFLIGHT_BODY = "\n".join([
     "```open-table",
@@ -589,6 +591,25 @@ def timeline_read_required(bundle, context=None):
     """Trigger 1: whether resolving this bundle needs the issue timeline."""
     records, memory, rulings = context or reduction_context(bundle)
     return bool(barrier_candidates(records, memory, rulings))
+
+
+def timeline_read_trigger(bundle, context=None, deletion_woken=False, periodic=False):
+    """Which of section 2.3's three triggers, if any, makes this run read the timeline.
+
+    One site names all three so that "the periodic sweep reads the timeline" is
+    a property of the code rather than a claim about a workflow file. The sweep
+    needs its own trigger because a scheduled run is neither woken by a deletion
+    nor holding anything pending: without it the sweep would run, find every
+    identified loss the manifest already names, and walk past exactly the
+    erased-memory case it exists to catch.
+    """
+    if periodic:
+        return "periodic"
+    if deletion_woken:
+        return "deletion_woken"
+    if timeline_read_required(bundle, context):
+        return "barrier"
+    return None
 
 
 def permission_lookup_targets(bundle, context=None):
@@ -1254,16 +1275,33 @@ def github_request(url, token, method="GET", data=None):
         )) from error
 
 
-def paginated_rest(url, token):
+def paginated_rest(url, token, request=github_request):
     values = []
     page = 1
     while True:
         separator = "&" if "?" in url else "?"
-        batch = github_request("{}{}per_page=100&page={}".format(url, separator, page), token)
+        batch = request("{}{}per_page=100&page={}".format(url, separator, page), token)
         values.extend(batch)
         if len(batch) < 100:
             return values
         page += 1
+
+
+def open_table_sessions(repository, token, request=github_request):
+    """Enumerate the open session issues the periodic sweep reduces.
+
+    The list is asked of GitHub rather than kept anywhere, and the query is the
+    same label the reducer's own job condition already uses as the definition of
+    a session. The issues endpoint also returns pull requests that carry the
+    label, and they are dropped here: a pull request is not a session, and its
+    number would name a different object to every reduction downstream.
+    """
+    listed = paginated_rest(
+        "https://api.github.com/repos/{}/issues?state=open&labels={}".format(
+            repository, urllib.parse.quote(SESSION_LABEL, safe=""),
+        ), token, request=request,
+    )
+    return sorted(issue["number"] for issue in listed if "pull_request" not in issue)
 
 
 def graphql_edit_metadata(repository, issue_number, token):
@@ -1345,14 +1383,14 @@ def load_event_context():
         raise ReductionError("cannot read GITHUB_EVENT_PATH: {}".format(error)) from error
 
 
-def build_github_bundle(repository, issue_number, token, principal):
+def build_github_bundle(repository, issue_number, token, principal, periodic=False):
     """Read current issue state and trusted edit metadata from GitHub."""
     verify_validator_toolchain()
     base = "https://api.github.com/repos/{}".format(repository)
     issue = github_request("{}/issues/{}".format(base, issue_number), token)
     labels = [label["name"] for label in issue.get("labels", [])]
-    if "open-table/session" not in labels:
-        raise ReductionError("issue does not carry open-table/session")
+    if SESSION_LABEL not in labels:
+        raise ReductionError("issue does not carry {}".format(SESSION_LABEL))
     comments = paginated_rest("{}/issues/{}/comments".format(base, issue_number), token)
     edits = graphql_edit_metadata(repository, issue_number, token)
     event_context = load_event_context()
@@ -1392,7 +1430,13 @@ def build_github_bundle(repository, issue_number, token, principal):
         "ordered_events": events,
     }
     context = reduction_context(bundle)
-    if deletion_woken or timeline_read_required(bundle, context):
+    trigger = timeline_read_trigger(bundle, context, deletion_woken, periodic)
+    # Said out loud because the periodic sweep's whole value is a read that
+    # happens when nothing else would have asked for one, and a run log that
+    # does not say which trigger fired cannot distinguish it from a run that
+    # skipped the read.
+    print("timeline read trigger: {}".format(trigger or "none"), file=sys.stderr)
+    if trigger is not None:
         bundle["deletions_observed"] = deletion_event_count(repository, issue_number, token)
     by_comment_id = {event["comment_id"]: event for event in events}
     for comment_id in sorted(permission_lookup_targets(bundle, context)):
@@ -1786,8 +1830,7 @@ def detection_fixture_erased_memory_still_produces_a_notice():
     Three comments were deleted that no surviving manifest names, and nothing
     permission-sensitive is pending, so the barrier alone would never look. The
     deletion-woken run reads the timeline anyway and names what it cannot
-    account for. The sweep leg of this fixture belongs to the deployment change
-    and is deferred with it.
+    account for. The sweep leg is the fixture below, and it is a separate claim.
     """
     bundle = detection_bundle(deletions_observed=3)
     plan = reduce_session(bundle, DETECTION_AS_OF)
@@ -1799,6 +1842,87 @@ def detection_fixture_erased_memory_still_produces_a_notice():
     manifest = manifest_write(plan)
     assert manifest["deletions_accounted"] == 3 and manifest["frozen"] == []
     print("detection: an erased memory still produces a notice with nothing pending")
+
+
+def detection_fixture_only_the_sweep_reads_on_a_quiet_run():
+    """The periodic sweep's own trigger, without which the sweep reads nothing.
+
+    Same session as the erased-memory case: nothing permission-sensitive is
+    pending, so the barrier does not fire, and a scheduled run is not woken by a
+    deletion either. Trigger 3 is the only thing that makes the timeline read
+    happen, and the third assertion is the one that fails if the deployment
+    calls the reduction without saying it is the sweep.
+    """
+    bundle = detection_bundle(deletions_observed=None)
+    assert timeline_read_trigger(bundle) is None, "nothing pending, nothing to read for"
+    assert timeline_read_trigger(bundle, deletion_woken=True) == "deletion_woken"
+    assert timeline_read_trigger(bundle, periodic=True) == "periodic"
+    pending = without_comments(detection_bundle(), 403, 404)
+    assert timeline_read_trigger(pending) == "barrier", "a pending source still reads"
+    print("detection: a quiet session is read by the periodic trigger and by nothing else")
+
+
+def paged_issue_listing(*pages):
+    """Stub the single-page reader the enumeration's pagination calls.
+
+    Serving pages rather than a finished list is the point: the sweep's session
+    is on the second page, so an enumeration that reads one page never reaches
+    it and this stub is what makes that visible.
+    """
+    served = [list(page) for page in pages]
+
+    def request(url, token, method="GET", data=None):
+        assert method == "GET" and data is None, "the enumeration only reads"
+        assert "state=open" in url, "the sweep enumerates open sessions"
+        assert "labels=open-table%2Fsession" in url, "the label defines a session"
+        index = int(re.search(r"[?&]page=([0-9]+)", url).group(1)) - 1
+        return served[index] if index < len(served) else []
+
+    return request
+
+
+def sweep_issue_listing():
+    """What GitHub's issues endpoint returns for the sweep's query, in pages.
+
+    State and label are filtered server-side, so what comes back is the open
+    labelled issues plus any pull request carrying the same label. Issue 9 is
+    the erased-memory session and sits on the second page; 10 is a pull request
+    and is not a session.
+    """
+    first = [{"number": 10, "pull_request": {"url": "https://example.invalid/pulls/10"}}]
+    first.extend({"number": number} for number in range(11, 110))
+    return first, [{"number": 9}]
+
+
+def detection_fixture_the_sweep_reaches_the_erased_memory():
+    """ADR fixture 6, the leg driven by the periodic sweep.
+
+    The other leg proves a notice is produced; this one proves the trigger
+    reaches this session, which is a different claim and the only one that is
+    about the sweep. So it drives the real enumeration-to-invocation path: the
+    enumeration paginates, drops the pull request, and the number it produced is
+    what selects the session the reduction then runs on. A second direct call to
+    the reducer would restate the first claim and prove nothing about
+    reachability.
+    """
+    sessions = {9: detection_bundle(deletions_observed=3)}
+    enumerated = open_table_sessions(
+        "example/project", "token", request=paged_issue_listing(*sweep_issue_listing()),
+    )
+    reduced = {
+        number: reduce_session(sessions[number], DETECTION_AS_OF)
+        for number in enumerated if number in sessions
+    }
+    assert 9 in reduced, "the sweep's enumeration never reached the session"
+    assert 10 not in enumerated, "a labelled pull request is not a session"
+    assert len(enumerated) == 100 and enumerated == sorted(enumerated), \
+        "the enumeration returns each labelled issue once, in order"
+    plan = reduced[9]
+    assert not plan["unreplayable"]
+    unaccounted = detection_notices(plan, "unaccounted_deletions")
+    assert len(unaccounted) == 1
+    assert unaccounted[0]["observed"] == 3 and unaccounted[0]["accounted"] == 0
+    print("detection: the periodic sweep's enumeration reaches the erased-memory session")
 
 
 def terminal_bundle(freeze_the_settlement):
@@ -2171,6 +2295,8 @@ DETECTION_FIXTURES = (
     detection_fixture_crashed_run_is_recovered_without_accusation,
     detection_fixture_edit_outside_the_domain_changes_nothing,
     detection_fixture_erased_memory_still_produces_a_notice,
+    detection_fixture_only_the_sweep_reads_on_a_quiet_run,
+    detection_fixture_the_sweep_reaches_the_erased_memory,
     detection_fixture_freeze_beats_a_ruling,
     detection_fixture_edited_contribution_is_noticed,
     detection_fixture_wiped_projection_changes_no_detection,
@@ -2491,6 +2617,14 @@ def build_parser():
     parser.add_argument("--bundle", help="replay bundle JSON path")
     parser.add_argument("--as-of", help="explicit RFC 3339 UTC reduction timestamp")
     parser.add_argument("--github", action="store_true", help="read and write through GitHub APIs")
+    parser.add_argument(
+        "--list-sessions", action="store_true",
+        help="print the open session issue numbers the periodic sweep reduces",
+    )
+    parser.add_argument(
+        "--periodic", action="store_true",
+        help="this run is the periodic sweep, so read the timeline regardless",
+    )
     parser.add_argument("--repository", help="GitHub owner/repository")
     parser.add_argument("--issue", type=int, help="GitHub issue number")
     parser.add_argument("--principal", type=int, help="numeric reducer principal")
@@ -2500,14 +2634,40 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(argv)
     if args.self_test:
-        if any((args.dry_run, args.bundle, args.github)):
+        if any((args.dry_run, args.bundle, args.github, args.list_sessions, args.periodic)):
             print("error: --self-test does not accept another mode", file=sys.stderr)
             return 2
         run_self_test()
         return 0
+    if args.list_sessions:
+        if any((args.dry_run, args.bundle, args.github, args.periodic)):
+            print("error: --list-sessions does not accept another mode", file=sys.stderr)
+            return 2
+        repository = args.repository or os.environ.get("GITHUB_REPOSITORY")
+        token = os.environ.get("GITHUB_TOKEN")
+        if not repository or not token:
+            print("error: --list-sessions needs a repository and a token", file=sys.stderr)
+            return 2
+        try:
+            sessions = open_table_sessions(repository, token)
+        except ReductionError as error:
+            print("error: {}".format(error), file=sys.stderr)
+            return 1
+        if not sessions:
+            # An empty sweep is a real answer and is said out loud: a list that
+            # evaporates in silence reads downstream as a sweep that ran.
+            print(
+                "note: no open issue in {} carries {}".format(repository, SESSION_LABEL),
+                file=sys.stderr,
+            )
+        print(json.dumps(sessions))
+        return 0
     if args.dry_run:
-        if not args.bundle or args.github:
-            print("error: --dry-run requires --bundle and excludes --github", file=sys.stderr)
+        if not args.bundle or args.github or args.periodic:
+            print(
+                "error: --dry-run requires --bundle and excludes --github and --periodic",
+                file=sys.stderr,
+            )
             return 2
         try:
             bundle = json.loads(Path(args.bundle).read_text(encoding="utf-8"))
@@ -2531,7 +2691,9 @@ def main(argv=None):
             return 2
         try:
             as_of = args.as_of or datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-            bundle = build_github_bundle(repository, issue_number, token, principal)
+            bundle = build_github_bundle(
+                repository, issue_number, token, principal, args.periodic
+            )
             plan = reduce_session(bundle, as_of)
             apply_plan(plan, repository, issue_number, token)
             print(json.dumps(plan, indent=2, sort_keys=True))

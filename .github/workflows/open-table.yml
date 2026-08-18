@@ -1,4 +1,17 @@
-# Open Table deliberation-only reducer.
+# Open Table deliberation-only reducer, event-driven entry point.
+#
+# This file keeps what is specific to being woken by a comment: the triggers and
+# the label guard on the event's issue. What it no longer keeps is the
+# concurrency group, which open-table-reduce.yml builds from the number passed
+# below, so that this entry point and the periodic sweep resolve to the same
+# group for the same session.
+#
+# It is deliberately not given a `schedule:` key. A scheduled event carries no
+# `github.event.issue`, so the guard below would be false and the number passed
+# below would be empty: the sweep would be asserted rather than deployed. The
+# sweep is open-table-sweep.yml, which enumerates sessions instead of reading
+# one off an event.
+#
 # Protocol decisions live in tools/open-table-reduce.py, not in this workflow.
 name: Open Table reducer
 
@@ -11,32 +24,9 @@ on:
 permissions:
   issues: write
 
-concurrency:
-  group: open-table-${{ github.repository_id }}-${{ github.event.issue.number }}
-  cancel-in-progress: false
-
 jobs:
   reduce:
     if: contains(github.event.issue.labels.*.name, 'open-table/session')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      GITHUB_TOKEN: ${{ github.token }}
-      REDUCER_PRINCIPAL: "41898282"
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
-      SOURCE_REVISION: ${{ github.sha }}
-    steps:
-      - name: Load reducer from the trusted default-branch revision
-        run: |
-          curl -fsSLo /tmp/open-table-reduce.py \
-            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open-table-reduce.py"
-          curl -fsSLo /tmp/open-table-validate.py \
-            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open-table-validate.py"
-          curl -fsSLo /tmp/open_table_core.py \
-            "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${SOURCE_REVISION}/tools/open_table_core.py"
-      - name: Reduce the session
-        run: >-
-          python3 /tmp/open-table-reduce.py --github
-          --repository "$GITHUB_REPOSITORY"
-          --issue "$ISSUE_NUMBER"
-          --principal "$REDUCER_PRINCIPAL"
+    uses: ./.github/workflows/open-table-reduce.yml
+    with:
+      issue_number: ${{ github.event.issue.number }}
