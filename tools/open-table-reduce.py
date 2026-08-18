@@ -1667,6 +1667,53 @@ def without_comments(bundle, *comment_ids):
     return copy
 
 
+def with_edited_comment(bundle, comment_id, body):
+    """Return a copy of the bundle with one comment's body replaced by an edit.
+
+    The comment has to exist: a helper that edited nothing would leave every
+    fixture built on it asserting against an unmutated session and passing.
+    """
+    copy = json.loads(json.dumps(bundle))
+    edited = [
+        event for event in copy["ordered_events"] if event["comment_id"] == comment_id
+    ]
+    assert len(edited) == 1, "no comment {} to edit".format(comment_id)
+    edited[0]["body"] = body
+    edited[0]["updated_at"] = edited[0]["last_edited_at"] = "2026-08-16T00:30:00Z"
+    return copy
+
+
+def with_planned_manifest(bundle, plan, first_comment_id, seconds):
+    """Append the manifest comments `apply_plan` would post for this plan.
+
+    A run that has to read the memory an earlier run wrote reads what the writer
+    under test actually planned, not a hand-authored manifest that could agree
+    with the fixture while disagreeing with the reducer.
+    """
+    write = manifest_write(plan)
+    assert write is not None, "the plan recorded nothing to carry forward"
+    copy = json.loads(json.dumps(bundle))
+    bodies = manifest_bodies(
+        write["deletions_accounted"],
+        resolve_manifest_entries(write["entries"], {}),
+        write["frozen"],
+    )
+    for offset, body in enumerate(bodies):
+        copy["ordered_events"].append(detection_comment(
+            first_comment_id + offset, DETECTION_PRINCIPAL, body, seconds + offset,
+        ))
+    return copy
+
+
+def projection_body(plan):
+    bodies = [
+        write["body"] for write in plan["writes"]
+        if write["operation"] == "update_issue_body"
+    ]
+    assert len(bodies) == 1, "a run that projects writes the issue body once"
+    return bodies[0]
+
+
 def detection_notices(plan, code=None):
     found = plan.get("detection", [])
     return [notice for notice in found if code is None or notice["code"] == code]
@@ -1926,6 +1973,25 @@ def detection_fixture_the_sweep_reaches_the_erased_memory():
     print("detection: the periodic sweep's enumeration reaches the erased-memory session")
 
 
+TERMINAL_CONFIGURATION = "\n".join([
+    "```open-table", "open-table: 0", "message: configuration",
+    "id: terminal-configuration-0001", "phase: observation", "sequence: 1",
+    "expected-actors: 101", "authority-profile: deliberation-only",
+    "turn-limit: 3", "```", "", "Configuration.",
+])
+TERMINAL_PROPOSAL = "\n".join([
+    "```open-table", "open-table: 0", "message: proposal",
+    "id: terminal-proposal-0001", "phase: observation", "turn: 1",
+    "point: decision", "```", "", "A proposal.",
+])
+TERMINAL_SETTLED = "\n".join([
+    "```open-table", "open-table: 0", "message: settled",
+    "id: terminal-settled-0001", "phase: observation", "turn: 2",
+    "point: decision", "proposal-comment-id: 413", "disposition: accepted",
+    "terminal: true", "```", "", "A settlement.",
+])
+
+
 def terminal_bundle(freeze_the_settlement):
     """A session an earlier run terminated, optionally with its settlement frozen.
 
@@ -1934,23 +2000,9 @@ def terminal_bundle(freeze_the_settlement):
     so whether the session reads as terminated is exactly the question of which
     record wins.
     """
-    configuration = "\n".join([
-        "```open-table", "open-table: 0", "message: configuration",
-        "id: terminal-configuration-0001", "phase: observation", "sequence: 1",
-        "expected-actors: 101", "authority-profile: deliberation-only",
-        "turn-limit: 3", "```", "", "Configuration.",
-    ])
-    proposal = "\n".join([
-        "```open-table", "open-table: 0", "message: proposal",
-        "id: terminal-proposal-0001", "phase: observation", "turn: 1",
-        "point: decision", "```", "", "A proposal.",
-    ])
-    settled = "\n".join([
-        "```open-table", "open-table: 0", "message: settled",
-        "id: terminal-settled-0001", "phase: observation", "turn: 2",
-        "point: decision", "proposal-comment-id: 413", "disposition: accepted",
-        "terminal: true", "```", "", "A settlement.",
-    ])
+    configuration = TERMINAL_CONFIGURATION
+    proposal = TERMINAL_PROPOSAL
+    settled = TERMINAL_SETTLED
     manifest = detection_manifest(
         "terminal-manifest-0001", 0,
         entries=[
@@ -2289,6 +2341,321 @@ def detection_fixture_every_ruling_had_an_authorised_lookup():
     print("detection: every ruling this run makes was a lookup the adapter was allowed")
 
 
+SHARED_TURN_CONFIGURATION = "\n".join([
+    "```open-table", "open-table: 0", "message: configuration",
+    "id: shared-turn-configuration-0001", "phase: observation", "sequence: 1",
+    "expected-actors: 101", "authority-profile: deliberation-only",
+    "turn-limit: 3", "```", "", "Configuration.",
+])
+
+
+def shared_turn_contribution(comment_id, turn):
+    return "\n".join([
+        "```open-table", "open-table: 0", "message: contribution",
+        "id: shared-turn-contribution-{}".format(comment_id),
+        "phase: observation", "turn: {}".format(turn),
+        "```", "", "A contribution.",
+    ])
+
+
+def shared_turn_bundle(companion):
+    """A session whose turn 2 carries two messages, or only one.
+
+    The pair is what makes the blast radius of a withholding measurable: with a
+    companion at the same turn, section 5.2's chain survives the loss of one
+    message; without one the chain breaks and the turn-3 message is invalid.
+    """
+    contributions = [(423, 1), (424, 2)] + ([(425, 2)] if companion else []) + [(426, 3)]
+    entries = [
+        "421/{}/configuration/422".format(canonical_digest(SHARED_TURN_CONFIGURATION))
+    ]
+    events = [
+        detection_comment(421, 101, SHARED_TURN_CONFIGURATION, 1, permission="write"),
+        detection_comment(422, DETECTION_PRINCIPAL, detection_ruling(
+            421, SHARED_TURN_CONFIGURATION, "shared-turn-configuration-0001", 101,
+            "authorized",
+        ), 2),
+    ]
+    for comment_id, turn in contributions:
+        body = shared_turn_contribution(comment_id, turn)
+        events.append(detection_comment(comment_id, 101, body, comment_id - 420))
+        entries.append("{}/{}/contribution".format(comment_id, canonical_digest(body)))
+    events.append(detection_comment(427, DETECTION_PRINCIPAL, detection_manifest(
+        "shared-turn-manifest-0001", 0, entries=entries,
+    ), 8))
+    return {
+        "repository": "example/project",
+        "issue": {
+            "number": 9, "body": "Human preface\n", "state": "open",
+            "html_url": "https://example.invalid/issues/9",
+            "labels": ["open-table/session"],
+        },
+        "authority_policy": {
+            "profile": PROFILE, "reducer_principals": [DETECTION_PRINCIPAL],
+        },
+        "deletions_observed": 0,
+        "ordered_events": events,
+    }
+
+
+def detection_fixture_an_edited_proposal_withdraws_the_termination():
+    """Transition fixture 1: the half of section 8.3 that never happened.
+
+    The proposal behind the terminal settlement is edited after incorporation.
+    Decision 1 withholds it, so the settlement's reference no longer resolves and
+    it stops terminating; decision 7 requires the projection to say so, because
+    before this the status simply read differently than it had on the run before.
+    """
+    edited = TERMINAL_PROPOSAL.replace(
+        "A proposal.", "A proposal, rewritten after it was settled."
+    )
+    plan = reduce_session(
+        with_edited_comment(terminal_bundle(False), 413, edited), DETECTION_AS_OF
+    )
+    assert not plan["unreplayable"]
+    projection = projection_body(plan)
+    assert "- Session status: `open`" in projection
+    assert "### Settled points\n- None" in projection
+    assert [
+        notice["comment_id"]
+        for notice in detection_notices(plan, "incorporated_message_edited")
+    ] == [413]
+    withdrawn = detection_notices(plan, "termination_withdrawn")
+    assert len(withdrawn) == 1 and withdrawn[0]["comment_id"] == 414
+    assert withdrawn[0]["withdrawn_by"] == [413]
+    print("supersede: an edited proposal is withheld and the withdrawn termination is named")
+
+
+def detection_fixture_the_iteration_completes():
+    """Transition fixture 2, the completion fixture no earlier record could write.
+
+    The requirement record says an iteration completes by ordinary deliberation.
+    That was unreachable after an edit, because section 8.3 discarded every
+    re-establishing message of a session the edit had not disturbed. With the
+    settlement no longer terminating, the new proposal and the new settlement are
+    consumed normally, and decision 6 keeps the notices of the mutation standing.
+    """
+    edited = TERMINAL_PROPOSAL.replace(
+        "A proposal.", "A proposal, rewritten after it was settled."
+    )
+    bundle = with_edited_comment(terminal_bundle(False), 413, edited)
+    reestablished = "\n".join([
+        "```open-table", "open-table: 0", "message: proposal",
+        "id: terminal-proposal-0002", "phase: observation", "turn: 3",
+        "point: decision", "```", "", "The proposal, posted again after the supersede.",
+    ])
+    resettled = "\n".join([
+        "```open-table", "open-table: 0", "message: settled",
+        "id: terminal-settled-0002", "phase: observation", "turn: 3",
+        "point: decision", "proposal-comment-id: 417", "disposition: accepted",
+        "terminal: true", "```", "", "The point, settled again on the new proposal.",
+    ])
+    bundle["ordered_events"].append(detection_comment(417, 101, reestablished, 7))
+    bundle["ordered_events"].append(
+        detection_comment(418, 101, resettled, 8, permission="write")
+    )
+    plan = reduce_session(bundle, DETECTION_AS_OF)
+    assert not plan["unreplayable"]
+    assert ruling_sources(plan) == [418]
+    ruling = [
+        write["body"] for write in plan["writes"] if write["operation"] == "post_comment"
+    ][0]
+    assert "decision: authorized" in ruling
+    projection = projection_body(plan)
+    assert "- Session status: `terminated`" in projection
+    assert "- Current turn: `3`" in projection
+    settled_section = projection.split("### Settled points")[1].split("### Open")[0]
+    assert "#issuecomment-418" in settled_section
+    assert [
+        notice["comment_id"] for notice in detection_notices(plan, "termination_withdrawn")
+    ] == [414]
+    assert [
+        notice["comment_id"]
+        for notice in detection_notices(plan, "incorporated_message_edited")
+    ] == [413]
+    print("supersede: the iteration completes on new material, and the notice stands")
+
+
+def detection_fixture_a_reverted_edit_stays_withheld():
+    """Transition fixture 3, decision 4's fixture: the memory keeps the edit.
+
+    An implementation that stores one digest passes every other fixture here and
+    fails this one. The first run records the digest it now reads as a second
+    section 4.18 entry; the second run reads a body restored to the exact
+    incorporated text and must still withhold it, because section 7.6 makes two
+    digests for one comment an edit under section 7.3 rather than a conflict.
+    """
+    edited = TERMINAL_PROPOSAL.replace("A proposal.", "A proposal, quietly rewritten.")
+    first_bundle = with_edited_comment(terminal_bundle(False), 413, edited)
+    first = reduce_session(first_bundle, DETECTION_AS_OF)
+    recorded = manifest_write(first)
+    assert recorded is not None
+    assert [
+        (entry["comment_id"], entry["digest"], entry["family"])
+        for entry in recorded["entries"]
+    ] == [(413, canonical_digest(edited), "proposal")]
+
+    reverted = with_edited_comment(
+        with_planned_manifest(first_bundle, first, 417, 7), 413, TERMINAL_PROPOSAL
+    )
+    second = reduce_session(reverted, DETECTION_AS_OF)
+    assert not second["unreplayable"]
+    assert [
+        notice["comment_id"]
+        for notice in detection_notices(second, "incorporated_message_edited")
+    ] == [413]
+    assert [
+        notice["comment_id"]
+        for notice in detection_notices(second, "termination_withdrawn")
+    ] == [414]
+    assert "- Session status: `open`" in projection_body(second)
+    assert manifest_write(second) is None, "one additional entry per comment id, ever"
+
+    # Decision 4's third consequence, and the corner the record names: an edit
+    # that breaks the envelope excludes the comment from the records under
+    # section 7.5 while leaving its body perfectly digestible. The entry carries
+    # the family the first entry carried, not what the current header claims.
+    broken = TERMINAL_PROPOSAL.replace("message: proposal", "message: contribution")
+    reshaped = reduce_session(
+        with_edited_comment(terminal_bundle(False), 413, broken), DETECTION_AS_OF
+    )
+    assert [
+        (entry["comment_id"], entry["digest"], entry["family"])
+        for entry in manifest_write(reshaped)["entries"]
+    ] == [(413, canonical_digest(broken), "proposal")]
+    print("supersede: a reverted edit stays withheld, and the memory keeps the digest")
+
+
+def detection_fixture_a_superseded_configuration_withholds_the_plane():
+    """Transition fixture 4: `configuration` is the exception, for a measured reason.
+
+    Withholding is not monotone. Measured in the spike: withholding a
+    configuration grants effect to material it excluded. Decision 3 therefore
+    withholds the whole deliberation plane and forbids deriving a session that
+    lost its configuration as one that never had one. Section 4.1's ordering rule
+    rules the replacement `unauthorized`, so the forward path is a new session.
+    """
+    replacement = TERMINAL_CONFIGURATION.replace(
+        "id: terminal-configuration-0001", "id: terminal-configuration-0002"
+    )
+    reworded = TERMINAL_CONFIGURATION.replace(
+        "Configuration.", "Configuration, reworded."
+    )
+    for name, bundle in (
+        ("edited", with_edited_comment(terminal_bundle(False), 411, reworded)),
+        ("deleted", without_comments(terminal_bundle(False), 411)),
+    ):
+        bundle["ordered_events"].append(
+            detection_comment(417, 101, replacement, 7, permission="write")
+        )
+        plan = reduce_session(bundle, DETECTION_AS_OF)
+        assert not plan["unreplayable"], name
+        projection = projection_body(plan)
+        assert "- Session status: `open`" in projection, name
+        assert "### Settled points\n- None" in projection, name
+        assert [
+            notice["comment_id"]
+            for notice in detection_notices(plan, "configuration_superseded")
+        ] == [411], name
+        assert ruling_sources(plan) == [417], name
+        ruling = [
+            write["body"] for write in plan["writes"]
+            if write["operation"] == "post_comment"
+        ][0]
+        assert "decision: unauthorized" in ruling, name
+    print("supersede: a superseded configuration withholds the plane, and no replacement restores it")
+
+
+def detection_fixture_withholding_does_not_over_reach():
+    """Transition fixture 5: the scope of a withholding is measured, not chosen.
+
+    Spike Q8: where another message occupies the same turn, withholding one
+    changes nothing at all; where it was the only message at its turn, section
+    5.2's chain breaks and later messages become invalid. The second half is what
+    stops the first from reading as "withholding does nothing", and the equality
+    is asserted against a control whose turn is 3 rather than against two empty
+    projections.
+    """
+    edited = shared_turn_contribution(424, 3)
+    control = projection_body(reduce_session(shared_turn_bundle(True), DETECTION_AS_OF))
+    assert "- Current turn: `3`" in control
+    assert "### Invalid or duplicate messages\n- None" in control
+
+    plan = reduce_session(
+        with_edited_comment(shared_turn_bundle(True), 424, edited), DETECTION_AS_OF
+    )
+    marker = "### Detection notices"
+    assert projection_body(plan).split(marker)[0] == control.split(marker)[0]
+    assert [
+        notice["comment_id"]
+        for notice in detection_notices(plan, "incorporated_message_edited")
+    ] == [424]
+
+    alone = reduce_session(
+        with_edited_comment(shared_turn_bundle(False), 424, edited), DETECTION_AS_OF
+    )
+    assert "- Current turn: `1`" in projection_body(alone)
+    assert [notice["comment_id"] for notice in alone["notices"]] == [426]
+    print("supersede: a withholding reaches exactly as far as the deliberation makes it")
+
+
+def detection_fixture_an_unpinned_edit_is_incorporated_as_it_reads():
+    """Transition fixture 6, the no-pin guard, and it is green before this change.
+
+    Section 7.3's second rule: a message with no pin carries no edit signal,
+    because nothing was incorporated to be changed. It is listed with the red
+    fixtures because decision 1 is one line away from withholding an unpinned
+    edited message too, and the fixture that would notice is one that was already
+    passing before anyone touched anything. Issue #144 is what that costs.
+    """
+    bundle = detection_bundle()
+    contribution = "\n".join([
+        "```open-table", "open-table: 0", "message: contribution",
+        "id: detection-contribution-0002", "phase: observation", "turn: 2",
+        "```", "", "A contribution edited after it was posted.",
+    ])
+    bundle["ordered_events"].append(
+        detection_comment(405, 101, contribution, 5, edited=True)
+    )
+    plan = reduce_session(bundle, DETECTION_AS_OF)
+    assert not plan["unreplayable"]
+    assert plan["detection"] == []
+    assert plan["notices"] == []
+    assert [
+        (entry["comment_id"], entry["digest"], entry["family"])
+        for entry in manifest_write(plan)["entries"]
+    ] == [(405, canonical_digest(contribution), "contribution")]
+    assert "- Current turn: `2`" in projection_body(plan)
+    print("supersede: an unpinned edit is incorporated as it now reads (#144)")
+
+
+def detection_fixture_a_second_mutation_records_nothing_further():
+    """Transition fixture 7: one additional entry per comment id, ever.
+
+    A message that is already withheld stays withheld whatever happens to its
+    body next, so a second mutation has nothing to record and nothing to change.
+    Without the cap an edit loop would grow the manifest once per run, on exactly
+    the sessions already in trouble.
+    """
+    once = TERMINAL_PROPOSAL.replace("A proposal.", "A proposal, rewritten once.")
+    first_bundle = with_edited_comment(terminal_bundle(False), 413, once)
+    carried = with_planned_manifest(
+        first_bundle, reduce_session(first_bundle, DETECTION_AS_OF), 417, 7
+    )
+    twice = TERMINAL_PROPOSAL.replace("A proposal.", "A proposal, rewritten twice.")
+    again = reduce_session(with_edited_comment(carried, 413, twice), DETECTION_AS_OF)
+    assert not again["unreplayable"]
+    assert manifest_write(again) is None
+    assert projection_body(again) == projection_body(
+        reduce_session(carried, DETECTION_AS_OF)
+    )
+    assert [
+        notice["comment_id"]
+        for notice in detection_notices(again, "incorporated_message_edited")
+    ] == [413]
+    print("supersede: a second mutation of a withheld message records and changes nothing")
+
+
 DETECTION_FIXTURES = (
     detection_fixture_lost_ruling_is_identified,
     detection_fixture_paired_deletion_is_identified,
@@ -2309,6 +2676,13 @@ DETECTION_FIXTURES = (
     detection_fixture_an_oversized_watermark_is_refused,
     detection_fixture_an_out_of_domain_entry_raises_no_edit,
     detection_fixture_every_ruling_had_an_authorised_lookup,
+    detection_fixture_an_edited_proposal_withdraws_the_termination,
+    detection_fixture_the_iteration_completes,
+    detection_fixture_a_reverted_edit_stays_withheld,
+    detection_fixture_a_superseded_configuration_withholds_the_plane,
+    detection_fixture_withholding_does_not_over_reach,
+    detection_fixture_an_unpinned_edit_is_incorporated_as_it_reads,
+    detection_fixture_a_second_mutation_records_nothing_further,
 )
 
 
