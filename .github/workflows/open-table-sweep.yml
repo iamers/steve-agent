@@ -2,8 +2,9 @@
 #
 # The mechanism's second adapter obligation is that the timeline is read
 # periodically, independently of incoming comment events, so that detection
-# stops depending on the next incorporated message arriving. This file is that
-# clock.
+# stops depending on the next incorporated message arriving. This file is the
+# periodic entry point; the clock it runs on is the hosted scheduler's, not
+# this repository's, which is the whole of the next paragraph.
 #
 # PERIOD, which section 2.3 requires this file to state: hourly. That is the
 # period requested, and it is NOT a bound on detection latency. Section 2.3

@@ -2,6 +2,7 @@
 status: accepted
 date: 2026-08-07
 supersedes: adr-20260805-checkpoints-are-a-partial-receipt-store.md
+amended-by: adr-20260818-the-periodic-read-is-a-purpose-not-a-promised-bound.md
 ---
 
 # Mutations of incorporated material are detected and superseded, and point I dissolves
@@ -430,7 +431,10 @@ must be able to complete its iteration. Platform contract probes follow use: a
 field the implementation reads (for recovery or attribution) gets a probe in
 that implementation's CI; a field nothing reads gets none. The scheduled daily
 pass survives with its #143 stale-session rationale unchanged, and is what
-bounds detection latency when event-driven runs are cancelled.
+bounds detection latency when event-driven runs are cancelled. **Amended
+2026-08-18**: a scheduled pass bounds that latency only where the adapter
+controls the clock it runs on, and the deployed one does not; see
+`adr-20260818-the-periodic-read-is-a-purpose-not-a-promised-bound.md`.
 
 ## Consequences
 

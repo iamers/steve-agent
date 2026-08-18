@@ -1,7 +1,9 @@
 ---
 status: accepted
 date: 2026-08-18
-amends: adr-20260816-detection-is-a-manifest-and-a-conditional-timeline-read.md
+amends:
+  - adr-20260816-detection-is-a-manifest-and-a-conditional-timeline-read.md
+  - adr-20260807-mutations-are-detected-and-superseded.md
 ---
 
 # A bounded detection window is a claim an adapter makes with its conditions, not a promise the base contract makes for it
@@ -97,8 +99,16 @@ of its clauses are reversed and are marked in that record:
   to state *"the latency it therefore promises"* — an implementation states the
   period it runs on, and promises a latency only under point 3 above.
 
-Both were written before any deployment existed, which is why neither had to
-separate the period from the promise.
+The requirement record `adr-20260807-mutations-are-detected-and-superseded.md`
+carries the same derivation in its own words — the scheduled pass *"is what
+bounds detection latency when event-driven runs are cancelled"* — and is amended
+in the same way and for the same reason.
+
+All three sentences were written before any deployment existed, which is why
+none of them had to separate the period from the promise. Finding them took a
+predicate built from what could be written rather than from what I remembered
+writing; the first pass of this record searched for the phrases it had itself
+used, and missed the one that says the same thing differently.
 
 ## Consequences
 
@@ -132,7 +142,10 @@ routes every hosted-runner adopter into the declared-gap path of section 1.7.
 Rejected because the strictness costs every such deployment and catches nothing
 that the period statement does not already expose. Note that this record does
 not need that alternative to be wrong in order to stand: point 3 gives the
-strict adopter the same guarantee, stated by whoever can actually keep it.
+strict adopter a conforming way to state the same bound, conditional on an
+adapter that actually supports it. The guarantee comes from that adapter and its
+clock, never from the specification, and saying otherwise would repeat the
+promise-for-a-claim substitution this record exists to remove.
 
 **Remove the bound from the contract with no replacement**, which is what the
 first draft of this record did. Rejected in review: it generalised a hosted
