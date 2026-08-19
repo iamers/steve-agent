@@ -1,6 +1,6 @@
 # CI for iamers/steve-agent
 #
-# One lightweight job (target < 2 minutes). Thirteen checks in sequence:
+# One lightweight job (target < 2 minutes). Fourteen checks in sequence:
 #   1. tools/pr-brief.py self-test (deterministic review triage)
 #   2. tools/open-table-validate.py self-test (integrity rules)
 #   3. tools/open-table-reduce.py self-test (deliberation-only reducer)
@@ -14,15 +14,16 @@
 #   8. instance/smoke.sh listener verdict self-test
 #   9. instance/merge-gate.sh self-test (deterministic merge decision logic)
 #   10. instance/merge-gate-scan.sh self-test (merge gate scanner formatter)
-#   11. syntax check (bash -n) on all tracked shell scripts
-#   12. shellcheck at warning severity on the same scripts
-#   13. gitleaks (manually downloaded binary, NOT the official action, which
+#   11. instance/scheduled-run.sh self-test (clone update and refusal paths)
+#   12. syntax check (bash -n) on all tracked shell scripts
+#   13. shellcheck at warning severity on the same scripts
+#   14. gitleaks (manually downloaded binary, NOT the official action, which
 #       requires a license for organizations) on the working copy
 #
 # Note about check_privacy.sh: in CI it is a no-op by design -- the local
 # denylist (secret strings) exists only on the instance and is never committed,
 # so there is nothing to compare in CI. Secret/privacy coverage in CI relies
-# solely on gitleaks (step 12). check_privacy.sh remains useful as an optional
+# solely on gitleaks (step 14). check_privacy.sh remains useful as an optional
 # local guard on the instance, where the denylist is present.
 
 name: checks
@@ -71,6 +72,9 @@ jobs:
 
       - name: merge-gate-scan self-test
         run: ./instance/merge-gate-scan.sh --self-test
+
+      - name: scheduled-run self-test
+        run: ./instance/scheduled-run.sh --self-test
 
       - name: bash syntax check
         run: bash -n instance/*.sh scripts/*.sh
