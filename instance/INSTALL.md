@@ -456,8 +456,8 @@ wrapper. Create `~/.hermes/scripts/backup-kanban-cron.sh`:
 
 ```bash
 #!/usr/bin/env bash
-# Wrapper cron: esegue il backup canonico del repo. Stdout vuoto = silenzio.
-exec bash "$HOME/repos/steve-agent/instance/backup-kanban.sh" 2>&1
+# Cron wrapper: update the clone, then run the canonical backup. Empty stdout is silence.
+exec "$HOME/repos/steve-agent/instance/scheduled-run.sh" backup-kanban.sh 2>&1
 ```
 
 Then register it with the Hermes scheduler:
@@ -519,8 +519,8 @@ as the pr-watch and backup-kanban wrappers). Create
 
 ```bash
 #!/usr/bin/env bash
-# Wrapper cron: esegue lo scanner canonico del repo. Stdout vuoto = silenzio.
-exec bash "$HOME/repos/steve-agent/instance/merge-gate-scan.sh" 2>&1
+# Cron wrapper: update the clone, then run the canonical scanner. Empty stdout is silence.
+exec "$HOME/repos/steve-agent/instance/scheduled-run.sh" merge-gate-scan.sh 2>&1
 ```
 
 Then register it with the Hermes scheduler:
@@ -556,11 +556,16 @@ wrapper, re-run the `hermes cron create` command above, and verify all three.
 
 ##### Activation is an ops step
 
-The repo ships only the scanner (`instance/merge-gate-scan.sh`) and this
-documentation. Creating the wrapper at `~/.hermes/scripts/merge-gate-cron.sh`
-and registering the cron job with `hermes cron create` are **runtime
-activation steps** performed by the coordinator on the instance host, not
-files committed to the repo. A fresh deploy needs both steps re-run by hand.
+The repo ships the canonical scripts and this documentation. Creating the
+wrappers under `~/.hermes/scripts/` and registering their cron jobs with
+`hermes cron create` are **runtime activation steps** performed by the
+coordinator on the instance host, not files committed to the repo. A fresh
+deploy needs both steps run by hand.
+
+On an instance that already exists, merging this blueprint changes nothing at
+runtime until `merge-gate-cron.sh` and `backup-kanban-cron.sh` are recreated
+with the `scheduled-run.sh` commands above. Until those wrappers are recreated,
+the scheduled jobs keep using a clone that can drift behind `origin/main`.
 
 ## 8. GitHub merge App (optional)
 
