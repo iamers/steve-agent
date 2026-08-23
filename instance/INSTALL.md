@@ -356,9 +356,28 @@ mkdir -p ~/repos
 cd ~/repos
 git clone https://github.com/iamers/steve-agent.git
 cd steve-agent
-test "$(git rev-parse "$STEVE_RELEASE^{commit}")" = "$STEVE_COMMIT"
-git checkout --detach "$STEVE_COMMIT"
-test "$(git rev-parse HEAD)" = "$STEVE_COMMIT"
+RESOLVED_COMMIT=$(git rev-parse --verify "refs/tags/$STEVE_RELEASE^{commit}") || {
+  printf 'Release tag %s does not resolve to a commit.\n' "$STEVE_RELEASE" >&2
+  exit 1
+}
+if [ "$RESOLVED_COMMIT" != "$STEVE_COMMIT" ]; then
+  printf 'Release tag %s resolves to %s, not the recorded commit %s.\n' \
+    "$STEVE_RELEASE" "$RESOLVED_COMMIT" "$STEVE_COMMIT" >&2
+  exit 1
+fi
+git checkout --detach "$STEVE_COMMIT" || {
+  printf 'Could not check out recorded commit %s.\n' "$STEVE_COMMIT" >&2
+  exit 1
+}
+CHECKED_OUT_COMMIT=$(git rev-parse --verify HEAD) || {
+  printf 'Could not verify the checked-out commit.\n' >&2
+  exit 1
+}
+if [ "$CHECKED_OUT_COMMIT" != "$STEVE_COMMIT" ]; then
+  printf 'Checked out %s, not the recorded commit %s.\n' \
+    "$CHECKED_OUT_COMMIT" "$STEVE_COMMIT" >&2
+  exit 1
+fi
 ```
 
 Do not substitute a tag, branch, or shortened hash for `STEVE_COMMIT`. The
