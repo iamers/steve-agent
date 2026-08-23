@@ -85,8 +85,11 @@ changes installation, configuration, runtime behavior, operator work, security
 posture, or compatibility updates its `Unreleased` section. At release time,
 the release owner moves those entries under the version and date, preserves an
 explicit `Deployment and operator impact` section even when its value is
-`None`, records the release's full commit SHA, and uses that section as the
-basis of the GitHub Release notes.
+`None`, and uses that section as the basis of the GitHub Release notes. After
+the release commit and tag exist, the release owner records the tag's resolved
+full 40-character commit SHA in those notes. The changelog cannot record its
+own release commit SHA because adding that value would create a different
+commit.
 
 ### Rollback
 

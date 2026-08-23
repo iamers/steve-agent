@@ -22,7 +22,9 @@ release has been published yet.
 ## Release entry requirements
 
 At release time, move the entries into a heading of the form
-`## [v0.x.y] - YYYY-MM-DD`, record the full 40-character release commit SHA,
-and leave a fresh `Unreleased` section above it. Every release keeps a
+`## [v0.x.y] - YYYY-MM-DD` and leave a fresh `Unreleased` section above it.
+Every release keeps a
 `Deployment and operator impact` section; write `None` when no action,
-migration, or downgrade constraint exists.
+migration, or downgrade constraint exists. After the release commit and tag
+exist, record the tag's resolved full 40-character commit SHA in the GitHub
+Release notes; it cannot be recorded in this file without changing that commit.

@@ -340,9 +340,9 @@ cd steve-agent
 For an ordinary deployment after releases begin, a human first selects a
 published `v0.x.y` release and reads its `Deployment and operator impact` entry
 in the [changelog](../CHANGELOG.md). Record both the release name and the full
-40-character commit SHA stated by that release in deployment-owned
-configuration. The name is for people; the SHA is the authoritative machine
-pin. Issue
+40-character commit SHA stated in that release's GitHub Release notes in
+deployment-owned configuration. The name is for people; the SHA is the
+authoritative machine pin. Issue
 [#163](https://github.com/iamers/steve-agent/issues/163) will decide the
 versioned home of that deployment-owned record.
 
