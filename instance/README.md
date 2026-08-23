@@ -16,13 +16,20 @@ instance exists, this blueprint is the candidate to become a rendered template.
 ## Cron script ownership
 
 A cron script belongs in this blueprint when it implements behavior required to
-reproduce a Steve factory. The canonical implementation lives under `instance/`;
-`pr-watch.sh`, `merge-gate-scan.sh` and `backup-kanban.sh` are all activated the
-same way: through a thin wrapper under `~/.hermes/scripts/` and a scheduler
-entry in the Hermes cron database, as documented in `INSTALL.md`. Each wrapper
-executes `scheduled-run.sh`, which fast-forwards the clone to `origin/main`
-before running its target and reports every update failure instead of running
-stale code silently.
+reproduce a Steve factory. The canonical implementation lives under `instance/`.
+`merge-gate-scan.sh` and `backup-kanban.sh` are activated through thin wrappers
+under `~/.hermes/scripts/` and scheduler entries in the Hermes cron database, as
+documented in `INSTALL.md`. Their wrappers execute `scheduled-run.sh`, which
+fast-forwards the clone to `origin/main` before running its target and reports
+every update failure instead of running stale code silently.
+
+That update path belongs to the development instance that tracks `main`.
+Issue [#187](https://github.com/iamers/steve-agent/issues/187) owns the missing
+reproducible `pr-watch.sh` wrapper, and issue
+[#189](https://github.com/iamers/steve-agent/issues/189) owns guarded
+scheduled-run behavior for release-pinned deployments. Both must be resolved
+before the first official release; this blueprint does not imply that either
+behavior already exists.
 
 `issue-watch.sh` is deliberately **instance-local**. It watches a hand-selected
 set of issues in an upstream project for the operator of one instance; that set

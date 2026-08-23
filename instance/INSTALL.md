@@ -324,12 +324,49 @@ The `instance/` directory in the steve-agent repo contains a blueprint for insta
 
 ### Clone the Steve Agent Repository
 
+Steve Agent has not published its first official release yet. Until it does,
+only the development instance that dogfoods this repository tracks `main`; do
+not present an arbitrary `main` commit as a release.
+
+For that development instance, clone `main`:
+
 ```bash
 mkdir -p ~/repos
 cd ~/repos
 git clone https://github.com/iamers/steve-agent.git
 cd steve-agent
 ```
+
+For an ordinary deployment after releases begin, a human first selects a
+published `v0.x.y` release and reads its `Deployment and operator impact` entry
+in the [changelog](../CHANGELOG.md). Record both the release name and the full
+40-character commit SHA stated by that release in deployment-owned
+configuration. The name is for people; the SHA is the authoritative machine
+pin. Issue
+[#163](https://github.com/iamers/steve-agent/issues/163) will decide the
+versioned home of that deployment-owned record.
+
+Clone the repository, verify that the selected tag resolves to the recorded
+SHA, and detach the deployment checkout at that SHA:
+
+```bash
+STEVE_RELEASE='<selected-v0.x.y-release>'
+STEVE_COMMIT='<full-40-character-release-commit-sha>'
+mkdir -p ~/repos
+cd ~/repos
+git clone https://github.com/iamers/steve-agent.git
+cd steve-agent
+test "$(git rev-parse "$STEVE_RELEASE^{commit}")" = "$STEVE_COMMIT"
+git checkout --detach "$STEVE_COMMIT"
+test "$(git rev-parse HEAD)" = "$STEVE_COMMIT"
+```
+
+Do not substitute a tag, branch, or shortened hash for `STEVE_COMMIT`. The
+first release is blocked on issue
+[#189](https://github.com/iamers/steve-agent/issues/189) because the current
+`scheduled-run.sh` accepts only a checkout of `main` tracking `origin/main`;
+the pinned procedure is not operational until that issue and the release gate
+are complete.
 
 ### Install the privacy guard hook
 

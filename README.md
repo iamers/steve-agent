@@ -97,6 +97,20 @@ The accepted deployment boundary is recorded in
 Steve Agent is built on [Hermes Agent](https://github.com/nousresearch/hermes-agent)
 (MIT) by [Nous Research](https://nousresearch.com).
 
+## Releases
+
+Steve Agent has not published its first official release yet. The accepted
+[release policy](docs/decisions/adr-20260823-deployments-pin-official-releases-by-commit.md)
+defines official pre-stable `v0.x.y` releases. A deployment operator selects a
+named release after reading its [changelog](CHANGELOG.md), while deployment
+configuration records that release's full 40-character commit SHA as the
+authoritative machine pin.
+
+The development instance that dogfoods this repository may track `main`; other
+deployments wait for and select an official release. The hub/contributor layout
+remains provisional throughout `v0` and may change in a minor release with its
+operator impact called out explicitly.
+
 ## Status and roadmap
 
 A working factory today: tasks flow from chat to reviewed PRs, with an instance blueprint, CI, a main-guard, and deterministic `safe`-tier merges through a GitHub App all in place. Future roadmap: a WhatsApp layout, idea round-tables with multi-role subagents, and multi-project support.
