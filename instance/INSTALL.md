@@ -438,6 +438,23 @@ Create a worker profile:
 hermes profile create <worker-name> --clone
 ```
 
+The reviewer profile also has a deterministic pre-tool guard. Install its
+canonical executable next to the live reviewer config whenever that profile is
+created or updated:
+
+```bash
+cd ~/repos/steve-agent/instance
+install -m 0755 profiles/steve-reviewer/review-task-guard.py \
+  ~/.hermes/profiles/steve-reviewer/review-task-guard.py
+```
+
+The guard reads the current card's immutable `created` event from the board. If
+the card was not created for `steve-reviewer` with
+`github/github-code-review`, Hermes permits only `kanban_show` and
+`kanban_block`; review work and task completion are blocked. `drift-check.sh`
+verifies both the file contents and its executable mode. Merging this blueprint
+does not modify a running instance; an operator must apply the profile update.
+
 Provision shared profiles:
 
 ```bash

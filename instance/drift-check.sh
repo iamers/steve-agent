@@ -484,6 +484,15 @@ for profile in steve-worker steve-reviewer; do
 done
 
 echo
+echo "== reviewer task guard (live vs repo) =="
+review_guard="profiles/steve-reviewer/review-task-guard.py"
+if ssh "$HOST" 'test -x ~/.hermes/profiles/steve-reviewer/review-task-guard.py && cat ~/.hermes/profiles/steve-reviewer/review-task-guard.py' | diff -u "$review_guard" - ; then
+  echo "OK: reviewer task guard aligned and executable"
+else
+  drift=1
+fi
+
+echo
 echo "== .env: keys set (names, not values) =="
 # Optional keys (marked "@optional" in the env.template line comment) are not
 # required (for example, the entire merge-gate block). Their absence or presence

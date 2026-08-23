@@ -120,6 +120,16 @@ agent:
 approvals:
   mode: smart
   timeout: 60
+# Kanban workers are spawned with --accept-hooks. This guard checks the
+# immutable created event before every non-lifecycle tool call. A malformed
+# review card can still inspect or block itself, but cannot review or complete.
+# Pinned Hermes has no hook-level fail-closed option: the executable emits a
+# valid block for every error it controls, and drift-check verifies deployment.
+hooks:
+  pre_tool_call:
+    - matcher: '(?!(?:kanban_show|kanban_block)$).*'
+      command: '~/.hermes/profiles/steve-reviewer/review-task-guard.py'
+      timeout: 5
 auxiliary:
   # Keep card closure available when an external provider is walled.
   goal_judge:
