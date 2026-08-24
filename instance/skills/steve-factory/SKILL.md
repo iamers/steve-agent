@@ -41,10 +41,11 @@ produce committed files.
 - Never merge directly. The unattended chain has been tested end-to-end three
   times:
   after approval in chat, Steve applies the `steve-approved` label and stops;
-  every five minutes the cron scanner searches for PRs, the gate verifies the 5
-  conditions (label, review, CI, safe tier, SHA match), and the App executes the
-  merge. The gate does not determine whether the local policy is behind
-  `origin/main`. Steve DOES NOT execute the gate (see .steve/pr-lifecycle.md).
+  every five minutes the cron scanner searches for PRs, the gate first verifies
+  that its local policy copy is current and then evaluates the PR against the
+  contract in `.steve/pr-lifecycle.md`, and the App executes the merge. Steve
+  DOES NOT execute the gate's merge path; `--dry-run` is only the diagnostic
+  described in §4 below.
 - The board is the source of truth: if work is not a task on the board, it does not exist.
 
 ## 2. Creating a development task
@@ -191,6 +192,38 @@ The exception is a pull request without an originating task: in that case the
 orchestrator creates the review task. Detection is deterministic: the branch
 does not have the `steve-agent/t_<id>-` prefix, so the compiler does not resolve
 an originating task and the brief does not show the `Origin` line.
+
+### Pull request opened outside the factory: required order
+
+For a pull request opened manually or by an account that is not a factory
+worker, use this order:
+
+1. Bring the pull request branch current with `main` **before** dispatching the
+   review. The gate requires the head to contain current `main`, and it binds
+   the configured reviewer's approval to the exact head SHA. Any later push,
+   including a merge or rebase from `main`, changes that SHA and requires a new
+   approval. If `main` advances again, repeat the update and review in that
+   order.
+2. A person mentions the pull request in chat, and the orchestrator creates the
+   independent `steve-reviewer` task with `--skill github/github-code-review`.
+   GitHub's review-request UI and requested-reviewers API only record a GitHub
+   request; they do not dispatch a Steve task or start the reviewer.
+3. When `STEVE_REVIEWER_LOGIN` is set, obtain an APPROVED review from that
+   identity on the current head. This is distinct from GitHub's repository
+   review requirement: another human approval may satisfy branch protection or
+   a ruleset while the merge gate still rejects condition (b). If the setting
+   is absent, the gate's documented non-author fallback applies.
+4. After the review is approved and the remaining canonical requirements in
+   `.steve/pr-lifecycle.md` pass, the admin's approve in chat applies the label
+   as described in §6. The pull request is then eligible for the scanner to
+   evaluate on its next run.
+
+If the gate appears idle, run `./instance/merge-gate.sh --dry-run <pr>` from the
+instance clone. It never merges: it checks local policy-copy freshness first,
+then prints the pull request conditions and its verdict. A stale or unknown
+policy copy is an evaluator precondition, not a defect in the pull request;
+repair the instance clone or its scheduled update path instead of changing the
+PR to clear it.
 
 For this review there are no verify commands or output observed by a worker, and
 the orchestrator does not invent them. Instead, it puts the following in the
@@ -381,7 +414,7 @@ admin approves in chat: it applies the label and stops.
    `Approved by @<admin-handle> in chat (<data>). Tier: safe. Merge gate eligible.`
 2. **NEVER merge.** The merge is performed by the deterministic gate
    `instance/merge-gate.sh` (only for the safe tier, after the label is applied
-   and the other 4 conditions are met) or by the human on GitHub (for
+   and every other gate condition is met) or by the human on GitHub (for
    propagation/blast, where the gate rejects). The "never merge" rule in §1
    remains unchanged: the label is authorization, not execution.
 3. **Only the admin can authorize.** Verify the identity of the person writing
@@ -394,9 +427,9 @@ admin approves in chat: it applies the label and stops.
    cover this tier — the merge is manual on GitHub." For non-safe tiers, the
    admin merges manually in the GitHub UI.
 5. **The label marks the authorization; the source of truth read by the gate
-   remains on the PR** (label + APPROVED review + green CI + SHA match). The
-   label alone is not enough: the gate verifies all 5 conditions. Applying the
-   label is necessary but not sufficient.
+   remains on the PR.** The label alone is not enough: the gate verifies the
+   complete contract in `.steve/pr-lifecycle.md`. Applying the label is
+   necessary but not sufficient.
 6. **Instance without a merge gate.** The gate and GitHub App are OPTIONAL: the
    adopter chooses whether to activate them during installation. Before
    concluding that the merge gate is NOT configured, run this probe and paste
