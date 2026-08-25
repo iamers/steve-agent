@@ -73,6 +73,18 @@ VALIDATOR_PREFLIGHT_CONTRIBUTION = "\n".join([
     "",
     "Observation.",
 ])
+VALIDATOR_PREFLIGHT_PROPOSAL = "\n".join([
+    "```open-table",
+    "open-table: 0",
+    "message: proposal",
+    "id: configured-proposal-0001",
+    "phase: synthesis",
+    "turn: 1",
+    "point: decision",
+    "```",
+    "",
+    "A proposal.",
+])
 VALIDATOR_PREFLIGHT_CLAIM = "\n".join([
     "```open-table",
     "open-table: 0",
@@ -101,6 +113,7 @@ VALIDATOR_PREFLIGHT_SETTLED = "\n".join([
 VALIDATOR_PREFLIGHT_BODIES = (
     VALIDATOR_PREFLIGHT_CONFIGURATION,
     VALIDATOR_PREFLIGHT_CONTRIBUTION,
+    VALIDATOR_PREFLIGHT_PROPOSAL,
     VALIDATOR_PREFLIGHT_CLAIM,
     VALIDATOR_PREFLIGHT_SETTLED,
 )
@@ -3081,16 +3094,6 @@ def run_self_test():
     print("missing validator dependency: fatal before reduction or planned writes")
 
     with tempfile.TemporaryDirectory() as directory:
-        skewed_validator = Path(directory) / "open-table-validate.py"
-        skewed_validator.write_text(
-            "#!/usr/bin/env python3\n"
-            "import sys\n"
-            "body = sys.stdin.read()\n"
-            "if 'message: claim\\n' in body:\n"
-            "    print('invalid: missing required field(s): claim', file=sys.stderr)\n"
-            "    raise SystemExit(1)\n",
-            encoding="utf-8",
-        )
         original_request = github_request
         github_reads = []
 
@@ -3099,28 +3102,44 @@ def run_self_test():
             raise AssertionError("GitHub read reached after failed validator preflight")
 
         try:
-            VALIDATOR = skewed_validator
             github_request = reject_github_read
-            validate_comment(VALIDATOR_PREFLIGHT_CONTRIBUTION)
-            try:
-                validate_comment(VALIDATOR_PREFLIGHT_CLAIM)
-            except ReductionError as error:
-                assert "missing required field(s): claim" in str(error)
-            else:
-                raise AssertionError("the skewed validator accepted the current claim")
-
-            for operation in (
-                lambda: reduce_session(bundle, as_of),
-                lambda: build_github_bundle(
-                    "example/project", 7, "unused-token", 41898282
-                ),
+            for family, body in (
+                ("claim", VALIDATOR_PREFLIGHT_CLAIM),
+                ("proposal", VALIDATOR_PREFLIGHT_PROPOSAL),
             ):
+                skewed_validator = Path(directory) / "{}-validate.py".format(family)
+                skewed_validator.write_text(
+                    "#!/usr/bin/env python3\n"
+                    "import sys\n"
+                    "body = sys.stdin.read()\n"
+                    "if 'message: {0}\\n' in body:\n"
+                    "    print('invalid: missing required field(s): {0}', file=sys.stderr)\n"
+                    "    raise SystemExit(1)\n".format(family),
+                    encoding="utf-8",
+                )
+                VALIDATOR = skewed_validator
+                validate_comment(VALIDATOR_PREFLIGHT_CONTRIBUTION)
                 try:
-                    operation()
+                    validate_comment(body)
                 except ReductionError as error:
-                    assert "validator toolchain preflight failed" in str(error)
+                    assert "missing required field(s): {}".format(family) in str(error)
                 else:
-                    raise AssertionError("a grammar-skewed validator passed preflight")
+                    raise AssertionError(
+                        "the skewed validator accepted the current {}".format(family)
+                    )
+
+                for operation in (
+                    lambda: reduce_session(bundle, as_of),
+                    lambda: build_github_bundle(
+                        "example/project", 7, "unused-token", 41898282
+                    ),
+                ):
+                    try:
+                        operation()
+                    except ReductionError as error:
+                        assert "validator toolchain preflight failed" in str(error)
+                    else:
+                        raise AssertionError("a grammar-skewed validator passed preflight")
             assert github_reads == []
         finally:
             github_request = original_request
@@ -3201,11 +3220,7 @@ def run_self_test():
             "turn-limit: 2", "```", "", "Configuration.",
         ]),
         VALIDATOR_PREFLIGHT_CONTRIBUTION,
-        "\n".join([
-            "```open-table", "open-table: 0", "message: proposal",
-            "id: configured-proposal-0001", "phase: synthesis", "turn: 1",
-            "point: decision", "```", "", configured_prose,
-        ]),
+        VALIDATOR_PREFLIGHT_PROPOSAL.replace("A proposal.", configured_prose),
         VALIDATOR_PREFLIGHT_CLAIM,
         VALIDATOR_PREFLIGHT_SETTLED,
     ]
