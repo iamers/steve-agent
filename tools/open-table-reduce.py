@@ -44,17 +44,66 @@ END_MARKER = "<!-- open-table:end -->"
 PROFILE = "deliberation-only"
 SESSION_LABEL = "open-table/session"
 VALIDATOR = Path(__file__).with_name("open-table-validate.py")
-VALIDATOR_PREFLIGHT_BODY = "\n".join([
+# These envelopes express the grammar this deployment needs independently of
+# the validator it was paired with. A skewed validator's own fixtures would
+# only prove that validator agrees with itself. The contextual self-test below
+# reuses these bodies so the preflight expectation has no second local copy.
+VALIDATOR_PREFLIGHT_CONFIGURATION = "\n".join([
+    "```open-table",
+    "open-table: 0",
+    "message: configuration",
+    "id: configuration-observation-0001",
+    "phase: observation",
+    "sequence: 1",
+    "expected-actors: 101",
+    "authority-profile: deliberation-only",
+    "turn-limit: 2",
+    "```",
+    "",
+    "Configuration.",
+])
+VALIDATOR_PREFLIGHT_CONTRIBUTION = "\n".join([
     "```open-table",
     "open-table: 0",
     "message: contribution",
-    "id: validator-preflight-0001",
-    "phase: preflight",
+    "id: observation-contribution-0001",
+    "phase: observation",
     "turn: 1",
     "```",
     "",
-    "Reducer validator toolchain preflight.",
+    "Observation.",
 ])
+VALIDATOR_PREFLIGHT_CLAIM = "\n".join([
+    "```open-table",
+    "open-table: 0",
+    "message: claim",
+    "id: configured-claim-0001",
+    "expires-at: 2026-08-05T00:00:00Z",
+    "```",
+    "",
+    "Configured advisory claim.",
+])
+VALIDATOR_PREFLIGHT_SETTLED = "\n".join([
+    "```open-table",
+    "open-table: 0",
+    "message: settled",
+    "id: configured-settled-0001",
+    "phase: synthesis",
+    "turn: 1",
+    "point: decision",
+    "proposal-comment-id: 304",
+    "disposition: accepted",
+    "terminal: true",
+    "```",
+    "",
+    "Settlement.",
+])
+VALIDATOR_PREFLIGHT_BODIES = (
+    VALIDATOR_PREFLIGHT_CONFIGURATION,
+    VALIDATOR_PREFLIGHT_CONTRIBUTION,
+    VALIDATOR_PREFLIGHT_CLAIM,
+    VALIDATOR_PREFLIGHT_SETTLED,
+)
 _VALIDATOR_PREFLIGHT_SIGNATURE = None
 TIMESTAMP_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{7,127}$")
@@ -121,13 +170,14 @@ def validate_comment(body):
 
 
 def verify_validator_toolchain():
-    """Prove the deployed validator can accept a known-valid envelope once."""
+    """Prove the validator accepts the reducer's required grammar once."""
     global _VALIDATOR_PREFLIGHT_SIGNATURE
     signature = (sys.executable, str(VALIDATOR))
     if _VALIDATOR_PREFLIGHT_SIGNATURE == signature:
         return
     try:
-        validate_comment(VALIDATOR_PREFLIGHT_BODY)
+        for body in VALIDATOR_PREFLIGHT_BODIES:
+            validate_comment(body)
     except (OSError, ReductionError) as error:
         raise ReductionError(
             "validator toolchain preflight failed: {}".format(error)
@@ -2995,7 +3045,7 @@ def run_self_test():
     import shutil
     import tempfile
 
-    global VALIDATOR
+    global VALIDATOR, github_request
     bundle = fixture_bundle()
     as_of = "2026-08-04T01:00:00Z"
     verify_validator_toolchain()
@@ -3029,6 +3079,53 @@ def run_self_test():
         finally:
             VALIDATOR = original_validator
     print("missing validator dependency: fatal before reduction or planned writes")
+
+    with tempfile.TemporaryDirectory() as directory:
+        skewed_validator = Path(directory) / "open-table-validate.py"
+        skewed_validator.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys\n"
+            "body = sys.stdin.read()\n"
+            "if 'message: claim\\n' in body:\n"
+            "    print('invalid: missing required field(s): claim', file=sys.stderr)\n"
+            "    raise SystemExit(1)\n",
+            encoding="utf-8",
+        )
+        original_request = github_request
+        github_reads = []
+
+        def reject_github_read(*args, **kwargs):
+            github_reads.append((args, kwargs))
+            raise AssertionError("GitHub read reached after failed validator preflight")
+
+        try:
+            VALIDATOR = skewed_validator
+            github_request = reject_github_read
+            validate_comment(VALIDATOR_PREFLIGHT_CONTRIBUTION)
+            try:
+                validate_comment(VALIDATOR_PREFLIGHT_CLAIM)
+            except ReductionError as error:
+                assert "missing required field(s): claim" in str(error)
+            else:
+                raise AssertionError("the skewed validator accepted the current claim")
+
+            for operation in (
+                lambda: reduce_session(bundle, as_of),
+                lambda: build_github_bundle(
+                    "example/project", 7, "unused-token", 41898282
+                ),
+            ):
+                try:
+                    operation()
+                except ReductionError as error:
+                    assert "validator toolchain preflight failed" in str(error)
+                else:
+                    raise AssertionError("a grammar-skewed validator passed preflight")
+            assert github_reads == []
+        finally:
+            github_request = original_request
+            VALIDATOR = original_validator
+    print("validator grammar skew: fatal before reduction plan or GitHub read")
 
     first = reduce_session(bundle, as_of)
     second = reduce_session(bundle, as_of)
@@ -3096,39 +3193,21 @@ def run_self_test():
         + END_MARKER + configured_suffix
     )
     configured_bodies = [
-        "\n".join([
-            "```open-table", "open-table: 0", "message: configuration",
-            "id: configuration-observation-0001", "phase: observation", "sequence: 1",
-            "expected-actors: 101", "authority-profile: deliberation-only",
-            "turn-limit: 2", "```", "", "Configuration.",
-        ]),
+        VALIDATOR_PREFLIGHT_CONFIGURATION,
         "\n".join([
             "```open-table", "open-table: 0", "message: configuration",
             "id: configuration-synthesis-0001", "phase: synthesis", "sequence: 2",
             "expected-actors: 101", "authority-profile: deliberation-only",
             "turn-limit: 2", "```", "", "Configuration.",
         ]),
-        "\n".join([
-            "```open-table", "open-table: 0", "message: contribution",
-            "id: observation-contribution-0001", "phase: observation", "turn: 1",
-            "```", "", "Observation.",
-        ]),
+        VALIDATOR_PREFLIGHT_CONTRIBUTION,
         "\n".join([
             "```open-table", "open-table: 0", "message: proposal",
             "id: configured-proposal-0001", "phase: synthesis", "turn: 1",
             "point: decision", "```", "", configured_prose,
         ]),
-        "\n".join([
-            "```open-table", "open-table: 0", "message: claim",
-            "id: configured-claim-0001", "expires-at: 2026-08-05T00:00:00Z",
-            "```", "", "Configured advisory claim.",
-        ]),
-        "\n".join([
-            "```open-table", "open-table: 0", "message: settled",
-            "id: configured-settled-0001", "phase: synthesis", "turn: 1",
-            "point: decision", "proposal-comment-id: 304",
-            "disposition: accepted", "terminal: true", "```", "", "Settlement.",
-        ]),
+        VALIDATOR_PREFLIGHT_CLAIM,
+        VALIDATOR_PREFLIGHT_SETTLED,
     ]
     for offset, body in enumerate(configured_bodies, 1):
         timestamp = "2026-08-04T00:10:0{}Z".format(offset)
