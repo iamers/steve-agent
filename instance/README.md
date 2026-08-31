@@ -4,6 +4,16 @@ Canonical, versioned, secret-free copy of the configuration of a Steve instance
 (Hermes Agent). It originates from the first development instance; when a second
 instance exists, this blueprint is the candidate to become a rendered template.
 
+## Deploy repo naming
+
+When an adopting org versions a Steve instance's configuration in a repo of its
+own, that repo is named **`clique-steve`** (suite prefix + character), not after
+the engine or the host: the prefix groups the suite's instance repos inside an
+org that holds other repos too, and the name stays true across an engine change.
+The unix service user keeps its own convention (`ha-<name>`, see INSTALL.md).
+The vendor's own dogfooding instance is the one allowed exception, tracked
+separately. Convention ratified 2026-08-31.
+
 ## Contents
 
 | File | Role |
