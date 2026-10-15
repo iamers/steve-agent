@@ -6,13 +6,18 @@ instance exists, this blueprint is the candidate to become a rendered template.
 
 ## Deploy repo naming
 
-When an adopting org versions a Steve instance's configuration in a repo of its
-own, that repo is named **`clique-steve`** (suite prefix + character), not after
-the engine or the host: the prefix groups the suite's instance repos inside an
-org that holds other repos too, and the name stays true across an engine change.
-The unix service user keeps its own convention (`ha-<name>`, see INSTALL.md).
-The vendor's own dogfooding instance is the one allowed exception, tracked
-separately. Convention ratified 2026-08-31.
+A hub coordinates one project (see
+`docs/decisions/adr-20260812-hub-is-per-project-and-agent-is-per-contributor.md`),
+so the repo that versions a hub's configuration is named after that project:
+**`<project>-steve`**, for example `acme/shop-steve` next to `acme/shop`. The
+suffix names the tool because, inside the adopter's organisation, the project is
+what every repository is already about. An organisation with a single hub still
+names it `<project>-steve`: a hub follows one project, however many hubs the
+organisation has. Give the repo the GitHub topic `clique-instance`, so every agent
+instance repo in an organisation can be listed with `topic:clique-instance`,
+whatever its name. The unix service user keeps its own convention (`ha-<name>`,
+see INSTALL.md). This repository's own dogfooding hub is the one exception: its
+companion is `steve-agent-deploy`. Rationale and rejected alternatives: #163.
 
 ## Contents
 
