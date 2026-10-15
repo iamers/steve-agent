@@ -4,6 +4,23 @@ Canonical, versioned, secret-free copy of the configuration of a Steve instance
 (Hermes Agent). It originates from the first development instance; when a second
 instance exists, this blueprint is the candidate to become a rendered template.
 
+## Deploy repo naming
+
+A hub coordinates one project (see
+`docs/decisions/adr-20260812-hub-is-per-project-and-agent-is-per-contributor.md`),
+so the repo that versions a hub's configuration is named after that project:
+**`<project>-steve`**, for example `acme/shop-steve` next to `acme/shop`. The
+suffix names the tool because, inside the adopter's organisation, the project is
+what every repository is already about. An organisation with a single hub still
+names its deploy repo `<project>-steve`: a hub follows one project, however many
+hubs the organisation has. Give the repo the GitHub topic `clique-instance`,
+shared by the instance repos of every agent in the clique suite Steve belongs
+to, so they can all be listed with `topic:clique-instance`, whatever their name.
+The unix service user keeps its own convention (`ha-<name>`, see INSTALL.md).
+This repository's own dogfooding hub is the one exception: its deploy repo, when
+created, is named `steve-agent-deploy`. Rationale and rejected alternatives:
+#163.
+
 ## Contents
 
 | File | Role |
