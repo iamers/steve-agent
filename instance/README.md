@@ -12,12 +12,14 @@ so the repo that versions a hub's configuration is named after that project:
 **`<project>-steve`**, for example `acme/shop-steve` next to `acme/shop`. The
 suffix names the tool because, inside the adopter's organisation, the project is
 what every repository is already about. An organisation with a single hub still
-names it `<project>-steve`: a hub follows one project, however many hubs the
-organisation has. Give the repo the GitHub topic `clique-instance`, so every agent
-instance repo in an organisation can be listed with `topic:clique-instance`,
-whatever its name. The unix service user keeps its own convention (`ha-<name>`,
-see INSTALL.md). This repository's own dogfooding hub is the one exception: its
-companion is `steve-agent-deploy`. Rationale and rejected alternatives: #163.
+names its deploy repo `<project>-steve`: a hub follows one project, however many
+hubs the organisation has. Give the repo the GitHub topic `clique-instance`,
+shared by the instance repos of every agent in the clique suite Steve belongs
+to, so they can all be listed with `topic:clique-instance`, whatever their name.
+The unix service user keeps its own convention (`ha-<name>`, see INSTALL.md).
+This repository's own dogfooding hub is the one exception: its deploy repo, when
+created, is named `steve-agent-deploy`. Rationale and rejected alternatives:
+#163.
 
 ## Contents
 
