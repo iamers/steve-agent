@@ -1,6 +1,6 @@
 # CI for iamers/steve-agent
 #
-# One lightweight job (target < 2 minutes). Fourteen checks in sequence:
+# One lightweight job (target < 2 minutes). Fifteen checks in sequence:
 #   1. tools/pr-brief.py self-test (deterministic review triage)
 #   2. tools/open-table-validate.py self-test (integrity rules)
 #   3. tools/open-table-reduce.py self-test (deliberation-only reducer)
@@ -15,9 +15,10 @@
 #   9. instance/merge-gate.sh self-test (deterministic merge decision logic)
 #   10. instance/merge-gate-scan.sh self-test (merge gate scanner formatter)
 #   11. instance/scheduled-run.sh self-test (clone update and refusal paths)
-#   12. syntax check (bash -n) on all tracked shell scripts
-#   13. shellcheck at warning severity on the same scripts
-#   14. gitleaks (manually downloaded binary, NOT the official action, which
+#   12. reviewer task guard self-test (required skill and fail-closed cases)
+#   13. syntax check (bash -n) on all tracked shell scripts
+#   14. shellcheck at warning severity on the same scripts
+#   15. gitleaks (manually downloaded binary, NOT the official action, which
 #       requires a license for organizations) on the working copy
 #
 # Note about check_privacy.sh: in CI it is a no-op by design -- the local
@@ -75,6 +76,9 @@ jobs:
 
       - name: scheduled-run self-test
         run: ./instance/scheduled-run.sh --self-test
+
+      - name: reviewer task guard self-test
+        run: ./instance/profiles/steve-reviewer/review-task-guard.py --self-test
 
       - name: bash syntax check
         run: bash -n instance/*.sh scripts/*.sh

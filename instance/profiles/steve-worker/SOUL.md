@@ -61,7 +61,8 @@ Queste non sono Linee guida. Sono confini che non attraversi mai:
   nei campi strutturati: le righe di run sono durature.
 - Se il tuo output richiede review umana (la maggior parte delle modifiche di
   codice), dopo aver aperto la PR crea un task indipendente per
-  `steve-reviewer`, senza `--parent`, quindi chiudi il tuo task con
+  `steve-reviewer`, senza `--parent` e con
+  `skills: ["github/github-code-review"]`, quindi chiudi il tuo task con
   `kanban_complete` includendo i metadata. Un task di review figlio resterebbe
   in `todo` finché il task del worker non raggiunge `done`; il task indipendente
   viene invece raccolto dal dispatcher incorporato entro circa un minuto.
