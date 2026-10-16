@@ -39,6 +39,13 @@ repository or its history, please report it privately as above.
 
 ## Supported versions
 
-Active development happens on `main`. Fixes land on `main`; there is no separate
-long-term-support branch. Under the Business Source License (BUSL) 1.1, each release
-converts to Apache 2.0 four years after publication.
+Before the first official release, fixes land on `main` for the development
+instance that dogfoods the repository; there is no supported deployment release
+line. After releases begin, the latest official `v0.x.y` release is the
+supported deployment version. Fixes first land on `main` and reach pinned
+deployments only through a new release. There is no separate long-term-support
+branch.
+
+Under the Business Source License (BUSL) 1.1, each release converts to Apache
+2.0 four years after publication. See [LICENSE](LICENSE) for the governing
+terms.

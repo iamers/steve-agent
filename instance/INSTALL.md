@@ -324,12 +324,68 @@ The `instance/` directory in the steve-agent repo contains a blueprint for insta
 
 ### Clone the Steve Agent Repository
 
+Steve Agent has not published its first official release yet. Until it does,
+only the development instance that dogfoods this repository tracks `main`; do
+not present an arbitrary `main` commit as a release.
+
+For that development instance, clone `main`:
+
 ```bash
 mkdir -p ~/repos
 cd ~/repos
 git clone https://github.com/iamers/steve-agent.git
 cd steve-agent
 ```
+
+For an ordinary deployment after releases begin, a human first selects a
+published `v0.x.y` release and reads its `Deployment and operator impact` entry
+in the [changelog](../CHANGELOG.md). Record both the release name and the full
+40-character commit SHA stated in that release's GitHub Release notes in
+deployment-owned configuration. The name is for people; the SHA is the
+authoritative machine pin. Issue
+[#163](https://github.com/iamers/steve-agent/issues/163) will decide the
+versioned home of that deployment-owned record.
+
+Clone the repository, verify that the selected tag resolves to the recorded
+SHA, and detach the deployment checkout at that SHA:
+
+```bash
+STEVE_RELEASE='<selected-v0.x.y-release>'
+STEVE_COMMIT='<full-40-character-release-commit-sha>'
+mkdir -p ~/repos
+cd ~/repos
+git clone https://github.com/iamers/steve-agent.git
+cd steve-agent
+RESOLVED_COMMIT=$(git rev-parse --verify "refs/tags/$STEVE_RELEASE^{commit}") || {
+  printf 'Release tag %s does not resolve to a commit.\n' "$STEVE_RELEASE" >&2
+  exit 1
+}
+if [ "$RESOLVED_COMMIT" != "$STEVE_COMMIT" ]; then
+  printf 'Release tag %s resolves to %s, not the recorded commit %s.\n' \
+    "$STEVE_RELEASE" "$RESOLVED_COMMIT" "$STEVE_COMMIT" >&2
+  exit 1
+fi
+git checkout --detach "$STEVE_COMMIT" || {
+  printf 'Could not check out recorded commit %s.\n' "$STEVE_COMMIT" >&2
+  exit 1
+}
+CHECKED_OUT_COMMIT=$(git rev-parse --verify HEAD) || {
+  printf 'Could not verify the checked-out commit.\n' >&2
+  exit 1
+}
+if [ "$CHECKED_OUT_COMMIT" != "$STEVE_COMMIT" ]; then
+  printf 'Checked out %s, not the recorded commit %s.\n' \
+    "$CHECKED_OUT_COMMIT" "$STEVE_COMMIT" >&2
+  exit 1
+fi
+```
+
+Do not substitute a tag, branch, or shortened hash for `STEVE_COMMIT`. The
+first release is blocked on issue
+[#189](https://github.com/iamers/steve-agent/issues/189) because the current
+`scheduled-run.sh` accepts only a checkout of `main` tracking `origin/main`;
+the pinned procedure is not operational until that issue and the release gate
+are complete.
 
 ### Install the privacy guard hook
 
